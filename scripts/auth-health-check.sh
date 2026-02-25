@@ -5,7 +5,16 @@
 
 set -euo pipefail
 
-CLAUDE_BIN="${CLAUDE_BINARY:-claude}"
+# Source bridge.env for CLAUDE_BINARY, TELEGRAM_BOT_TOKEN, etc.
+# Cron doesn't inherit the full user environment
+BRIDGE_ENV="/home/isidore/.config/isidore/bridge.env"
+if [ -f "$BRIDGE_ENV" ]; then
+    set -a
+    source "$BRIDGE_ENV"
+    set +a
+fi
+
+CLAUDE_BIN="${CLAUDE_BINARY:-/home/isidore/.npm-global/bin/claude}"
 TELEGRAM_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 TELEGRAM_CHAT_ID="${TELEGRAM_ALLOWED_USER_ID:-}"
 LOG_FILE="/home/isidore/.claude/auth-health.log"

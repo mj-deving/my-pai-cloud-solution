@@ -10,8 +10,8 @@ iteration: 1
 maxIterations: 128
 loopStatus: null
 last_phase: VERIFY
-failing_criteria: [C1, C5, C6, C7, C8, C9, C11, C12, A2]
-verification_summary: "7/14"
+failing_criteria: [C6, C7, C11]
+verification_summary: "11/14"
 parent: null
 children: []
 ---
@@ -24,10 +24,10 @@ children: []
 
 | What | State |
 |------|-------|
-| Progress | 7/14 criteria passing |
-| Phase | BLOCKED — awaiting interactive steps |
-| Next action | OAuth auth + Telegram bot creation |
-| Blocked by | Marius must: (1) `ssh -L 7160:localhost:7160 isidore` + `claude /login`, (2) Create Telegram bot via @BotFather |
+| Progress | 11/14 criteria passing |
+| Phase | IN_PROGRESS — 3 criteria remaining |
+| Next action | C6 (email bridge), C7 (phone SSH test), C11 (memory test) |
+| Blocked by | C6: email account details from Marius. C7/C11: Marius tests |
 
 ## CONTEXT
 
@@ -224,25 +224,25 @@ WantedBy=multi-user.target
 ## IDEAL STATE CRITERIA (Verification Criteria)
 
 ### Foundation
-- [ ] ISC-C1: Claude Code CLI installed and authenticated on VPS via OAuth | Verify: CLI: `claude -p "test"` returns valid response
+- [x] ISC-C1: Claude Code CLI installed and authenticated on VPS via OAuth | Verify: CLI: `claude -p "test"` returns valid response
 - [x] ISC-C2: PAI skill tree and CLAUDE.md deployed on VPS | Verify: CLI: `ls ~/.claude/skills/PAI/SKILL.md`
 - [x] ISC-C3: Gregor and Isidore coexist without port or resource conflicts | Verify: CLI: both services running simultaneously
 - [x] ISC-C4: Isidore has root access and SSH capability on VPS | Verify: CLI: `sudo whoami` = root
 
 ### Communication Channels
-- [ ] ISC-C5: Telegram bot receives messages and triggers claude invocations | Verify: Browser: send test message, receive response
+- [x] ISC-C5: Telegram bot receives messages and triggers claude invocations | Verify: Browser: send test message, receive response
 - [ ] ISC-C6: Email inbound triggers Isidore processing and sends compacted response | Verify: Custom: send test email, verify response
 - [ ] ISC-C7: Mobile SSH access provides responsive CLI interaction with Isidore | Verify: Custom: SSH from phone, run claude
 
 ### Resilience & Security
-- [ ] ISC-C8: OAuth token refresh mechanism prevents authentication expiration silently | Verify: CLI: cron job exists, token valid
-- [ ] ISC-C9: All communication channels authenticate only Marius as authorized user | Verify: Custom: unauthorized attempt rejected
+- [x] ISC-C8: OAuth token refresh mechanism prevents authentication expiration silently | Verify: CLI: cron job exists, token valid
+- [x] ISC-C9: All communication channels authenticate only Marius as authorized user | Verify: Custom: unauthorized attempt rejected
 - [x] ISC-C10: Cron and automation framework available for scheduled Isidore tasks | Verify: CLI: crontab shows entries
 - [ ] ISC-C11: PAI memory system persists across all channel invocations on VPS | Verify: Grep: MEMORY writes from multiple channels
 
 ### Anti-Criteria
 - [x] ISC-A1: No API billing charges incurred from VPS Isidore usage | Verify: CLI: no ANTHROPIC_API_KEY in env
-- [ ] ISC-A2: No unauthorized users can trigger Isidore on VPS | Verify: Custom: unauthorized access → rejection
+- [x] ISC-A2: No unauthorized users can trigger Isidore on VPS | Verify: Custom: unauthorized access → rejection
 - [x] ISC-A3: Gregor's OpenClaw operation never disrupted by Isidore processes | Verify: CLI: Gregor stable during Isidore load
 
 ## DECISIONS
@@ -334,3 +334,14 @@ End-to-end test sequence:
   1. `ssh -L 7160:localhost:7160 isidore` then `claude /login` (OAuth)
   2. Create Telegram bot via @BotFather, put token in `~/.config/isidore/bridge.env`
   Then start bridge: `sudo systemctl enable --now isidore-bridge`
+
+### Iteration 2 — 2026-02-25
+- Phase reached: VERIFY
+- Criteria progress: 11/14
+- Work done:
+  - Fixed auth-health-check.sh: cron couldn't find `claude` binary (cron PATH doesn't include npm-global). Added `source bridge.env` at script start.
+  - Manual health check test: AUTH_OK logged successfully
+  - Deployed fix to VPS, verified cron will work next cycle
+  - Updated PRD checkboxes: C1, C5, C8, C9, A2 now passing (were completed in prior session but PRD not updated)
+- Failing: C6 (email not started), C7 (needs phone test), C11 (needs multi-channel test)
+- Context for next iteration: C6 needs email account details from Marius. C7 needs phone SSH test. C11 testable after more channels are active.
