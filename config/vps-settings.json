@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "PAI_DIR": "/home/isidore/.claude",
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "80000",
+    "BASH_DEFAULT_TIMEOUT_MS": "600000"
+  },
+  "permissions": {
+    "allow": [
+      "Bash", "Read", "Write", "Edit", "Glob", "Grep",
+      "WebFetch", "WebSearch", "Task", "Skill"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  },
+  "hooks": {},
+  "daidentity": {
+    "name": "Isidore",
+    "displayName": "ISIDORE"
+  },
+  "principal": {
+    "name": "Marius",
+    "timezone": "Europe/Berlin"
+  },
+  "max_tokens": 16000,
+  "skipDangerousModePermissionPrompt": true
+}

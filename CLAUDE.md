@@ -11,8 +11,8 @@ PAI cloud infrastructure solution
 ## Tech Stack
 
 - **Runtime:** Bun + TypeScript
-- **Frontend:** React + Tailwind CSS (if applicable)
-- **Deployment:** Cloudflare (if applicable)
+- **Bot Framework:** Grammy (Telegram)
+- **Deployment:** VPS (Ubuntu 24.04, shared with Gregor/OpenClaw)
 
 ## Conventions
 
@@ -34,16 +34,35 @@ PAI cloud infrastructure solution
 
 ```
 .
-├── CLAUDE.md          # This file — project context for Isidore
-├── README.md          # Public-facing project documentation
-├── src/               # Source code
-└── ...
+├── CLAUDE.md              # Project context
+├── README.md              # Public docs
+├── Plans/                 # PRD and architecture
+├── src/
+│   ├── bridge.ts          # Main: Telegram + email polling
+│   ├── telegram.ts        # Telegram bot (Grammy)
+│   ├── claude.ts          # Claude CLI --resume wrapper
+│   ├── session.ts         # Shared session ID management
+│   ├── format.ts          # Compact mobile formatter
+│   ├── config.ts          # Environment config
+│   └── isidore-session.ts # CLI session helper
+├── scripts/
+│   ├── setup-vps.sh       # Phase 1 VPS setup
+│   ├── deploy-key.sh      # SSH key deployment
+│   ├── deploy.sh          # Full deployment
+│   ├── auth-health-check.sh  # Cron: OAuth monitoring
+│   └── run-task.sh        # Cron: task runner
+├── systemd/
+│   ├── isidore-bridge.service  # Bridge service
+│   └── isidore-tmux.service    # Persistent tmux
+└── bridge.env.example     # Environment template
 ```
 
 ## Current State
 
 <!-- Update this section at the end of each session -->
 
-**Status:** Just started
+**Status:** Phase 1-2 deployed on VPS, awaiting OAuth auth
 **Last session:** 2026-02-25
-**Next steps:** TBD
+**Completed:** VPS user, SSH key, Claude CLI, Bun, PAI skills, tmux, cron, bridge code
+**Blocked on:** OAuth authentication (requires local browser via SSH tunnel)
+**Next steps:** Authenticate Claude, create Telegram bot, configure bridge.env, start bridge service

@@ -1,0 +1,35 @@
+[Unit]
+Description=Isidore Communication Bridge (Telegram + Email)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=isidore
+Group=isidore
+WorkingDirectory=/home/isidore/my-pai-cloud-solution
+ExecStart=/home/isidore/.bun/bin/bun run src/bridge.ts
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Environment file for secrets (Telegram token, user ID, etc.)
+EnvironmentFile=/home/isidore/.config/isidore/bridge.env
+Environment="PATH=/home/isidore/.npm-global/bin:/home/isidore/.bun/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="CLAUDE_BINARY=/home/isidore/.npm-global/bin/claude"
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/isidore/.claude
+PrivateTmp=yes
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isidore-bridge
+
+[Install]
+WantedBy=multi-user.target
