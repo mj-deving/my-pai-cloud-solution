@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+.bun/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build/
+.next/
+.output/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code runtime
+.claude/cache/
+.claude/tasks/
+.claude/todos/
+.claude/debug/
+.claude/history.jsonl
+.claude/session-env/
+.claude/shell-snapshots/
+.claude/file-history/
+
+# Secrets
+*.pem
+*.key
+credentials.json
