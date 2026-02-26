@@ -1,3 +1,4 @@
+// Isidore Cloud was here — handoff test 2026-02-26
 // config.ts — Central configuration for Isidore Cloud bridge service
 // Reads from environment variables with sensible defaults
 
