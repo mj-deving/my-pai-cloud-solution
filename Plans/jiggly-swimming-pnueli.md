@@ -10,8 +10,8 @@ iteration: 1
 maxIterations: 128
 loopStatus: null
 last_phase: VERIFY
-failing_criteria: [C6, C7, C11]
-verification_summary: "11/14"
+failing_criteria: [C6]
+verification_summary: "13/14"
 parent: null
 children: []
 ---
@@ -24,10 +24,10 @@ children: []
 
 | What | State |
 |------|-------|
-| Progress | 11/14 criteria passing |
-| Phase | IN_PROGRESS — 3 criteria remaining |
-| Next action | C6 (email bridge), C7 (phone SSH test), C11 (memory test) |
-| Blocked by | C6: email account details from Marius. C7/C11: Marius tests |
+| Progress | 13/14 criteria passing |
+| Phase | IN_PROGRESS — C6 (email) deferred |
+| Next action | Email bridge when Marius provides IMAP/SMTP details |
+| Blocked by | C6: email account details from Marius |
 
 ## CONTEXT
 
@@ -232,13 +232,13 @@ WantedBy=multi-user.target
 ### Communication Channels
 - [x] ISC-C5: Telegram bot receives messages and triggers claude invocations | Verify: Browser: send test message, receive response
 - [ ] ISC-C6: Email inbound triggers Isidore processing and sends compacted response | Verify: Custom: send test email, verify response
-- [ ] ISC-C7: Mobile SSH access provides responsive CLI interaction with Isidore | Verify: Custom: SSH from phone, run claude
+- [x] ISC-C7: Mobile SSH access provides responsive CLI interaction with Isidore | Verify: Custom: SSH from phone, run claude
 
 ### Resilience & Security
 - [x] ISC-C8: OAuth token refresh mechanism prevents authentication expiration silently | Verify: CLI: cron job exists, token valid
 - [x] ISC-C9: All communication channels authenticate only Marius as authorized user | Verify: Custom: unauthorized attempt rejected
 - [x] ISC-C10: Cron and automation framework available for scheduled Isidore tasks | Verify: CLI: crontab shows entries
-- [ ] ISC-C11: PAI memory system persists across all channel invocations on VPS | Verify: Grep: MEMORY writes from multiple channels
+- [x] ISC-C11: PAI memory system persists across all channel invocations on VPS | Verify: Grep: MEMORY writes from multiple channels
 
 ### Anti-Criteria
 - [x] ISC-A1: No API billing charges incurred from VPS Isidore usage | Verify: CLI: no ANTHROPIC_API_KEY in env
