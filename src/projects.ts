@@ -181,6 +181,202 @@ export class ProjectManager {
     await this.saveState();
   }
 
+  // --- Project creation ---
+
+  // GitHub org for new repos — matches mj-deving account
+  private static readonly GITHUB_ORG = "mj-deving";
+  // Base directory for VPS projects
+  private static readonly VPS_PROJECTS_DIR = "/home/isidore_cloud/projects";
+
+  // Validate project name: lowercase kebab-case only
+  static isValidName(name: string): boolean {
+    return /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name);
+  }
+
+  // Derive display name from kebab-case slug: my-cool-project → My Cool Project
+  static toDisplayName(name: string): string {
+    return name
+      .split("-")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+  }
+
+  // Create a new project: GitHub repo + VPS directory + scaffold + registry
+  // Returns the new ProjectEntry on success, or { error: string } on failure.
+  async createProject(
+    name: string,
+  ): Promise<{ project: ProjectEntry } | { error: string }> {
+    // 1. Validate name format
+    if (!ProjectManager.isValidName(name)) {
+      return {
+        error: `Invalid name "${name}". Use lowercase kebab-case (e.g. my-project).`,
+      };
+    }
+
+    // 2. Check for duplicates
+    if (!this.registry) {
+      return { error: "Registry not loaded." };
+    }
+    const existing = this.registry.projects.find(
+      (p) => p.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (existing) {
+      return { error: `Project "${name}" already exists.` };
+    }
+
+    const displayName = ProjectManager.toDisplayName(name);
+    const gitUrl = `https://github.com/${ProjectManager.GITHUB_ORG}/${name}.git`;
+    const vpsPath = `${ProjectManager.VPS_PROJECTS_DIR}/${name}`;
+    const today = new Date().toISOString().split("T")[0];
+
+    // 3. Create GitHub repo (private)
+    console.log(`[projects] Creating GitHub repo: ${ProjectManager.GITHUB_ORG}/${name}`);
+    const ghResult = await this.runCommand(
+      "gh",
+      ["repo", "create", `${ProjectManager.GITHUB_ORG}/${name}`, "--private", "--confirm"],
+      60_000,
+    );
+    if (!ghResult.ok) {
+      return { error: `GitHub repo creation failed: ${ghResult.output}` };
+    }
+
+    // 4. Clone into VPS projects directory
+    console.log(`[projects] Cloning into ${vpsPath}`);
+    const cloneResult = await this.runCommand(
+      "git",
+      ["clone", gitUrl, vpsPath],
+      60_000,
+    );
+    if (!cloneResult.ok) {
+      return { error: `Clone failed: ${cloneResult.output}` };
+    }
+
+    // 5. Write scaffold CLAUDE.md
+    const claudeMd = `# CLAUDE.md — ${name}
+
+## What This Is
+
+${displayName}
+
+**Owner:** Marius
+**GitHub:** [${ProjectManager.GITHUB_ORG}/${name}](https://github.com/${ProjectManager.GITHUB_ORG}/${name})
+**Created:** ${today}
+
+## Tech Stack
+
+<!-- Fill in as the project evolves -->
+
+## Conventions
+
+- Commit messages: clear "why", prefixed by area when helpful
+- Every session should end with a commit capturing the work done
+- Code comments: thorough — document interfaces and logic
+- File naming: kebab-case
+
+## Cross-Instance Continuity
+
+If \`CLAUDE.handoff.md\` exists in this directory, read it on session start.
+It contains the other instance's (local/Cloud) last session state.
+
+## Current State
+
+**Status:** New project, just created
+**Last session:** ${today}
+`;
+    try {
+      await writeFile(`${vpsPath}/CLAUDE.md`, claudeMd, "utf-8");
+    } catch (err) {
+      return { error: `Failed to write CLAUDE.md: ${err}` };
+    }
+
+    // 6. Initial commit + push
+    const commitResult = await this.runCommand(
+      "git",
+      ["-C", vpsPath, "add", "-A"],
+      10_000,
+    );
+    if (commitResult.ok) {
+      await this.runCommand(
+        "git",
+        ["-C", vpsPath, "commit", "-m", `init: scaffold ${displayName}`],
+        10_000,
+      );
+      await this.runCommand(
+        "git",
+        ["-C", vpsPath, "push", "-u", "origin", "main"],
+        30_000,
+      );
+    }
+
+    // 7. Build registry entry
+    const entry: ProjectEntry = {
+      name,
+      displayName,
+      git: gitUrl,
+      paths: {
+        local: null, // Cloud-only until cloned locally
+        vps: vpsPath,
+      },
+      autoClone: true,
+      active: true,
+    };
+
+    // 8. Add to registry + save
+    this.registry.projects.push(entry);
+    await this.saveRegistry();
+
+    console.log(`[projects] Created project: ${displayName}`);
+    return { project: entry };
+  }
+
+  // Save registry to both bundled config and pai-knowledge copy
+  private async saveRegistry(): Promise<void> {
+    if (!this.registry) return;
+
+    const json = JSON.stringify(this.registry, null, 2) + "\n";
+
+    // Save to bundled config/projects.json
+    const bundledPath = new URL("../config/projects.json", import.meta.url).pathname;
+    try {
+      await writeFile(bundledPath, json, "utf-8");
+    } catch (err) {
+      console.warn(`[projects] Failed to save bundled registry: ${err}`);
+    }
+
+    // Save to pai-knowledge registry (primary source)
+    try {
+      await mkdir(dirname(this.config.projectRegistryFile), { recursive: true });
+      await writeFile(this.config.projectRegistryFile, json, "utf-8");
+    } catch (err) {
+      console.warn(`[projects] Failed to save pai-knowledge registry: ${err}`);
+    }
+  }
+
+  // Run a command with timeout, returning { ok, output }
+  private async runCommand(
+    cmd: string,
+    args: string[],
+    timeoutMs: number,
+  ): Promise<{ ok: boolean; output: string }> {
+    try {
+      const proc = Bun.spawn([cmd, ...args], {
+        stdout: "pipe",
+        stderr: "pipe",
+        env: process.env,
+      });
+
+      const timer = setTimeout(() => proc.kill(), timeoutMs);
+      const stdout = await new Response(proc.stdout).text();
+      const stderr = await new Response(proc.stderr).text();
+      const exitCode = await proc.exited;
+      clearTimeout(timer);
+
+      return { ok: exitCode === 0, output: (stdout + stderr).trim() };
+    } catch (err) {
+      return { ok: false, output: `Command error: ${err}` };
+    }
+  }
+
   // --- Knowledge sync (push/pull via sync-knowledge.sh) ---
   // Called explicitly by /project (pull) and /done (push).
   // NOT called per-message — bridge sets SKIP_KNOWLEDGE_SYNC to suppress hooks.

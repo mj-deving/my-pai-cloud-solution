@@ -48,6 +48,7 @@ export function createTelegramBot(
     msg += `/new — Fresh conversation\n`;
     msg += `/status — Current session info\n`;
     msg += `/clear — Archive & restart\n`;
+    msg += `/newproject <name> — Create new project\n`;
     msg += `/compact — Compact context\n`;
     msg += `/oneshot <msg> — One-shot (no session)`;
 
@@ -137,6 +138,44 @@ export function createTelegramBot(
     msg += result.path ? `Path: \`${result.path}\`\n` : "Path: not configured for this instance\n";
     msg += pullResult.ok ? "Git: pulled latest\n" : `Git: ${pullResult.output}\n`;
     msg += knowledgeResult.ok ? "Knowledge: synced" : "Knowledge: sync skipped";
+
+    await ctx.reply(msg, { parse_mode: "Markdown" });
+  });
+
+  // /newproject <name> — Create a new project (GitHub repo + VPS dir + registry)
+  bot.command("newproject", async (ctx) => {
+    const name = ctx.match?.trim();
+    if (!name) {
+      await ctx.reply(
+        "Usage: /newproject <name>\nName must be lowercase kebab-case (e.g. my-cool-project).",
+      );
+      return;
+    }
+
+    await ctx.replyWithChatAction("typing");
+    await ctx.reply(`Creating project "${name}"...`);
+
+    // 1. Create the project (GitHub + VPS dir + scaffold + registry)
+    const result = await projects.createProject(name);
+    if ("error" in result) {
+      await ctx.reply(`Failed: ${result.error}`);
+      return;
+    }
+
+    // 2. Auto-switch to the new project
+    const switchResult = await projects.setActiveProject(result.project.name);
+    if (switchResult?.path) {
+      claude.setWorkingDirectory(switchResult.path);
+    }
+
+    // 3. Confirm with details
+    const org = "mj-deving";
+    let msg = `**Project created: ${result.project.displayName}**\n\n`;
+    msg += `GitHub: \`${org}/${result.project.name}\` (private)\n`;
+    msg += `VPS: \`${result.project.paths.vps}\`\n`;
+    msg += `Status: active + fresh session\n\n`;
+    msg += `To clone locally:\n`;
+    msg += `\`git clone https://github.com/${org}/${result.project.name}.git ~/projects/${result.project.name}\``;
 
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
