@@ -1,0 +1,15 @@
+[Unit]
+Description=Isidore Cloud tmux session (persistent interactive Claude)
+After=network.target
+
+[Service]
+Type=forking
+User=isidore_cloud
+Group=isidore_cloud
+ExecStart=/usr/bin/tmux new-session -d -s isidore_cloud
+ExecStop=/usr/bin/tmux kill-session -t isidore_cloud
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

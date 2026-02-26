@@ -1,4 +1,4 @@
-// telegram.ts — Telegram bot for Isidore bridge
+// telegram.ts — Telegram bot for Isidore Cloud bridge
 // Long polling (no webhook/HTTPS needed), sender validation, message chunking
 
 import { Bot, type Context } from "grammy";
@@ -31,7 +31,7 @@ export function createTelegramBot(
   bot.command("start", async (ctx) => {
     const session = await sessions.current();
     await ctx.reply(
-      `Isidore bridge active.\n\nSession: ${session ? session.slice(0, 8) + "..." : "none"}\n\nCommands:\n/new — Fresh conversation\n/status — Current session info\n/clear — Archive & restart\n/compact — Compact context\n/oneshot <msg> — One-shot (no session)`,
+      `Isidore Cloud bridge active.\n\nSession: ${session ? session.slice(0, 8) + "..." : "none"}\n\nCommands:\n/new — Fresh conversation\n/status — Current session info\n/clear — Archive & restart\n/compact — Compact context\n/oneshot <msg> — One-shot (no session)`,
     );
   });
 

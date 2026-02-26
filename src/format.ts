@@ -41,7 +41,7 @@ export function compactFormat(raw: string): string {
 
   // If still too verbose (>2000 chars), try to extract the voice summary
   if (text.length > 2000) {
-    const voiceLine = text.match(/🗣️ Isidore: (.+)/);
+    const voiceLine = text.match(/🗣️ Isidore(?:\s+Cloud)?: (.+)/);
     const taskLine = text.match(/🗒️ TASK: (.+)/);
 
     if (voiceLine) {
@@ -63,7 +63,7 @@ function extractKeyContent(text: string): string | null {
   if (taskMatch) parts.push(`**${taskMatch[1]}**`);
 
   // Extract voice summary
-  const voiceMatch = text.match(/🗣️ Isidore: (.+)/);
+  const voiceMatch = text.match(/🗣️ Isidore(?:\s+Cloud)?: (.+)/);
   if (voiceMatch?.[1]) parts.push(voiceMatch[1]);
 
   // Extract any code blocks

@@ -1,0 +1,34 @@
+[Unit]
+Description=Isidore Cloud Communication Bridge (Telegram + Email)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=isidore_cloud
+Group=isidore_cloud
+WorkingDirectory=/home/isidore_cloud/my-pai-cloud-solution
+ExecStart=/home/isidore_cloud/.bun/bin/bun run src/bridge.ts
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Environment file for secrets (Telegram token, user ID, etc.)
+EnvironmentFile=/home/isidore_cloud/.config/isidore_cloud/bridge.env
+Environment="PATH=/home/isidore_cloud/.npm-global/bin:/home/isidore_cloud/.bun/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="CLAUDE_BINARY=/home/isidore_cloud/.npm-global/bin/claude"
+
+# Security: minimal restrictions — Isidore Cloud needs full user autonomy
+# (ProtectHome/ProtectSystem removed: Claude Code writes .claude.json at home root,
+#  PAI hooks write throughout ~/.claude/, bridge-spawned claude needs same freedom as SSH)
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isidore-cloud-bridge
+
+[Install]
+WantedBy=multi-user.target

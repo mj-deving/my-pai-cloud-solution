@@ -1,4 +1,4 @@
-// config.ts — Central configuration for Isidore bridge service
+// config.ts — Central configuration for Isidore Cloud bridge service
 // Reads from environment variables with sensible defaults
 
 export interface Config {

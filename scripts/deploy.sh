@@ -1,14 +1,14 @@
 #!/bin/bash
-# deploy.sh — Full deployment of Isidore to VPS
+# deploy.sh — Full deployment of Isidore Cloud to VPS
 # Run from local machine after setup-vps.sh and deploy-key.sh
 # Usage: bash scripts/deploy.sh
 
 set -euo pipefail
 
-VPS_HOST="isidore"  # Uses isidore SSH alias
-PROJECT_DIR="/home/isidore/my-pai-cloud-solution"
+VPS_HOST="isidore_cloud"  # Uses isidore_cloud SSH alias
+PROJECT_DIR="/home/isidore_cloud/my-pai-cloud-solution"
 
-echo "=== Deploying Isidore to VPS ==="
+echo "=== Deploying Isidore Cloud to VPS ==="
 
 # 1. Sync project code
 echo "Syncing project code..."
@@ -34,16 +34,16 @@ rsync -avz \
 
 # 4. Create config directory and copy env template
 echo "Setting up config..."
-ssh "$VPS_HOST" "mkdir -p ~/.config/isidore"
+ssh "$VPS_HOST" "mkdir -p ~/.config/isidore_cloud"
 
 # Check if bridge.env exists, if not copy template
-ssh "$VPS_HOST" "test -f ~/.config/isidore/bridge.env || \
-    cp $PROJECT_DIR/bridge.env.example ~/.config/isidore/bridge.env"
+ssh "$VPS_HOST" "test -f ~/.config/isidore_cloud/bridge.env || \
+    cp $PROJECT_DIR/bridge.env.example ~/.config/isidore_cloud/bridge.env"
 
 # 5. Install systemd services
 echo "Installing systemd services..."
-ssh "$VPS_HOST" "sudo cp $PROJECT_DIR/systemd/isidore-bridge.service /etc/systemd/system/ && \
-    sudo cp $PROJECT_DIR/systemd/isidore-tmux.service /etc/systemd/system/ && \
+ssh "$VPS_HOST" "sudo cp $PROJECT_DIR/systemd/isidore-cloud-bridge.service /etc/systemd/system/ && \
+    sudo cp $PROJECT_DIR/systemd/isidore-cloud-tmux.service /etc/systemd/system/ && \
     sudo systemctl daemon-reload"
 
 # 6. Make scripts executable
@@ -51,25 +51,25 @@ ssh "$VPS_HOST" "chmod +x $PROJECT_DIR/scripts/*.sh"
 
 # 7. Set up cron for auth health check
 echo "Setting up auth health check cron..."
-ssh "$VPS_HOST" '(crontab -l 2>/dev/null | grep -v auth-health-check; echo "0 */4 * * * /home/isidore/my-pai-cloud-solution/scripts/auth-health-check.sh") | crontab -'
+ssh "$VPS_HOST" '(crontab -l 2>/dev/null | grep -v auth-health-check; echo "0 */4 * * * /home/isidore_cloud/my-pai-cloud-solution/scripts/auth-health-check.sh") | crontab -'
 
-# 8. Install isidore-session as a global command
-echo "Installing isidore-session CLI..."
+# 8. Install isidore-cloud-session as a global command
+echo "Installing isidore-cloud-session CLI..."
 ssh "$VPS_HOST" "mkdir -p ~/bin && \
-    cat > ~/bin/isidore-session << 'SCRIPT'
+    cat > ~/bin/isidore-cloud-session << 'SCRIPT'
 #!/bin/bash
-exec ~/.bun/bin/bun run /home/isidore/my-pai-cloud-solution/src/isidore-session.ts \"\$@\"
+exec ~/.bun/bin/bun run /home/isidore_cloud/my-pai-cloud-solution/src/isidore-cloud-session.ts \"\$@\"
 SCRIPT
-chmod +x ~/bin/isidore-session && \
+chmod +x ~/bin/isidore-cloud-session && \
     grep -q 'PATH.*\$HOME/bin' ~/.bashrc || echo 'export PATH=\"\$HOME/bin:\$PATH\"' >> ~/.bashrc"
 
 echo ""
 echo "=== Deployment complete ==="
 echo ""
 echo "Next steps:"
-echo "  1. Edit bridge.env: ssh isidore 'nano ~/.config/isidore/bridge.env'"
+echo "  1. Edit bridge.env: ssh isidore_cloud 'nano ~/.config/isidore_cloud/bridge.env'"
 echo "     - Set TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_USER_ID"
 echo "  2. Enable and start services:"
-echo "     ssh isidore 'sudo systemctl enable --now isidore-tmux isidore-bridge'"
-echo "  3. Verify: ssh isidore 'sudo systemctl status isidore-bridge'"
+echo "     ssh isidore_cloud 'sudo systemctl enable --now isidore-cloud-tmux isidore-cloud-bridge'"
+echo "  3. Verify: ssh isidore_cloud 'sudo systemctl status isidore-cloud-bridge'"
 echo "  4. Test Telegram: send a message to your bot"

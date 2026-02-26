@@ -1,4 +1,4 @@
-// bridge.ts — Main entry point for the Isidore communication bridge
+// bridge.ts — Main entry point for the Isidore Cloud communication bridge
 // Runs Telegram bot (and email poller when configured) as a single service
 
 import { loadConfig } from "./config";
@@ -7,7 +7,7 @@ import { ClaudeInvoker } from "./claude";
 import { createTelegramBot } from "./telegram";
 
 async function main() {
-  console.log("[bridge] Starting Isidore communication bridge...");
+  console.log("[bridge] Starting Isidore Cloud communication bridge...");
 
   // Load configuration
   const config = loadConfig();

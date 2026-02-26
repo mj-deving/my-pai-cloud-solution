@@ -8,7 +8,7 @@ set -euo pipefail
 CLAUDE_BIN="${CLAUDE_BINARY:-claude}"
 TASK="${1:?Usage: run-task.sh \"task description\" [--notify]}"
 NOTIFY="${2:-}"
-LOG_DIR="/home/isidore/.claude/cron-logs"
+LOG_DIR="/home/isidore_cloud/.claude/cron-logs"
 
 mkdir -p "$LOG_DIR"
 

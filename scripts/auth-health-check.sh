@@ -1,23 +1,23 @@
 #!/bin/bash
 # auth-health-check.sh — Check Claude Code OAuth token validity
 # Run via cron every 4 hours. Alerts via Telegram bot on failure.
-# Usage: crontab: 0 */4 * * * /home/isidore/my-pai-cloud-solution/scripts/auth-health-check.sh
+# Usage: crontab: 0 */4 * * * /home/isidore_cloud/my-pai-cloud-solution/scripts/auth-health-check.sh
 
 set -euo pipefail
 
 # Source bridge.env for CLAUDE_BINARY, TELEGRAM_BOT_TOKEN, etc.
 # Cron doesn't inherit the full user environment
-BRIDGE_ENV="/home/isidore/.config/isidore/bridge.env"
+BRIDGE_ENV="/home/isidore_cloud/.config/isidore_cloud/bridge.env"
 if [ -f "$BRIDGE_ENV" ]; then
     set -a
     source "$BRIDGE_ENV"
     set +a
 fi
 
-CLAUDE_BIN="${CLAUDE_BINARY:-/home/isidore/.npm-global/bin/claude}"
+CLAUDE_BIN="${CLAUDE_BINARY:-/home/isidore_cloud/.npm-global/bin/claude}"
 TELEGRAM_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 TELEGRAM_CHAT_ID="${TELEGRAM_ALLOWED_USER_ID:-}"
-LOG_FILE="/home/isidore/.claude/auth-health.log"
+LOG_FILE="/home/isidore_cloud/.claude/auth-health.log"
 
 timestamp() {
     date -u "+%Y-%m-%dT%H:%M:%SZ"
@@ -46,16 +46,16 @@ else
     log "AUTH_FAIL: $ERROR_MSG"
 
     alert_telegram "$(cat <<'MSG'
-*Isidore Auth Alert*
+*Isidore Cloud Auth Alert*
 
 OAuth token may be expired. Claude health check failed.
 
 Re-auth steps:
-1. `ssh -L 7160:localhost:7160 isidore`
+1. `ssh -L 7160:localhost:7160 isidore_cloud`
 2. `claude /login`
 3. Complete OAuth in browser
 
-Error: Check `/home/isidore/.claude/auth-health.log`
+Error: Check `/home/isidore_cloud/.claude/auth-health.log`
 MSG
 )"
 

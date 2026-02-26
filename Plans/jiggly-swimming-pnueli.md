@@ -1,11 +1,11 @@
 ---
 prd: true
-id: PRD-20260225-pai-cloud-isidore
+id: PRD-20260225-pai-cloud-isidore-cloud
 status: IN_PROGRESS
 mode: interactive
 effort_level: Extended
 created: 2026-02-25
-updated: 2026-02-25
+updated: 2026-02-26
 iteration: 1
 maxIterations: 128
 loopStatus: null
@@ -16,9 +16,9 @@ parent: null
 children: []
 ---
 
-# PAI Cloud Isidore — VPS Deployment Masterplan
+# PAI Cloud Isidore Cloud — VPS Deployment Masterplan
 
-> Deploy a full PAI/Isidore installation on the existing VPS alongside Gregor, with mobile-accessible communication channels (Telegram, email, SSH), using Max 5x subscription OAuth flatrate billing, running as a persistent conversational session.
+> Deploy Isidore Cloud (PAI assistant) on the existing VPS alongside Gregor, with mobile-accessible communication channels (Telegram, email, SSH), using Max 5x subscription OAuth flatrate billing, running as a persistent conversational session. VPS Linux user: `isidore_cloud`, home: `/home/isidore_cloud/`.
 
 ## STATUS
 
@@ -32,7 +32,7 @@ children: []
 ## CONTEXT
 
 ### Problem Space
-Marius wants Isidore available 24/7 from mobile, not just when sitting at the local machine. The VPS already runs Gregor (OpenClaw bot). By deploying Isidore there too — on the Max 5x subscription OAuth flatrate — Marius gets an always-on AI assistant accessible via Telegram, email, and SSH from anywhere.
+Marius wants Isidore available 24/7 from mobile, not just when sitting at the local machine. The VPS already runs Gregor (OpenClaw bot). By deploying Isidore Cloud there — on the Max 5x subscription OAuth flatrate — Marius gets an always-on AI assistant accessible via Telegram, email, and SSH from anywhere. VPS user: `isidore_cloud`, home: `/home/isidore_cloud/`.
 
 ### Key Constraint: Persistent Conversation
 Isidore maintains an ongoing back-and-forth conversation. Marius manually manages session context (when to clear, when to start fresh). All communication channels feed into the **same conversation** via `claude --resume <session-id>`. This is NOT one-shot — it's a continuous dialogue.
@@ -78,30 +78,30 @@ All channels share ONE conversation via a session ID file (`~/.claude/active-ses
 | **Email** | `claude --resume $SID -p "body" --output-format json` | Programmatic | Async, long-form requests |
 | **Cron** | `claude -p "task"` (separate session) | One-shot | Scheduled automation |
 
-**Session management helper (`isidore-session`):**
-- `isidore-session new` — starts new conversation, saves session ID
-- `isidore-session current` — prints current session ID
-- `isidore-session clear` — archives current, starts fresh
-- `isidore-session list` — shows recent sessions
+**Session management helper (`isidore-cloud-session`):**
+- `isidore-cloud-session new` — starts new conversation, saves session ID
+- `isidore-cloud-session current` — prints current session ID
+- `isidore-cloud-session clear` — archives current, starts fresh
+- `isidore-cloud-session list` — shows recent sessions
 
 Telegram bot commands mirror this: `/new`, `/status`, `/clear`.
 
 ### Phase 1: Foundation (ISC-C1, C2, C3, C4, A3)
 
-**Step 1.1 — Create `isidore` user on VPS:**
+**Step 1.1 — Create `isidore_cloud` user on VPS:**
 ```bash
 ssh vps
-sudo useradd -m -s /bin/bash isidore
-sudo usermod -aG sudo isidore
-echo "isidore ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/isidore
-sudo mkdir -p /home/isidore/.ssh
-sudo cp ~/.ssh/authorized_keys /home/isidore/.ssh/
-sudo chown -R isidore:isidore /home/isidore/.ssh
+sudo useradd -m -s /bin/bash isidore_cloud
+sudo usermod -aG sudo isidore_cloud
+echo "isidore_cloud ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/isidore_cloud
+sudo mkdir -p /home/isidore_cloud/.ssh
+sudo cp ~/.ssh/authorized_keys /home/isidore_cloud/.ssh/
+sudo chown -R isidore_cloud:isidore_cloud /home/isidore_cloud/.ssh
 ```
 
 **Step 1.2 — Install Claude Code CLI + Bun:**
 ```bash
-su - isidore
+su - isidore_cloud
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
 sudo apt-get install -y nodejs
 curl -fsSL https://bun.sh/install | bash
@@ -111,7 +111,7 @@ npm install -g @anthropic-ai/claude-code
 **Step 1.3 — Authenticate with Max 5x:**
 ```bash
 # From local machine — SSH tunnel for browser-based OAuth:
-ssh -L 7160:localhost:7160 isidore@vps
+ssh -L 7160:localhost:7160 isidore_cloud
 # On VPS in that session:
 claude /login
 # Browser opens locally, OAuth completes, token stored on VPS
@@ -120,13 +120,12 @@ claude /login
 **Step 1.4 — Deploy PAI installation:**
 ```bash
 rsync -avz --exclude='debug/' --exclude='cache/' --exclude='projects/' \
-  ~/.claude/ isidore@vps:~/.claude/
-rsync -avz ~/my-pai/ isidore@vps:~/my-pai/
+  ~/.claude/ isidore_cloud:~/.claude/
 ```
 
 **Step 1.5 — Verify coexistence:**
 - `systemctl status openclaw` — Gregor still running
-- `su - isidore -c 'claude -p "hello"'` — Isidore responds
+- `su - isidore_cloud -c 'claude -p "hello"'` — Isidore Cloud responds
 - No port conflicts
 
 ### Phase 2: Session Management + SSH (ISC-C7, C11)
@@ -137,19 +136,19 @@ sudo apt install tmux
 ```
 systemd service keeps tmux alive across reboots.
 
-**Step 2.2 — `isidore-session` helper script:**
+**Step 2.2 — `isidore-cloud-session` helper script:**
 Manages the active session ID shared across all channels.
 
 **Step 2.3 — Mobile SSH:**
-- `ssh isidore@vps` → `tmux attach -t isidore`
-- Alias: `alias iso='tmux attach -t isidore'`
+- `ssh isidore_cloud` → `tmux attach -t isidore_cloud`
+- Alias: `alias iso='tmux attach -t isidore_cloud'`
 - Mobile client: Termius (iOS/Android)
 
 ### Phase 3: Telegram Bridge (ISC-C5, C9)
 
 **Step 3.1 — Create new bot via @BotFather**
 
-**Step 3.2 — Build `isidore-bridge.ts` (Bun/TypeScript):**
+**Step 3.2 — Build bridge service (Bun/TypeScript):**
 ```
 ~/projects/my-pai-cloud-solution/src/
 ├── bridge.ts        # Main: Telegram polling + email polling
@@ -173,14 +172,14 @@ Manages the active session ID shared across all channels.
 **Step 3.3 — systemd service:**
 ```ini
 [Unit]
-Description=Isidore Communication Bridge
+Description=Isidore Cloud Communication Bridge
 After=network.target
 
 [Service]
 Type=simple
-User=isidore
-WorkingDirectory=/home/isidore/my-pai-cloud-solution
-ExecStart=/home/isidore/.bun/bin/bun run src/bridge.ts
+User=isidore_cloud
+WorkingDirectory=/home/isidore_cloud/my-pai-cloud-solution
+ExecStart=/home/isidore_cloud/.bun/bin/bun run src/bridge.ts
 Restart=always
 RestartSec=5
 Environment="TELEGRAM_BOT_TOKEN=xxx"
@@ -212,38 +211,38 @@ WantedBy=multi-user.target
 
 **Step 5.2 — Re-auth procedure:**
 - Telegram alert with instructions when token expires
-- Re-auth: `ssh -L 7160:localhost:7160 isidore@vps` → `claude /login`
+- Re-auth: `ssh -L 7160:localhost:7160 isidore_cloud` → `claude /login`
 
 ### Phase 6: Automation Framework (ISC-C10)
 
-- Crontab for `isidore` user
+- Crontab for `isidore_cloud` user
 - Cron jobs use `claude -p` (one-shot, separate sessions)
 - Interactive session reserved for Marius's direct use
-- Template: `0 8 * * * /home/isidore/scripts/run-task.sh "morning briefing"`
+- Template: `0 8 * * * /home/isidore_cloud/my-pai-cloud-solution/scripts/run-task.sh "morning briefing"`
 
 ## IDEAL STATE CRITERIA (Verification Criteria)
 
 ### Foundation
 - [x] ISC-C1: Claude Code CLI installed and authenticated on VPS via OAuth | Verify: CLI: `claude -p "test"` returns valid response
 - [x] ISC-C2: PAI skill tree and CLAUDE.md deployed on VPS | Verify: CLI: `ls ~/.claude/skills/PAI/SKILL.md`
-- [x] ISC-C3: Gregor and Isidore coexist without port or resource conflicts | Verify: CLI: both services running simultaneously
-- [x] ISC-C4: Isidore has root access and SSH capability on VPS | Verify: CLI: `sudo whoami` = root
+- [x] ISC-C3: Gregor and Isidore Cloud coexist without port or resource conflicts | Verify: CLI: both services running simultaneously
+- [x] ISC-C4: Isidore Cloud has root access and SSH capability on VPS | Verify: CLI: `sudo whoami` = root
 
 ### Communication Channels
 - [x] ISC-C5: Telegram bot receives messages and triggers claude invocations | Verify: Browser: send test message, receive response
-- [ ] ISC-C6: Email inbound triggers Isidore processing and sends compacted response | Verify: Custom: send test email, verify response
-- [x] ISC-C7: Mobile SSH access provides responsive CLI interaction with Isidore | Verify: Custom: SSH from phone, run claude
+- [ ] ISC-C6: Email inbound triggers Isidore Cloud processing and sends response | Verify: Custom: send test email, verify response
+- [x] ISC-C7: Mobile SSH access provides responsive CLI interaction with Isidore Cloud | Verify: Custom: SSH from phone, run claude
 
 ### Resilience & Security
 - [x] ISC-C8: OAuth token refresh mechanism prevents authentication expiration silently | Verify: CLI: cron job exists, token valid
 - [x] ISC-C9: All communication channels authenticate only Marius as authorized user | Verify: Custom: unauthorized attempt rejected
-- [x] ISC-C10: Cron and automation framework available for scheduled Isidore tasks | Verify: CLI: crontab shows entries
+- [x] ISC-C10: Cron and automation framework available for scheduled Isidore Cloud tasks | Verify: CLI: crontab shows entries
 - [x] ISC-C11: PAI memory system persists across all channel invocations on VPS | Verify: Grep: MEMORY writes from multiple channels
 
 ### Anti-Criteria
-- [x] ISC-A1: No API billing charges incurred from VPS Isidore usage | Verify: CLI: no ANTHROPIC_API_KEY in env
-- [x] ISC-A2: No unauthorized users can trigger Isidore on VPS | Verify: Custom: unauthorized access → rejection
-- [x] ISC-A3: Gregor's OpenClaw operation never disrupted by Isidore processes | Verify: CLI: Gregor stable during Isidore load
+- [x] ISC-A1: No API billing charges incurred from VPS Isidore Cloud usage | Verify: CLI: no ANTHROPIC_API_KEY in env
+- [x] ISC-A2: No unauthorized users can trigger Isidore Cloud on VPS | Verify: Custom: unauthorized access → rejection
+- [x] ISC-A3: Gregor's OpenClaw operation never disrupted by Isidore Cloud processes | Verify: CLI: Gregor stable during load
 
 ## DECISIONS
 
@@ -296,7 +295,7 @@ All components are proven tech. The `claude --resume` discovery eliminates the t
 ## VERIFICATION
 
 End-to-end test sequence:
-1. SSH to VPS as isidore, run `claude -p "hello"` — confirms auth + install
+1. SSH to VPS as isidore_cloud, run `claude -p "hello"` — confirms auth + install
 2. Start tmux session, run `claude` interactively — confirms SSH path
 3. Send Telegram message to bot — confirms Telegram bridge
 4. Send email to designated address — confirms email bridge
@@ -332,8 +331,8 @@ End-to-end test sequence:
 - Failing: C1 (no OAuth), C5 (no bot token), C6 (email not started), C7-C9, C11, C12, A2 (need runtime testing)
 - Context for next iteration: Marius must complete two interactive steps:
   1. `ssh -L 7160:localhost:7160 isidore` then `claude /login` (OAuth)
-  2. Create Telegram bot via @BotFather, put token in `~/.config/isidore/bridge.env`
-  Then start bridge: `sudo systemctl enable --now isidore-bridge`
+  2. Create Telegram bot via @BotFather, put token in `~/.config/isidore_cloud/bridge.env`
+  Then start bridge: `sudo systemctl enable --now isidore-cloud-bridge`
 
 ### Iteration 2 — 2026-02-25
 - Phase reached: VERIFY
@@ -345,3 +344,19 @@ End-to-end test sequence:
   - Updated PRD checkboxes: C1, C5, C8, C9, A2 now passing (were completed in prior session but PRD not updated)
 - Failing: C6 (email not started), C7 (needs phone test), C11 (needs multi-channel test)
 - Context for next iteration: C6 needs email account details from Marius. C7 needs phone SSH test. C11 testable after more channels are active.
+
+### Iteration 3 — 2026-02-26
+- Phase reached: VERIFY
+- Criteria progress: 13/14
+- Work done:
+  - **Naming rename:** `isidore` → `isidore_cloud` (Linux user, home dir, SSH, systemd, all project files)
+  - Renamed Linux user on VPS (`usermod -l`, `groupmod -n`, home dir moved)
+  - Updated sudoers, sshd_config AllowUsers
+  - Renamed local SSH keys and config
+  - Renamed project files: systemd services, isidore-session.ts
+  - Updated 200+ path references across all project files
+  - Updated identity: "Isidore Cloud" / "ISIDORE CLOUD" in vps-settings.json
+  - **Knowledge sync:** Created `mj-deving/pai-knowledge` private repo, sync script, cloned on both
+  - Deployed renamed project to VPS, verified services running
+- Failing: C6 (email — deferred, needs IMAP/SMTP details from Marius)
+- Context for next iteration: Email bridge is the only remaining criterion

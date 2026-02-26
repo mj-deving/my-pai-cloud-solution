@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-// isidore-session — CLI helper for managing Isidore conversation sessions
-// Usage: isidore-session <new|current|clear|list>
+// isidore-cloud-session — CLI helper for managing Isidore Cloud conversation sessions
+// Usage: isidore-cloud-session <new|current|clear|list>
 
 import { SessionManager } from "./session";
 
@@ -50,7 +50,7 @@ switch (command) {
 
   default:
     console.log(
-      "Usage: isidore-session <new|current|clear|list>",
+      "Usage: isidore-cloud-session <new|current|clear|list>",
     );
     process.exit(1);
 }
