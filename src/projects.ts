@@ -134,12 +134,41 @@ export class ProjectManager {
     return project.paths.local;
   }
 
+  // Auto-detect project path when not configured for this machine.
+  // Checks conventional ~/projects/<name> location. Returns detected path or null.
+  private async autoDetectPath(project: ProjectEntry): Promise<string | null> {
+    const home = process.env.HOME || "";
+    const isVps = home.includes("isidore_cloud");
+
+    // Only detect if the relevant path field is null
+    if (isVps && project.paths.vps !== null) return null;
+    if (!isVps && project.paths.local !== null) return null;
+
+    const conventionalPath = `${home}/projects/${project.name}`;
+    try {
+      const exists = await Bun.file(`${conventionalPath}/.git/HEAD`).exists();
+      if (!exists) return null;
+    } catch {
+      return null;
+    }
+
+    // Found a valid clone — save to registry
+    if (isVps) {
+      project.paths.vps = conventionalPath;
+    } else {
+      project.paths.local = conventionalPath;
+    }
+    await this.saveRegistry();
+    console.log(`[projects] Auto-detected path: ${conventionalPath}`);
+    return conventionalPath;
+  }
+
   // Set the active project — saves state + updates session file
-  // Returns null if project not found, or { project, path } on success.
+  // Returns null if project not found, or { project, path, autoDetected } on success.
   // path may be null if the project has no path on this instance.
   async setActiveProject(
     name: string,
-  ): Promise<{ project: ProjectEntry; path: string | null } | null> {
+  ): Promise<{ project: ProjectEntry; path: string | null; autoDetected: boolean } | null> {
     const project = this.getProject(name);
     if (!project) return null;
 
@@ -165,9 +194,15 @@ export class ProjectManager {
 
     await this.saveState();
 
-    const path = this.getProjectPath(project);
-    console.log(`[projects] Switched to: ${project.displayName} (${path || "no local path"})`);
-    return { project, path };
+    let path = this.getProjectPath(project);
+    let autoDetected = false;
+    if (!path) {
+      path = await this.autoDetectPath(project);
+      autoDetected = path !== null;
+    }
+
+    console.log(`[projects] Switched to: ${project.displayName} (${path || "no local path"}${autoDetected ? " — auto-detected" : ""})`);
+    return { project, path, autoDetected };
   }
 
   // Get session ID for a specific project
@@ -329,6 +364,42 @@ It contains the other instance's (local/Cloud) last session state.
     return { project: entry };
   }
 
+  // Delete a project: remove from registry + clean handoff state
+  // Does NOT delete VPS directory or GitHub repo (too destructive for Telegram).
+  async deleteProject(
+    name: string,
+  ): Promise<{ project: ProjectEntry } | { error: string }> {
+    if (!this.registry) {
+      return { error: "Registry not loaded." };
+    }
+
+    // Exact case-insensitive match only — no partial matching for deletion
+    const idx = this.registry.projects.findIndex(
+      (p) => p.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (idx === -1) {
+      return { error: `Project "${name}" not found in registry.` };
+    }
+
+    const removed = this.registry.projects.splice(idx, 1)[0]!;
+
+    // Clean handoff state
+    if (this.state.sessions[removed.name]) {
+      delete this.state.sessions[removed.name];
+    }
+    if (this.state.activeProject === removed.name) {
+      this.state.activeProject = null;
+      this.state.lastSwitch = new Date().toISOString();
+    }
+    await this.saveState();
+
+    // Save updated registry to both locations
+    await this.saveRegistry();
+
+    console.log(`[projects] Deleted project: ${removed.displayName}`);
+    return { project: removed };
+  }
+
   // Save registry to both bundled config and pai-knowledge copy
   private async saveRegistry(): Promise<void> {
     if (!this.registry) return;
@@ -440,17 +511,23 @@ It contains the other instance's (local/Cloud) last session state.
   // Ensure project directory exists, clone if needed
   async ensureCloned(
     project: ProjectEntry,
-  ): Promise<{ ok: boolean; output: string }> {
-    const dir = this.getProjectPath(project);
+  ): Promise<{ ok: boolean; output: string; autoDetected?: boolean }> {
+    let dir = this.getProjectPath(project);
+    let autoDetected = false;
     if (!dir) {
-      return { ok: false, output: "Project has no path configured for this instance" };
+      // Try auto-detection before giving up
+      dir = await this.autoDetectPath(project);
+      if (!dir) {
+        return { ok: false, output: "Project has no path configured for this instance" };
+      }
+      autoDetected = true;
     }
 
     try {
       // Check if directory exists
       const stat = await Bun.file(dir + "/.git/HEAD").exists();
       if (stat) {
-        return { ok: true, output: "Already cloned" };
+        return { ok: true, output: "Already cloned", autoDetected };
       }
     } catch {
       // Directory doesn't exist

@@ -49,6 +49,7 @@ export function createTelegramBot(
     msg += `/status — Current session info\n`;
     msg += `/clear — Archive & restart\n`;
     msg += `/newproject <name> — Create new project\n`;
+    msg += `/deleteproject <name> — Remove project from registry\n`;
     msg += `/compact — Compact context\n`;
     msg += `/oneshot <msg> — One-shot (no session)`;
 
@@ -134,8 +135,13 @@ export function createTelegramBot(
       claude.setWorkingDirectory(result.path);
     }
 
+    const autoDetected = cloneResult.autoDetected || result.autoDetected;
     let msg = `Switched to **${target.displayName}**\n`;
-    msg += result.path ? `Path: \`${result.path}\`\n` : "Path: not configured for this instance\n";
+    if (result.path) {
+      msg += `Path: \`${result.path}\`${autoDetected ? " (auto-detected)" : ""}\n`;
+    } else {
+      msg += "Path: not configured for this instance\n";
+    }
     msg += pullResult.ok ? "Git: pulled latest\n" : `Git: ${pullResult.output}\n`;
     msg += knowledgeResult.ok ? "Knowledge: synced" : "Knowledge: sync skipped";
 
@@ -176,6 +182,36 @@ export function createTelegramBot(
     msg += `Status: active + fresh session\n\n`;
     msg += `To clone locally:\n`;
     msg += `\`git clone https://github.com/${org}/${result.project.name}.git ~/projects/${result.project.name}\``;
+
+    await ctx.reply(msg, { parse_mode: "Markdown" });
+  });
+
+  // /deleteproject <name> — Remove a project from registry (exact match only)
+  bot.command("deleteproject", async (ctx) => {
+    const name = ctx.match?.trim();
+    if (!name) {
+      await ctx.reply(
+        "Usage: /deleteproject <name>\nUse the exact project name (see /projects).",
+      );
+      return;
+    }
+
+    await ctx.replyWithChatAction("typing");
+
+    const result = await projects.deleteProject(name);
+    if ("error" in result) {
+      await ctx.reply(`Failed: ${result.error}`);
+      return;
+    }
+
+    const removed = result.project;
+    let msg = `**Deleted: ${removed.displayName}**\n\n`;
+    msg += `Removed from registry + handoff state.\n\n`;
+    msg += `**Manual cleanup (if needed):**\n`;
+    if (removed.paths.vps) {
+      msg += `VPS dir: \`rm -rf ${removed.paths.vps}\`\n`;
+    }
+    msg += `GitHub: \`gh repo delete mj-deving/${removed.name} --yes\``;
 
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
