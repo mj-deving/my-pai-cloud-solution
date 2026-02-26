@@ -12,7 +12,7 @@ echo "=== Deploying Isidore Cloud to VPS ==="
 
 # 1. Sync project code
 echo "Syncing project code..."
-rsync -avz --exclude='node_modules/' --exclude='.git/' --exclude='*.env' \
+rsync -avz --exclude='node_modules/' --exclude='.git/' --exclude='*.env' --exclude='CLAUDE.local.md' \
     /home/mj/projects/my-pai-cloud-solution/ \
     "$VPS_HOST:$PROJECT_DIR/"
 

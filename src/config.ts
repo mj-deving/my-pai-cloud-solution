@@ -27,6 +27,11 @@ export interface Config {
   projectSyncScript: string;
   knowledgeSyncScript: string;
 
+  // Pipeline (cross-user task queue)
+  pipelineEnabled: boolean;
+  pipelineDir: string;
+  pipelinePollIntervalMs: number;
+
   // Limits
   telegramMaxChunkSize: number; // Telegram API limit is 4096
   maxClaudeTimeoutMs: number;
@@ -77,6 +82,12 @@ export function loadConfig(): Config {
     knowledgeSyncScript:
       process.env.KNOWLEDGE_SYNC_SCRIPT ||
       `${process.env.HOME}/projects/my-pai-cloud-solution/scripts/sync-knowledge.sh`,
+
+    pipelineEnabled: process.env.PIPELINE_ENABLED !== "0",
+    pipelineDir: process.env.PIPELINE_DIR || "/var/lib/pai-pipeline",
+    pipelinePollIntervalMs: process.env.PIPELINE_POLL_INTERVAL_MS
+      ? parseInt(process.env.PIPELINE_POLL_INTERVAL_MS, 10)
+      : 5_000,
 
     telegramMaxChunkSize: 4000, // Leave margin below 4096 API limit
     maxClaudeTimeoutMs: 5 * 60 * 1000, // 5 minutes max per invocation

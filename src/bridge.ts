@@ -6,6 +6,7 @@ import { SessionManager } from "./session";
 import { ClaudeInvoker } from "./claude";
 import { ProjectManager } from "./projects";
 import { createTelegramBot } from "./telegram";
+import { PipelineWatcher } from "./pipeline";
 
 async function main() {
   console.log("[bridge] Starting Isidore Cloud communication bridge...");
@@ -45,9 +46,19 @@ async function main() {
   // Start Telegram bot
   const bot = createTelegramBot(config, claude, sessions, projectManager);
 
+  // Start pipeline watcher (cross-user task queue)
+  let pipeline: PipelineWatcher | null = null;
+  if (config.pipelineEnabled) {
+    pipeline = new PipelineWatcher(config);
+    pipeline.start();
+  } else {
+    console.log("[bridge] Pipeline watcher disabled (PIPELINE_ENABLED=0)");
+  }
+
   // Graceful shutdown
   const shutdown = async () => {
     console.log("[bridge] Shutting down...");
+    pipeline?.stop();
     bot.stop();
     process.exit(0);
   };
@@ -65,7 +76,6 @@ async function main() {
   // Email bridge placeholder — Phase 4
   if (config.emailImapHost) {
     console.log("[bridge] Email bridge configured but not yet implemented");
-    // TODO: Phase 4 — IMAP polling + msmtp response
   }
 }
 
