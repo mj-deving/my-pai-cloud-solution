@@ -77,7 +77,7 @@ do_push() {
     return 0
   }
 
-  run_with_timeout git push --quiet || {
+  run_with_timeout git push -u origin main --quiet || {
     log "WARN: push failed (maybe offline), changes committed locally"
     return 0
   }

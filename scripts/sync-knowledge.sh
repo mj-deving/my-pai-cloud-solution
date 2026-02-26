@@ -96,7 +96,8 @@ sync_continuity_push() {
   fi
 
   while IFS=':' read -r name path; do
-    [[ -z "${name}" || -z "${path}" ]] && continue
+    [[ -z "${name}" ]] && continue
+    [[ -z "${path}" || "${path}" == "null" ]] && { log "  SKIP continuity push: ${name} (no path on this instance)"; continue; }
     local src="${path}/CLAUDE.local.md"
     local dst="${CONTINUITY_DIR}/${name}/CLAUDE.local.md"
     if [[ -f "${src}" ]]; then
@@ -128,7 +129,8 @@ sync_continuity_pull() {
   fi
 
   while IFS=':' read -r name path; do
-    [[ -z "${name}" || -z "${path}" ]] && continue
+    [[ -z "${name}" ]] && continue
+    [[ -z "${path}" || "${path}" == "null" ]] && { log "  SKIP continuity pull: ${name} (no path on this instance)"; continue; }
     local src="${CONTINUITY_DIR}/${name}/CLAUDE.local.md"
     # Write to CLAUDE.handoff.md — never overwrite CLAUDE.local.md
     local dst="${path}/CLAUDE.handoff.md"

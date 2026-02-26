@@ -1,20 +1,16 @@
 # Session Continuity
 
-**Last wrapup:** 2026-02-26T13:16:25+01:00
-**Current focus:** Handoff protocol implemented — project switching, git sync, knowledge sync expansion, auto-commit all working
+**Last wrapup:** 2026-02-26T16:30:00+01:00
+**Current focus:** Handoff protocol deployed and tested end-to-end. Bugfixes + null path support done but uncommitted.
 
-## Completed This Session
-- Full handoff protocol (4 phases): project registry, bridge project switching, git sync, knowledge sync expansion, auto-commit wrapup
-- New files: config/projects.json, src/projects.ts, src/wrapup.ts, scripts/project-sync.sh
-- Modified: src/config.ts, src/claude.ts, src/telegram.ts, src/bridge.ts, scripts/sync-knowledge.sh, .gitignore, bridge.env.example
-- pai-knowledge HANDOFF directory set up with projects.json + continuity structure
-- TypeScript compiles cleanly, all bash scripts syntax-validated
+## In Progress
+- Null path support for Cloud-only projects (code done, needs commit)
+- Deploy.sh git init fix (code done, needs commit)
+- project-sync.sh push target fix (code done, needs commit)
 
 ## Next Steps
-- Deploy to VPS via `scripts/deploy.sh`
-- Test the full handoff cycle: /project, /done, /handoff, /projects via Telegram
-- Verify formatter fix + handoff on VPS with fresh messages
-- Implement KnowledgeSync.hook.ts (SessionEnd push, SessionStart pull)
+- Commit + push today's fixes
+- Redeploy to VPS via `scripts/deploy.sh`
 - Write VPS CLAUDE.local.md for Cloud self-awareness
 - Email bridge (C6) when Marius provides IMAP/SMTP details
 

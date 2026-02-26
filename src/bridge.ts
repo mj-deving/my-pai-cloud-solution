@@ -36,8 +36,10 @@ async function main() {
   const activeProject = projectManager.getActiveProject();
   if (activeProject) {
     const path = projectManager.getProjectPath(activeProject);
-    claude.setWorkingDirectory(path);
-    console.log(`[bridge] Restored project: ${activeProject.displayName} (${path})`);
+    if (path) {
+      claude.setWorkingDirectory(path);
+    }
+    console.log(`[bridge] Restored project: ${activeProject.displayName} (${path || "no local path"})`);
   }
 
   // Start Telegram bot

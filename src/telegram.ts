@@ -129,10 +129,12 @@ export function createTelegramBot(
       return;
     }
 
-    claude.setWorkingDirectory(result.path);
+    if (result.path) {
+      claude.setWorkingDirectory(result.path);
+    }
 
     let msg = `Switched to **${target.displayName}**\n`;
-    msg += `Path: \`${result.path}\`\n`;
+    msg += result.path ? `Path: \`${result.path}\`\n` : "Path: not configured for this instance\n";
     msg += pullResult.ok ? "Git: pulled latest\n" : `Git: ${pullResult.output}\n`;
     msg += knowledgeResult.ok ? "Knowledge: synced" : "Knowledge: sync skipped";
 
@@ -185,9 +187,14 @@ export function createTelegramBot(
     msg += `Git: ${pushResult.ok ? "pushed" : pushResult.output}\n`;
     msg += `Knowledge: ${knowledgeResult.ok ? "synced" : "sync skipped"}\n`;
     msg += `Session: ${session ? session.slice(0, 8) + "..." : "none"}\n`;
-    msg += `Path: \`${path}\`\n\n`;
-    msg += `To pick up locally:\n`;
-    msg += `\`cd ${activeProject.paths.local} && git pull\``;
+    if (path) msg += `Path: \`${path}\`\n`;
+    msg += "\n";
+    if (activeProject.paths.local) {
+      msg += `To pick up locally:\n`;
+      msg += `\`cd ${activeProject.paths.local} && git pull\``;
+    } else {
+      msg += "Cloud-only project — no local path configured.";
+    }
 
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
@@ -280,9 +287,11 @@ export function createTelegramBot(
     const activeProject = projects.getActiveProject();
     if (activeProject) {
       const projectPath = projects.getProjectPath(activeProject);
-      lightweightWrapup(projectPath).catch((err) => {
-        console.warn(`[telegram] Wrapup error: ${err}`);
-      });
+      if (projectPath) {
+        lightweightWrapup(projectPath).catch((err) => {
+          console.warn(`[telegram] Wrapup error: ${err}`);
+        });
+      }
     }
   });
 

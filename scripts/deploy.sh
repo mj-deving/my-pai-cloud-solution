@@ -16,11 +16,28 @@ rsync -avz --exclude='node_modules/' --exclude='.git/' --exclude='*.env' \
     /home/mj/projects/my-pai-cloud-solution/ \
     "$VPS_HOST:$PROJECT_DIR/"
 
-# 2. Install dependencies on VPS
+# 2. Ensure VPS project has a git repo (rsync excludes .git/)
+echo "Ensuring git repo on VPS..."
+ssh "$VPS_HOST" "cd $PROJECT_DIR && \
+    if [ ! -d .git ]; then \
+        git init -b main && \
+        git remote add origin https://github.com/mj-deving/my-pai-cloud-solution.git && \
+        git fetch origin && \
+        git reset origin/main && \
+        git branch --set-upstream-to=origin/main main && \
+        echo 'Git repo initialized with tracking'; \
+    elif ! git rev-parse --abbrev-ref --symbolic-full-name @{u} >/dev/null 2>&1; then \
+        git branch --set-upstream-to=origin/main main 2>/dev/null && \
+        echo 'Upstream tracking set'; \
+    else \
+        echo 'Git repo OK'; \
+    fi"
+
+# 3. Install dependencies on VPS
 echo "Installing dependencies on VPS..."
 ssh "$VPS_HOST" "cd $PROJECT_DIR && ~/.bun/bin/bun install"
 
-# 3. Deploy PAI installation (skills, config, memory structure)
+# 4. Deploy PAI installation (skills, config, memory structure)
 echo "Deploying PAI installation..."
 rsync -avz \
     --exclude='debug/' \
@@ -32,7 +49,7 @@ rsync -avz \
     --exclude='MEMORY/STATE/' \
     ~/.claude/ "$VPS_HOST:~/.claude/"
 
-# 4. Create config directory and copy env template
+# 5. Create config directory and copy env template
 echo "Setting up config..."
 ssh "$VPS_HOST" "mkdir -p ~/.config/isidore_cloud"
 
@@ -40,20 +57,20 @@ ssh "$VPS_HOST" "mkdir -p ~/.config/isidore_cloud"
 ssh "$VPS_HOST" "test -f ~/.config/isidore_cloud/bridge.env || \
     cp $PROJECT_DIR/bridge.env.example ~/.config/isidore_cloud/bridge.env"
 
-# 5. Install systemd services
+# 6. Install systemd services
 echo "Installing systemd services..."
 ssh "$VPS_HOST" "sudo cp $PROJECT_DIR/systemd/isidore-cloud-bridge.service /etc/systemd/system/ && \
     sudo cp $PROJECT_DIR/systemd/isidore-cloud-tmux.service /etc/systemd/system/ && \
     sudo systemctl daemon-reload"
 
-# 6. Make scripts executable
+# 7. Make scripts executable
 ssh "$VPS_HOST" "chmod +x $PROJECT_DIR/scripts/*.sh"
 
-# 7. Set up cron for auth health check
+# 8. Set up cron for auth health check
 echo "Setting up auth health check cron..."
 ssh "$VPS_HOST" '(crontab -l 2>/dev/null | grep -v auth-health-check; echo "0 */4 * * * /home/isidore_cloud/projects/my-pai-cloud-solution/scripts/auth-health-check.sh") | crontab -'
 
-# 8. Install isidore-cloud-session as a global command
+# 9. Install isidore-cloud-session as a global command
 echo "Installing isidore-cloud-session CLI..."
 ssh "$VPS_HOST" "mkdir -p ~/bin && \
     cat > ~/bin/isidore-cloud-session << 'SCRIPT'

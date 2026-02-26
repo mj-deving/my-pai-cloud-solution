@@ -21,12 +21,18 @@ PAI cloud infrastructure solution — deploys Isidore Cloud to a VPS for 24/7 ac
 - Code comments: thorough — document interfaces and logic
 - File naming: kebab-case
 
+## Cross-Instance Continuity
+
+If `CLAUDE.handoff.md` exists in this directory, read it on session start.
+It contains the other instance's (local/Cloud) last session state.
+
 ## Session Workflow
 
 1. Read this file on session start for project context
-2. Do the work
-3. Commit with a descriptive message at session end
-4. Push to GitHub
+2. If `CLAUDE.handoff.md` exists, read it for cross-instance context
+3. Do the work
+4. Commit with a descriptive message at session end
+5. Push to GitHub
 
 ## Project Structure
 
@@ -78,7 +84,7 @@ PAI cloud infrastructure solution — deploys Isidore Cloud to a VPS for 24/7 ac
 
 <!-- Update this section at the end of each session -->
 
-**Status:** Handoff protocol implemented (project switching, git sync, auto-commit, knowledge sync expansion)
+**Status:** Handoff protocol deployed and tested end-to-end on VPS. Null path support for Cloud-only projects added.
 **Last session:** 2026-02-26
-**Completed:** VPS user, SSH, Claude CLI, Bun, PAI skills, tmux, cron, bridge, knowledge sync, GitHub PAT, ARCHITECTURE.md, handoff protocol
-**Next steps:** Deploy handoff to VPS, test full cycle, KnowledgeSync hooks, email bridge (C6), VPS CLAUDE.local.md
+**Completed:** VPS user, SSH, Claude CLI, Bun, PAI skills, tmux, cron, bridge, knowledge sync, GitHub PAT, ARCHITECTURE.md, handoff protocol, VPS deploy + testing
+**Next steps:** Commit fixes, redeploy, VPS CLAUDE.local.md, email bridge (C6)

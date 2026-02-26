@@ -12,8 +12,8 @@ export interface ProjectEntry {
   displayName: string;
   git: string;
   paths: {
-    local: string;
-    vps: string;
+    local: string | null;
+    vps: string | null;
   };
   autoClone: boolean;
   active: boolean;
@@ -124,8 +124,8 @@ export class ProjectManager {
     return this.getProject(this.state.activeProject);
   }
 
-  // Get the path for a project on this machine
-  getProjectPath(project: ProjectEntry): string {
+  // Get the path for a project on this machine (null if not available here)
+  getProjectPath(project: ProjectEntry): string | null {
     // Detect if we're on the VPS or local by checking hostname or HOME
     const home = process.env.HOME || "";
     if (home.includes("isidore_cloud")) {
@@ -135,9 +135,11 @@ export class ProjectManager {
   }
 
   // Set the active project — saves state + updates session file
+  // Returns null if project not found, or { project, path } on success.
+  // path may be null if the project has no path on this instance.
   async setActiveProject(
     name: string,
-  ): Promise<{ project: ProjectEntry; path: string } | null> {
+  ): Promise<{ project: ProjectEntry; path: string | null } | null> {
     const project = this.getProject(name);
     if (!project) return null;
 
@@ -164,7 +166,7 @@ export class ProjectManager {
     await this.saveState();
 
     const path = this.getProjectPath(project);
-    console.log(`[projects] Switched to: ${project.displayName} (${path})`);
+    console.log(`[projects] Switched to: ${project.displayName} (${path || "no local path"})`);
     return { project, path };
   }
 
@@ -228,12 +230,14 @@ export class ProjectManager {
   // Pull latest changes for a project
   async syncPull(project: ProjectEntry): Promise<{ ok: boolean; output: string }> {
     const dir = this.getProjectPath(project);
+    if (!dir) return { ok: true, output: "No path on this instance — skipped" };
     return this.runSyncScript("pull", dir);
   }
 
   // Push changes for a project (git add -u + commit + push)
   async syncPush(project: ProjectEntry): Promise<{ ok: boolean; output: string }> {
     const dir = this.getProjectPath(project);
+    if (!dir) return { ok: true, output: "No path on this instance — skipped" };
     return this.runSyncScript("push", dir);
   }
 
@@ -242,6 +246,9 @@ export class ProjectManager {
     project: ProjectEntry,
   ): Promise<{ ok: boolean; output: string }> {
     const dir = this.getProjectPath(project);
+    if (!dir) {
+      return { ok: false, output: "Project has no path configured for this instance" };
+    }
 
     try {
       // Check if directory exists
