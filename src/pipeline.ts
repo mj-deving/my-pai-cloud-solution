@@ -8,7 +8,7 @@
 // Result schema (written by this watcher):
 //   { id, taskId, from, to, timestamp, status, result, usage?, error? }
 
-import { readdir, rename, writeFile, readFile, unlink } from "node:fs/promises";
+import { readdir, rename, writeFile, readFile, unlink, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Config } from "./config";
 
@@ -38,6 +38,7 @@ export interface PipelineResult {
   result?: string;
   usage?: { input_tokens: number; output_tokens: number };
   error?: string;
+  warnings?: string[];
 }
 
 export class PipelineWatcher {
@@ -152,6 +153,42 @@ export class PipelineWatcher {
     }
   }
 
+  // Resolve working directory for a task with graceful fallback
+  // Returns { cwd, warnings } — cwd is always valid or undefined
+  private async resolveCwd(
+    task: PipelineTask,
+  ): Promise<{ cwd: string | undefined; warnings: string[] }> {
+    if (!task.project) return { cwd: undefined, warnings: [] };
+
+    const warnings: string[] = [];
+    const projectDir = `/home/isidore_cloud/projects/${task.project}`;
+
+    // Try the exact project directory first
+    if (await this.dirExists(projectDir)) {
+      return { cwd: projectDir, warnings };
+    }
+
+    // Fallback to $HOME — task still gets processed, just without project context
+    const home = process.env.HOME || "/home/isidore_cloud";
+    warnings.push(
+      `cwd fallback: ${home} used instead of ${projectDir} (directory does not exist)`,
+    );
+    console.warn(
+      `[pipeline] Task ${task.id}: project dir ${projectDir} does not exist, falling back to ${home}`,
+    );
+    return { cwd: home, warnings };
+  }
+
+  // Check if a directory exists
+  private async dirExists(path: string): Promise<boolean> {
+    try {
+      const s = await stat(path);
+      return s.isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
   // Invoke Claude one-shot and build result
   private async dispatch(task: PipelineTask): Promise<PipelineResult> {
     // Build the prompt — include context and constraints if provided
@@ -163,10 +200,8 @@ export class PipelineWatcher {
       prompt += `\n\nConstraints: ${JSON.stringify(task.constraints)}`;
     }
 
-    // Determine working directory from project name
-    const cwd = task.project
-      ? `/home/isidore_cloud/projects/${task.project}`
-      : undefined;
+    // Resolve working directory with fallback
+    const { cwd, warnings } = await this.resolveCwd(task);
 
     try {
       const args = [this.config.claudeBinary, "-p", prompt, "--output-format", "json"];
@@ -188,7 +223,7 @@ export class PipelineWatcher {
       clearTimeout(timeout);
 
       if (exitCode !== 0) {
-        return this.buildResult(task, "error", undefined, undefined, `Exit ${exitCode}: ${stderr.slice(0, 500)}`);
+        return this.buildResult(task, "error", undefined, undefined, `Exit ${exitCode}: ${stderr.slice(0, 500)}`, warnings);
       }
 
       // Parse Claude JSON output
@@ -199,13 +234,15 @@ export class PipelineWatcher {
           "completed",
           parsed.result || stdout,
           parsed.usage,
+          undefined,
+          warnings,
         );
       } catch {
         // JSON parse failed — use raw stdout
-        return this.buildResult(task, "completed", stdout.trim());
+        return this.buildResult(task, "completed", stdout.trim(), undefined, undefined, warnings);
       }
     } catch (err) {
-      return this.buildResult(task, "error", undefined, undefined, `Dispatch error: ${err}`);
+      return this.buildResult(task, "error", undefined, undefined, `Dispatch error: ${err}`, warnings);
     }
   }
 
@@ -215,6 +252,7 @@ export class PipelineWatcher {
     result?: string,
     usage?: { input_tokens: number; output_tokens: number },
     error?: string,
+    warnings?: string[],
   ): PipelineResult {
     return {
       id: crypto.randomUUID(),
@@ -226,6 +264,7 @@ export class PipelineWatcher {
       ...(result !== undefined && { result }),
       ...(usage && { usage }),
       ...(error && { error }),
+      ...(warnings && warnings.length > 0 && { warnings }),
     };
   }
 }
