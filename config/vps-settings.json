@@ -13,7 +13,106 @@
     "deny": [],
     "defaultMode": "default"
   },
-  "hooks": {},
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "${PAI_DIR}/hooks/SecurityValidator.hook.ts" }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          { "type": "command", "command": "${PAI_DIR}/hooks/SecurityValidator.hook.ts" }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          { "type": "command", "command": "${PAI_DIR}/hooks/SecurityValidator.hook.ts" }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          { "type": "command", "command": "${PAI_DIR}/hooks/SecurityValidator.hook.ts" }
+        ]
+      },
+      {
+        "matcher": "Task",
+        "hooks": [
+          { "type": "command", "command": "${PAI_DIR}/hooks/AgentExecutionGuard.hook.ts" }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          { "type": "command", "command": "${PAI_DIR}/hooks/SkillGuard.hook.ts" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          { "type": "command", "command": "${PAI_DIR}/hooks/QuestionAnswered.hook.ts" }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "${PAI_DIR}/hooks/AlgorithmTracker.hook.ts" }
+        ]
+      },
+      {
+        "matcher": "TaskCreate",
+        "hooks": [
+          { "type": "command", "command": "${PAI_DIR}/hooks/AlgorithmTracker.hook.ts" }
+        ]
+      },
+      {
+        "matcher": "TaskUpdate",
+        "hooks": [
+          { "type": "command", "command": "${PAI_DIR}/hooks/AlgorithmTracker.hook.ts" }
+        ]
+      },
+      {
+        "matcher": "Task",
+        "hooks": [
+          { "type": "command", "command": "${PAI_DIR}/hooks/AlgorithmTracker.hook.ts" }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${PAI_DIR}/hooks/WorkCompletionLearning.hook.ts" },
+          { "type": "command", "command": "${PAI_DIR}/hooks/SessionSummary.hook.ts" },
+          { "type": "command", "command": "${PAI_DIR}/hooks/RelationshipMemory.hook.ts" },
+          { "type": "command", "command": "${PAI_DIR}/hooks/UpdateCounts.hook.ts" },
+          { "type": "command", "command": "${PAI_DIR}/hooks/IntegrityCheck.hook.ts" }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${PAI_DIR}/hooks/RatingCapture.hook.ts" },
+          { "type": "command", "command": "${PAI_DIR}/hooks/AutoWorkCreation.hook.ts" },
+          { "type": "command", "command": "${PAI_DIR}/hooks/SessionAutoName.hook.ts" }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${PAI_DIR}/hooks/LoadContext.hook.ts" },
+          { "type": "command", "command": "${PAI_DIR}/hooks/CheckVersion.hook.ts" }
+        ]
+      }
+    ]
+  },
   "daidentity": {
     "name": "Isidore",
     "displayName": "ISIDORE"
