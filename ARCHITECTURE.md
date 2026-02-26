@@ -13,14 +13,16 @@
 5. [Communication Channels](#communication-channels)
 6. [The Bridge Service](#the-bridge-service)
 7. [Session Management](#session-management)
-8. [Knowledge Sync](#knowledge-sync)
-9. [VPS Infrastructure](#vps-infrastructure)
-10. [Security Model](#security-model)
-11. [Deployment Guide](#deployment-guide)
-12. [File Reference](#file-reference)
-13. [Troubleshooting](#troubleshooting)
-14. [What's Next](#whats-next)
-15. [Replicating This System](#replicating-this-system)
+8. [Project Handoff Protocol](#project-handoff-protocol)
+9. [Cross-User Pipeline (Gregor↔Isidore Cloud)](#cross-user-pipeline-gregorisidore-cloud)
+10. [Knowledge Sync](#knowledge-sync)
+11. [VPS Infrastructure](#vps-infrastructure)
+12. [Security Model](#security-model)
+13. [Deployment Guide](#deployment-guide)
+14. [File Reference](#file-reference)
+15. [Troubleshooting](#troubleshooting)
+16. [What's Next](#whats-next)
+17. [Replicating This System](#replicating-this-system)
 
 ---
 
@@ -38,7 +40,7 @@ The result: **one assistant, always available, everywhere.**
 - **Channel-agnostic conversations.** Whether you SSH in, send a Telegram message, or send an email — it's the same conversation, same session, same context.
 - **Knowledge convergence.** What one instance learns, the other inherits. Relationship notes, learnings from mistakes, user preferences — all synced automatically.
 - **Minimal infrastructure.** A single small VPS, a Telegram bot token, and a Git repo. No Kubernetes, no Docker, no cloud functions. Just systemd, Bun, and shell scripts.
-- **Coexistence.** The VPS is shared with other services (Gregor/OpenClaw). Each has its own Linux user, its own home directory, its own systemd services. They don't interfere.
+- **Coexistence and collaboration.** The VPS is shared with Gregor/OpenClaw. Each has its own Linux user and systemd services. They don't interfere — and when they need to collaborate, a shared file-based pipeline (`/var/lib/pai-pipeline/`) enables cross-user task exchange.
 
 ---
 
@@ -96,13 +98,17 @@ The naming distinguishes the *runtime*, not the *identity*:
 ```
 VPS: 213.199.32.18 (Ubuntu 24.04, Contabo)
 ├── User: openclaw (SSH alias: vps)
-│   └── Gregor / OpenClaw services — completely separate
+│   ├── Gregor / OpenClaw services
+│   └── ~/scripts/                     # Pipeline sender scripts (pai-submit.sh, etc.)
 │
 ├── User: isidore_cloud (SSH alias: isidore_cloud)
 │   ├── ~/projects/my-pai-cloud-solution/      # Deployed project code
 │   │   ├── src/                       # TypeScript bridge + helpers
 │   │   ├── scripts/                   # Deployment & maintenance
+│   │   ├── config/                    # Project registry (projects.json)
 │   │   └── systemd/                   # Service definitions
+│   │
+│   ├── ~/projects/*/                  # Other project repos (managed by /newproject)
 │   │
 │   ├── ~/pai-knowledge/               # Shared knowledge Git repo (clone)
 │   │
@@ -111,7 +117,8 @@ VPS: 213.199.32.18 (Ubuntu 24.04, Contabo)
 │   │   ├── skills/PAI/               # Full PAI skill set
 │   │   ├── hooks/                    # PAI hooks (non-interactive subset)
 │   │   ├── MEMORY/                   # Synced knowledge (RELATIONSHIP, LEARNING)
-│   │   └── active-session-id         # Current conversation session pointer
+│   │   ├── active-session-id         # Current conversation session pointer
+│   │   └── handoff-state.json        # Per-project session mapping
 │   │
 │   ├── ~/.config/isidore_cloud/
 │   │   └── bridge.env                # Secrets (Telegram token, paths)
@@ -123,8 +130,13 @@ VPS: 213.199.32.18 (Ubuntu 24.04, Contabo)
 │       ├── id_ed25519_github         # Deploy key for pai-knowledge repo
 │       └── config                    # GitHub SSH configuration
 │
+├── Shared: /var/lib/pai-pipeline/     # Cross-user task queue (group: pai, mode: 2770)
+│   ├── tasks/                         # Incoming task files (written by Gregor)
+│   ├── results/                       # Result files (written by Isidore Cloud)
+│   └── ack/                           # Processed tasks (moved after completion)
+│
 └── Systemd services:
-    ├── isidore-cloud-bridge.service   # Telegram bot (always running)
+    ├── isidore-cloud-bridge.service   # Telegram bot + pipeline watcher (always running)
     └── isidore-cloud-tmux.service     # Persistent tmux (for SSH sessions)
 ```
 
@@ -159,6 +171,11 @@ The Telegram bot (`@IsidoreCloudBot`) is the main way to talk to Isidore Cloud f
 
 **Bot commands:**
 - `/start` — Welcome message and available commands
+- `/project <name>` — Switch active project (auto-push current, pull target, restore session)
+- `/projects` — List all registered projects with active marker and session info
+- `/newproject <name>` — Create a new project (GitHub repo + VPS dir + scaffold + registry)
+- `/done` — Commit + push current project + knowledge sync
+- `/handoff` — Done + detailed status summary for local pickup
 - `/new` — Start a fresh conversation (archives current session)
 - `/status` — Show current session info and archived sessions
 - `/clear` — Archive current session and start fresh
@@ -210,7 +227,9 @@ bridge.ts (entry point)
 ├── loadConfig()        → config.ts    — reads bridge.env, validates, returns typed config
 ├── SessionManager      → session.ts   — reads/writes ~/.claude/active-session-id
 ├── ClaudeInvoker       → claude.ts    — spawns claude CLI, handles timeouts, parses JSON
+├── ProjectManager      → projects.ts  — project registry, handoff state, git sync
 ├── createTelegramBot() → telegram.ts  — Grammy bot with auth middleware + handlers
+├── PipelineWatcher     → pipeline.ts  — cross-user task queue for Gregor collaboration
 └── compactFormat()     → format.ts    — strips PAI Algorithm formatting for mobile
     chunkMessage()      → format.ts    — splits long responses for Telegram's 4096 limit
 ```
@@ -299,9 +318,286 @@ Error: No conversation found with session ID: abc-123...
 
 ---
 
-## Knowledge Sync
+## Project Handoff Protocol
 
-The most important architectural piece: how two instances of the same AI share knowledge.
+The handoff protocol enables seamless project switching between local Isidore and Isidore Cloud. Each project maintains its own session, working directory, and git state.
+
+### The Problem
+
+Working on multiple projects across two instances (local + VPS) without a protocol means:
+- Losing conversation context when switching projects
+- Forgetting to commit/push before switching
+- No way to know what the other instance was working on
+
+### The Solution
+
+A **project registry** (`config/projects.json`) tracks all projects. A **handoff state file** (`~/.claude/handoff-state.json`) maps each project to its own Claude session ID. The bridge coordinates switching.
+
+### Project Registry
+
+```json
+{
+  "version": 1,
+  "projects": [
+    {
+      "name": "my-pai-cloud-solution",
+      "displayName": "My PAI Cloud Solution",
+      "git": "https://github.com/mj-deving/my-pai-cloud-solution.git",
+      "paths": {
+        "local": "/home/mj/projects/my-pai-cloud-solution",
+        "vps": "/home/isidore_cloud/projects/my-pai-cloud-solution"
+      },
+      "autoClone": true,
+      "active": true
+    }
+  ]
+}
+```
+
+**Key fields:**
+- `paths.local` / `paths.vps` — Where the project lives on each machine. Can be `null` for cloud-only or local-only projects.
+- `autoClone` — If `true`, the bridge will `git clone` the project on first access if the directory doesn't exist.
+- `active` — Soft-delete flag. Inactive projects are hidden from `/projects`.
+
+**Two copies exist:**
+1. `config/projects.json` — Bundled with the bridge code (deployed via rsync)
+2. `pai-knowledge/HANDOFF/projects.json` — In the knowledge sync repo (survives across instances)
+
+### Handoff State
+
+```json
+{
+  "activeProject": "my-pai-cloud-solution",
+  "lastSwitch": "2026-02-26T15:30:00.000Z",
+  "sessions": {
+    "my-pai-cloud-solution": "abc-123-session-id",
+    "openclaw-bot": "def-456-session-id"
+  }
+}
+```
+
+Each project gets its own Claude session. When you switch projects:
+1. Current project's session ID is saved
+2. Target project's session ID is restored (or a new session is started)
+3. Claude's working directory is updated
+4. The bridge automatically pushes the current project and pulls the target
+
+### Project Switching Flow (`/project <name>`)
+
+```
+/project openclaw-bot
+  → Auto-push current project (git add -u && commit && push)
+  → Look up "openclaw-bot" in registry (case-insensitive partial match)
+  → Ensure target is cloned on this machine (auto-clone if needed)
+  → Pull latest code (git pull)
+  → Pull latest knowledge (sync-knowledge.sh pull)
+  → Save current session ID, restore target's session ID
+  → Set Claude working directory to target's path
+  → Reply with status
+```
+
+### Project Creation (`/newproject <name>`)
+
+Creates everything from scratch via a single Telegram command:
+
+```
+/newproject my-new-project
+  → Validate name (lowercase kebab-case)
+  → Check for duplicates in registry
+  → gh repo create mj-deving/my-new-project --private
+  → git clone into /home/isidore_cloud/projects/my-new-project/
+  → Write scaffold CLAUDE.md (conventions, handoff instructions)
+  → git add -A && commit && push
+  → Add to registry (both copies) and save
+  → Auto-switch to the new project
+  → Reply with details + "git clone ..." instruction for local pickup
+```
+
+**New projects start as cloud-only** (`paths.local: null`). When you want to work on it locally, just `git clone` from GitHub and update the registry with the local path.
+
+### Cross-Instance Handoff (`/handoff`)
+
+A combination of `/done` + a status summary:
+
+```
+/handoff
+  → Git commit + push current project
+  → Knowledge sync push
+  → Reply with:
+    - Git status (pushed / nothing to push)
+    - Knowledge sync status
+    - Current session ID
+    - Path on this machine
+    - "To pick up locally: cd /path && git pull"
+```
+
+### CLAUDE.handoff.md
+
+When knowledge sync pulls, it can write a `CLAUDE.handoff.md` file in the project directory. This file contains the other instance's last session state — what it was working on, what decisions were made, what's pending.
+
+**Important:** `CLAUDE.handoff.md` never overwrites `CLAUDE.local.md`. Each instance maintains its own local context. The handoff file is *additional* context.
+
+Each project's `CLAUDE.md` contains the instruction: "If `CLAUDE.handoff.md` exists, read it on session start."
+
+---
+
+## Cross-User Pipeline (Gregor↔Isidore Cloud)
+
+A file-based task queue that lets Gregor (OpenClaw bot, running as the `openclaw` user) send work requests to Isidore Cloud and receive results — without direct process communication.
+
+### The Problem
+
+Two AI assistants on the same VPS need to collaborate. Gregor handles Discord automation for OpenClaw. Sometimes Gregor encounters problems that need Isidore Cloud's capabilities (broader knowledge, PAI skills, different perspective). But they run as different Linux users with different Claude sessions.
+
+### The Solution: Three-Layer Architecture
+
+```
+Layer 1: Shared filesystem infrastructure
+Layer 2: Isidore Cloud bridge watcher (receiver)
+Layer 3: Gregor sender scripts (submitter)
+```
+
+### Layer 1 — Shared Infrastructure
+
+A `pai` Linux group with a setgid directory structure:
+
+```
+/var/lib/pai-pipeline/          # Root — mode 2770, group pai
+├── tasks/                      # Gregor writes task files here
+├── results/                    # Isidore Cloud writes result files here
+└── ack/                        # Processed tasks moved here
+```
+
+**Key properties:**
+- Both `openclaw` and `isidore_cloud` users are members of the `pai` group
+- Setgid bit (2770) ensures new files inherit the `pai` group regardless of creator
+- Cross-user read/write works via group permissions
+- No sudo, no su, no privilege escalation needed
+
+### Layer 2 — Pipeline Watcher (Isidore Cloud Side)
+
+`src/pipeline.ts` — A `PipelineWatcher` class integrated into the bridge service:
+
+```
+Bridge startup
+  → PipelineWatcher.start()
+  → Poll /var/lib/pai-pipeline/tasks/ every 5 seconds
+  → For each .json file found:
+      1. Read and parse JSON
+      2. Validate required fields (id, prompt)
+      3. Resolve working directory (project → dir, with fallback)
+      4. Dispatch to claude -p (one-shot, no session)
+      5. Write result atomically (.tmp → rename) to results/
+      6. Move task file from tasks/ to ack/
+```
+
+**Design decisions:**
+- **One-shot invocations** — Pipeline tasks don't share Marius's conversation session. Each task gets a fresh Claude context.
+- **Atomic result writes** — Results are written to a `.tmp` file first, then renamed. Gregor never reads a partial result.
+- **Malformed JSON handling** — If a task file can't be parsed (e.g., still being written), it's skipped and retried on the next poll cycle. No crash, no data loss.
+- **Non-blocking** — A `processing` flag prevents overlapping poll cycles. The pipeline never blocks Telegram message handling.
+- **cwd fallback** — If a task's `project` field points to a non-existent directory, the watcher falls back to `$HOME` and includes a warning in the result. Tasks still get processed.
+
+### Layer 3 — Sender Scripts (Gregor Side)
+
+Three shell scripts deployed at `~/scripts/` on the `openclaw` user:
+
+| Script | Purpose |
+|--------|---------|
+| `pai-submit.sh` | Write task files with full schema, JSON escaping, all options |
+| `pai-result.sh` | Read results — list, specific ID, `--latest`, `--wait` (polling), `--ack` |
+| `pai-status.sh` | Pipeline dashboard — human-readable + `--json` for programmatic access |
+
+### Task Schema
+
+Written by Gregor (Layer 3) to `/var/lib/pai-pipeline/tasks/<id>.json`:
+
+```json
+{
+  "id": "20260226-183000-a1b2c3d4",
+  "from": "gregor",
+  "to": "isidore_cloud",
+  "timestamp": "2026-02-26T18:30:00Z",
+  "type": "request",
+  "priority": "normal",
+  "mode": "async",
+  "project": "openclaw-bot",
+  "prompt": "Review backup.sh for edge cases in the rotation logic",
+  "context": { "file": "scripts/backup.sh", "line_range": "45-80" },
+  "constraints": { "max_response_length": 500 }
+}
+```
+
+**Required fields:** `id`, `prompt`
+**Optional fields:** `from`, `to`, `timestamp`, `type`, `priority`, `mode`, `project`, `context`, `constraints`
+
+### Result Schema
+
+Written by Isidore Cloud (Layer 2) to `/var/lib/pai-pipeline/results/<task-id>.json`:
+
+```json
+{
+  "id": "f0b9be97-b123-48c0-a88a-5c5c69ee110e",
+  "taskId": "20260226-183000-a1b2c3d4",
+  "from": "isidore_cloud",
+  "to": "gregor",
+  "timestamp": "2026-02-26T18:30:15.788Z",
+  "status": "completed",
+  "result": "The rotation logic has two edge cases...",
+  "usage": { "input_tokens": 450, "output_tokens": 120 },
+  "warnings": []
+}
+```
+
+**Fields:**
+- `taskId` — Links back to the original task's `id`
+- `status` — `"completed"` or `"error"`
+- `result` — Claude's response text (present when completed)
+- `error` — Error message (present when status is `"error"`)
+- `warnings` — Array of non-fatal warnings (e.g., cwd fallback)
+- `usage` — Token usage from Claude's response
+
+### Flow Diagram
+
+```
+Gregor (openclaw user)                    Isidore Cloud (isidore_cloud user)
+┌────────────────────┐                    ┌────────────────────┐
+│ pai-submit.sh      │                    │ PipelineWatcher    │
+│   writes JSON ─────┼──► tasks/task.json │   polls every 5s   │
+│                    │                    │   reads task.json   │
+│                    │                    │   ▼                 │
+│                    │                    │   claude -p "prompt" │
+│                    │                    │   ▼                 │
+│ pai-result.sh      │                    │   writes result     │
+│   reads JSON ◄─────┼─── results/id.json │   moves to ack/    │
+│                    │                    │                    │
+│ pai-status.sh      │                    │                    │
+│   reads all dirs   │                    │                    │
+└────────────────────┘                    └────────────────────┘
+```
+
+### Configuration
+
+Pipeline settings in `config.ts`:
+
+| Env Variable | Default | Purpose |
+|-------------|---------|---------|
+| `PIPELINE_ENABLED` | `"1"` (enabled) | Set to `"0"` to disable the watcher |
+| `PIPELINE_DIR` | `/var/lib/pai-pipeline` | Root directory for the pipeline |
+| `PIPELINE_POLL_INTERVAL_MS` | `5000` | Milliseconds between poll cycles |
+
+### Error Handling
+
+| Scenario | Behavior |
+|----------|----------|
+| Malformed JSON in task file | Skipped with warning log, retried next cycle |
+| Missing `id` or `prompt` | Skipped with warning log |
+| Claude invocation fails | Result written with `status: "error"` and error message |
+| Project directory doesn't exist | Falls back to `$HOME`, warning in result |
+| Result file write fails | Logged, task not moved to ack (retried next cycle) |
+| Pipeline directory missing | Poll logs warning, no crash |
+
+---
 
 ### The Problem
 
@@ -667,10 +963,13 @@ ssh isidore_cloud 'ssh -T git@github.com'  # → "Hi your-username/pai-knowledge
 
 | File | Purpose | Key exports |
 |------|---------|-------------|
-| `bridge.ts` | Entry point. Loads config, initializes session manager, Claude invoker, and Telegram bot. | `main()` |
+| `bridge.ts` | Entry point. Loads config, initializes all components, starts Telegram + pipeline. | `main()` |
 | `telegram.ts` | Grammy bot setup. Auth middleware, command handlers, message forwarding. | `createTelegramBot()` |
 | `claude.ts` | Claude CLI wrapper. Spawns `claude` with `--resume`, handles timeouts, parses JSON. | `ClaudeInvoker`, `ClaudeResponse` |
 | `session.ts` | Reads/writes the shared session ID file. Archives old sessions. | `SessionManager` |
+| `projects.ts` | Project registry, handoff state, git sync, project creation. | `ProjectManager`, `ProjectEntry` |
+| `pipeline.ts` | Cross-user task queue watcher. Polls tasks/, dispatches to Claude, writes results. | `PipelineWatcher`, `PipelineTask`, `PipelineResult` |
+| `wrapup.ts` | Lightweight auto-commit after each Telegram response (git add -u, 10s timeout). | `lightweightWrapup()` |
 | `format.ts` | Strips PAI Algorithm verbosity for mobile. Chunks messages for Telegram. | `compactFormat()`, `chunkMessage()` |
 | `config.ts` | Reads environment variables, validates required ones, returns typed config. | `Config`, `loadConfig()` |
 | `isidore-cloud-session.ts` | CLI tool for manual session management (inspect, clear, archive). | CLI script |
@@ -681,10 +980,11 @@ ssh isidore_cloud 'ssh -T git@github.com'  # → "Hi your-username/pai-knowledge
 |--------|---------|-------------|
 | `setup-vps.sh` | Creates `isidore_cloud` user, installs Bun + Claude CLI, configures SSH. | Once, during initial setup |
 | `deploy-key.sh` | Deploys your SSH public key to the VPS `authorized_keys`. | Once, during initial setup |
-| `deploy.sh` | Full deployment: rsync code, install deps, restart services. | Every time you update the code |
+| `deploy.sh` | Full deployment: rsync code, install deps, restart services. Excludes `CLAUDE.local.md`. | Every time you update the code |
 | `auth-health-check.sh` | Checks Claude OAuth health. Runs via cron every 4 hours. | Automatically via cron |
 | `run-task.sh` | Runs a one-shot Claude task. For cron-based automation. | Manually or via cron |
-| `sync-knowledge.sh` | Bidirectional knowledge sync via Git. `push` or `pull`. | At session boundaries (manually or via hooks) |
+| `sync-knowledge.sh` | Bidirectional knowledge sync via Git. `push` or `pull`. | At session boundaries or via /done, /project commands |
+| `project-sync.sh` | Git operations for project handoff: `pull`, `push`, `clone`. | Called by ProjectManager (not directly) |
 
 ### Systemd (`systemd/`)
 
@@ -697,6 +997,7 @@ ssh isidore_cloud 'ssh -T git@github.com'  # → "Hi your-username/pai-knowledge
 
 | File | Purpose |
 |------|---------|
+| `projects.json` | Project registry — all projects, paths, git URLs (bundled copy) |
 | `vps-settings.json` | Claude Code settings for VPS (identity, PAI config, hook subset) |
 
 ---
@@ -763,21 +1064,25 @@ ssh isidore_cloud 'crontab -l'
 
 ## What's Next
 
-### Immediate (pending your input)
+### Completed Since Last Architecture Update
 
-- **GitHub PAT for VPS** — Gives Isidore Cloud full GitHub access (clone any repo, create PRs, etc.). You generate the PAT, I configure `gh auth` on VPS.
-- **Account-level SSH key** — Add the VPS SSH key to your GitHub account for git operations beyond just `pai-knowledge`.
+- **GitHub PAT for VPS** — Classic PAT with `repo` scope, authenticated via `gh auth`. Isidore Cloud can clone any repo, create repos, push/pull.
+- **VPS CLAUDE.local.md** — Isidore Cloud has self-awareness about its infrastructure, identity, and behaviors.
+- **Handoff protocol** — Full project registry, per-project sessions, `/project`, `/done`, `/handoff` commands.
+- **`/newproject` command** — Telegram-driven project creation (GitHub repo + VPS dir + scaffold + registry).
+- **Cross-user pipeline** — Gregor↔Isidore Cloud task queue with Layer 1 (shared dirs), Layer 2 (watcher), Layer 3 (sender scripts).
 
 ### Planned
 
-- **Email bridge (C6)** — IMAP polling + SMTP response. Architecture is in place, needs your email server credentials.
-- **PAI hooks for auto-sync** — `KnowledgeSync.hook.ts` fires at SessionEnd (push) and SessionStart (pull) so sync happens automatically without manual script invocation.
-- **VPS CLAUDE.local.md** — Give Isidore Cloud self-awareness about its own infrastructure state.
+- **Email bridge (C6)** — IMAP polling + SMTP response. Architecture is in place, needs email server credentials from Marius.
+- **`/deleteproject` command** — Clean up test projects (GitHub repo + VPS dir + registry entry).
+- **Local path auto-detection** — When you first `/project` switch locally, auto-detect if the repo is cloned and set `paths.local`.
 
 ### Vision
 
 - **Full parity** — Isidore Cloud should be able to do everything local Isidore can (minus voice/browser), including working on repos, running tests, deploying code.
 - **Proactive behavior** — Cron-triggered tasks: daily summaries, project monitoring, automated maintenance.
+- **Gregor collaboration maturity** — Session-based pipeline tasks (multi-turn conversations), priority queuing, timeout handling on Gregor's side.
 - **Multi-channel unified inbox** — Telegram, email, and future channels (Signal, Matrix?) all feed into one conversation.
 
 ---
@@ -820,5 +1125,5 @@ Want to build this for your own AI assistant? Here's what you need:
 
 ---
 
-*Last updated: 2026-02-26*
+*Last updated: 2026-02-26 (handoff protocol, /newproject, cross-user pipeline)*
 *Author: Marius Jonathan Jauernik + Isidore (PAI)*
