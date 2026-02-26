@@ -20,7 +20,15 @@ SYNC_DIRS=(
   "USER:${USER_DIR}:${REPO_DIR}/USER"
   "RELATIONSHIP:${MEMORY_DIR}/RELATIONSHIP:${REPO_DIR}/RELATIONSHIP"
   "LEARNING:${MEMORY_DIR}/LEARNING:${REPO_DIR}/LEARNING"
+  "WORK:${MEMORY_DIR}/WORK:${REPO_DIR}/WORK"
+  "SESSIONS:${MEMORY_DIR}/SESSIONS:${REPO_DIR}/SESSIONS"
 )
+
+# Project registry for continuity file sync
+HANDOFF_DIR="${REPO_DIR}/HANDOFF"
+CONTINUITY_DIR="${HANDOFF_DIR}/continuity"
+# Read project paths from registry (projects.json)
+PROJECTS_JSON="${HANDOFF_DIR}/projects.json"
 
 # --- Helpers ---
 log() { echo "[sync-knowledge] $(date '+%H:%M:%S') $*"; }
@@ -63,6 +71,75 @@ EOF
   fi
 }
 
+# --- Continuity file sync ---
+# On push: copy each project's CLAUDE.local.md → repo HANDOFF/continuity/<project>/
+# On pull: copy from repo → <project>/CLAUDE.handoff.md (never overwrite CLAUDE.local.md)
+sync_continuity_push() {
+  if [[ ! -f "${PROJECTS_JSON}" ]]; then
+    log "  SKIP continuity: no projects.json at ${PROJECTS_JSON}"
+    return
+  fi
+
+  # Parse project paths using jq if available, fallback to grep
+  local instance_key="vps"
+  local home_dir="${HOME}"
+  if [[ "${home_dir}" != *"isidore_cloud"* ]]; then
+    instance_key="local"
+  fi
+
+  if command -v jq &>/dev/null; then
+    local projects
+    projects=$(jq -r ".projects[] | select(.active==true) | .name + \":\" + .paths.${instance_key}" "${PROJECTS_JSON}")
+  else
+    log "  WARN: jq not available, skipping continuity sync"
+    return
+  fi
+
+  while IFS=':' read -r name path; do
+    [[ -z "${name}" || -z "${path}" ]] && continue
+    local src="${path}/CLAUDE.local.md"
+    local dst="${CONTINUITY_DIR}/${name}/CLAUDE.local.md"
+    if [[ -f "${src}" ]]; then
+      mkdir -p "$(dirname "${dst}")"
+      cp "${src}" "${dst}"
+      log "  Continuity push: ${name}/CLAUDE.local.md"
+    fi
+  done <<< "${projects}"
+}
+
+sync_continuity_pull() {
+  if [[ ! -f "${PROJECTS_JSON}" ]]; then
+    log "  SKIP continuity: no projects.json at ${PROJECTS_JSON}"
+    return
+  fi
+
+  local instance_key="vps"
+  local home_dir="${HOME}"
+  if [[ "${home_dir}" != *"isidore_cloud"* ]]; then
+    instance_key="local"
+  fi
+
+  if command -v jq &>/dev/null; then
+    local projects
+    projects=$(jq -r ".projects[] | select(.active==true) | .name + \":\" + .paths.${instance_key}" "${PROJECTS_JSON}")
+  else
+    log "  WARN: jq not available, skipping continuity sync"
+    return
+  fi
+
+  while IFS=':' read -r name path; do
+    [[ -z "${name}" || -z "${path}" ]] && continue
+    local src="${CONTINUITY_DIR}/${name}/CLAUDE.local.md"
+    # Write to CLAUDE.handoff.md — never overwrite CLAUDE.local.md
+    local dst="${path}/CLAUDE.handoff.md"
+    if [[ -f "${src}" ]]; then
+      mkdir -p "$(dirname "${dst}")"
+      cp "${src}" "${dst}"
+      log "  Continuity pull: ${name}/CLAUDE.handoff.md"
+    fi
+  done <<< "${projects}"
+}
+
 # --- Push: local MEMORY → repo → GitHub ---
 do_push() {
   log "PUSH: syncing local knowledge to repo..."
@@ -85,6 +162,9 @@ do_push() {
       log "  SKIP ${name}: source ${src} not found"
     fi
   done
+
+  # Sync continuity files (CLAUDE.local.md → repo)
+  sync_continuity_push
 
   # Update sync metadata
   update_meta "push"
@@ -131,6 +211,9 @@ do_pull() {
       log "  SKIP ${name}: repo dir ${dst} not found"
     fi
   done
+
+  # Sync continuity files (repo → CLAUDE.handoff.md)
+  sync_continuity_pull
 
   # Update sync metadata
   update_meta "pull"

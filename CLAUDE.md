@@ -37,11 +37,15 @@ PAI cloud infrastructure solution — deploys Isidore Cloud to a VPS for 24/7 ac
 ├── CLAUDE.md              # Project context
 ├── README.md              # Public docs
 ├── Plans/                 # PRD and architecture
+├── config/
+│   └── projects.json      # Project registry (handoff)
 ├── src/
 │   ├── bridge.ts          # Main: Telegram + email polling
 │   ├── telegram.ts        # Telegram bot (Grammy)
 │   ├── claude.ts          # Claude CLI --resume wrapper
 │   ├── session.ts         # Shared session ID management
+│   ├── projects.ts        # Project registry + handoff state
+│   ├── wrapup.ts          # Lightweight auto-commit after responses
 │   ├── format.ts          # Compact mobile formatter
 │   ├── config.ts          # Environment config
 │   └── isidore-cloud-session.ts # CLI session helper
@@ -51,7 +55,8 @@ PAI cloud infrastructure solution — deploys Isidore Cloud to a VPS for 24/7 ac
 │   ├── deploy.sh          # Full deployment
 │   ├── auth-health-check.sh  # Cron: OAuth monitoring
 │   ├── run-task.sh        # Cron: task runner
-│   └── sync-knowledge.sh  # Bidirectional knowledge sync
+│   ├── sync-knowledge.sh  # Bidirectional knowledge sync
+│   └── project-sync.sh    # Git sync for project handoff
 ├── systemd/
 │   ├── isidore-cloud-bridge.service  # Bridge service
 │   └── isidore-cloud-tmux.service    # Persistent tmux
@@ -73,7 +78,7 @@ PAI cloud infrastructure solution — deploys Isidore Cloud to a VPS for 24/7 ac
 
 <!-- Update this section at the end of each session -->
 
-**Status:** All ISC passing (C6 email deferred), knowledge sync working, VPS directories restructured
+**Status:** Handoff protocol implemented (project switching, git sync, auto-commit, knowledge sync expansion)
 **Last session:** 2026-02-26
-**Completed:** VPS user, SSH, Claude CLI, Bun, PAI skills, tmux, cron, bridge, knowledge sync, GitHub PAT, ARCHITECTURE.md
-**Next steps:** Knowledge sync hooks (auto push/pull), email bridge (C6), VPS CLAUDE.local.md
+**Completed:** VPS user, SSH, Claude CLI, Bun, PAI skills, tmux, cron, bridge, knowledge sync, GitHub PAT, ARCHITECTURE.md, handoff protocol
+**Next steps:** Deploy handoff to VPS, test full cycle, KnowledgeSync hooks, email bridge (C6), VPS CLAUDE.local.md

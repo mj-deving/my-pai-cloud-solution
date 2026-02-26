@@ -20,6 +20,12 @@ export interface Config {
   sessionIdFile: string;
   claudeBinary: string;
 
+  // Project handoff
+  projectRegistryFile: string;
+  handoffStateFile: string;
+  projectSyncScript: string;
+  knowledgeSyncScript: string;
+
   // Limits
   telegramMaxChunkSize: number; // Telegram API limit is 4096
   maxClaudeTimeoutMs: number;
@@ -57,6 +63,19 @@ export function loadConfig(): Config {
       process.env.SESSION_ID_FILE ||
       `${process.env.HOME}/.claude/active-session-id`,
     claudeBinary: process.env.CLAUDE_BINARY || "claude",
+
+    projectRegistryFile:
+      process.env.PROJECT_REGISTRY_FILE ||
+      `${process.env.HOME}/pai-knowledge/HANDOFF/projects.json`,
+    handoffStateFile:
+      process.env.HANDOFF_STATE_FILE ||
+      `${process.env.HOME}/.claude/handoff-state.json`,
+    projectSyncScript:
+      process.env.PROJECT_SYNC_SCRIPT ||
+      `${process.env.HOME}/projects/my-pai-cloud-solution/scripts/project-sync.sh`,
+    knowledgeSyncScript:
+      process.env.KNOWLEDGE_SYNC_SCRIPT ||
+      `${process.env.HOME}/projects/my-pai-cloud-solution/scripts/sync-knowledge.sh`,
 
     telegramMaxChunkSize: 4000, // Leave margin below 4096 API limit
     maxClaudeTimeoutMs: 5 * 60 * 1000, // 5 minutes max per invocation

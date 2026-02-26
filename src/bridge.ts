@@ -4,6 +4,7 @@
 import { loadConfig } from "./config";
 import { SessionManager } from "./session";
 import { ClaudeInvoker } from "./claude";
+import { ProjectManager } from "./projects";
 import { createTelegramBot } from "./telegram";
 
 async function main() {
@@ -26,8 +27,21 @@ async function main() {
   // Initialize Claude invoker
   const claude = new ClaudeInvoker(config, sessions);
 
+  // Initialize project manager
+  const projectManager = new ProjectManager(config, sessions);
+  await projectManager.loadRegistry();
+  await projectManager.loadState();
+
+  // Restore active project cwd on startup
+  const activeProject = projectManager.getActiveProject();
+  if (activeProject) {
+    const path = projectManager.getProjectPath(activeProject);
+    claude.setWorkingDirectory(path);
+    console.log(`[bridge] Restored project: ${activeProject.displayName} (${path})`);
+  }
+
   // Start Telegram bot
-  const bot = createTelegramBot(config, claude, sessions);
+  const bot = createTelegramBot(config, claude, sessions, projectManager);
 
   // Graceful shutdown
   const shutdown = async () => {

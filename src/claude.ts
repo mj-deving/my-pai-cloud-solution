@@ -15,10 +15,24 @@ export interface ClaudeResponse {
 }
 
 export class ClaudeInvoker {
+  private cwd?: string;
+
   constructor(
     private config: Config,
     private sessions: SessionManager,
   ) {}
+
+  // Set the working directory for Claude invocations (project switching)
+  setWorkingDirectory(path: string | undefined): void {
+    this.cwd = path;
+    if (path) {
+      console.log(`[claude] Working directory set to: ${path}`);
+    }
+  }
+
+  getWorkingDirectory(): string | undefined {
+    return this.cwd;
+  }
 
   // Send a message to the active session and get a response
   async send(message: string): Promise<ClaudeResponse> {
@@ -35,10 +49,14 @@ export class ClaudeInvoker {
       const proc = Bun.spawn(args, {
         stdout: "pipe",
         stderr: "pipe",
+        cwd: this.cwd,
         env: {
           ...process.env,
           // Ensure no API key — use OAuth subscription only
           ANTHROPIC_API_KEY: undefined,
+          // Suppress knowledge sync hooks — bridge handles sync explicitly
+          // via /project (pull) and /done (push) commands
+          SKIP_KNOWLEDGE_SYNC: "1",
         },
       });
 
@@ -112,9 +130,11 @@ export class ClaudeInvoker {
       const proc = Bun.spawn(args, {
         stdout: "pipe",
         stderr: "pipe",
+        cwd: this.cwd,
         env: {
           ...process.env,
           ANTHROPIC_API_KEY: undefined,
+          SKIP_KNOWLEDGE_SYNC: "1",
         },
       });
 
