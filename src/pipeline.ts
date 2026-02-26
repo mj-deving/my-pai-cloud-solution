@@ -3,10 +3,10 @@
 // writes results to results/, moves processed tasks to ack/.
 //
 // Task schema (written by Gregor):
-//   { id, from, to, timestamp, type, priority, mode, project, prompt, context?, constraints? }
+//   { id, from, to, timestamp, type, priority, mode, project, prompt, context?, constraints?, session_id? }
 //
 // Result schema (written by this watcher):
-//   { id, taskId, from, to, timestamp, status, result, usage?, error? }
+//   { id, taskId, from, to, timestamp, status, result, usage?, error?, warnings?, session_id? }
 
 import { readdir, rename, writeFile, readFile, unlink, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -25,6 +25,7 @@ export interface PipelineTask {
   prompt: string;
   context?: Record<string, unknown>;
   constraints?: Record<string, unknown>;
+  session_id?: string; // Resume a prior pipeline conversation
 }
 
 // Outbound result written to results/
@@ -39,7 +40,11 @@ export interface PipelineResult {
   usage?: { input_tokens: number; output_tokens: number };
   error?: string;
   warnings?: string[];
+  session_id?: string; // Session ID for follow-up tasks
 }
+
+// Priority levels — higher number = processed first
+const PRIORITY_ORDER: Record<string, number> = { high: 3, normal: 2, low: 1 };
 
 export class PipelineWatcher {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -77,7 +82,7 @@ export class PipelineWatcher {
     }
   }
 
-  // One poll cycle: scan tasks/, process any found
+  // One poll cycle: scan tasks/, sort by priority, process in order
   private async poll(): Promise<void> {
     if (this.processing) return; // Skip if prior cycle still running
     this.processing = true;
@@ -86,8 +91,41 @@ export class PipelineWatcher {
       const files = await readdir(this.tasksDir);
       const taskFiles = files.filter((f) => f.endsWith(".json"));
 
+      if (taskFiles.length === 0) return;
+
+      // Read and parse all tasks first (for priority sorting)
+      const parsed: Array<{ filename: string; task: PipelineTask }> = [];
       for (const file of taskFiles) {
-        await this.processTaskFile(file);
+        const taskPath = join(this.tasksDir, file);
+        try {
+          const raw = await readFile(taskPath, "utf-8");
+          const task = JSON.parse(raw) as PipelineTask;
+          if (!task.id || !task.prompt) {
+            console.warn(`[pipeline] Skipping ${file}: missing id or prompt`);
+            continue;
+          }
+          parsed.push({ filename: file, task });
+        } catch (err) {
+          // Malformed JSON or file still being written — skip, retry next cycle
+          console.warn(`[pipeline] Skipping ${file}: ${err}`);
+          continue;
+        }
+      }
+
+      // Sort by priority (high > normal > low), tie-break by timestamp then filename
+      parsed.sort((a, b) => {
+        const pa = PRIORITY_ORDER[a.task.priority || "normal"] ?? PRIORITY_ORDER["normal"]!;
+        const pb = PRIORITY_ORDER[b.task.priority || "normal"] ?? PRIORITY_ORDER["normal"]!;
+        if (pa !== pb) return pb - pa; // Higher priority first
+        if (a.task.timestamp && b.task.timestamp) {
+          return a.task.timestamp.localeCompare(b.task.timestamp);
+        }
+        return a.filename.localeCompare(b.filename);
+      });
+
+      // Process in priority order
+      for (const { filename, task } of parsed) {
+        await this.processTask(filename, task);
       }
     } catch (err) {
       // readdir failure (permissions, dir missing) — log but don't crash
@@ -97,37 +135,18 @@ export class PipelineWatcher {
     }
   }
 
-  // Process a single task file
-  private async processTaskFile(filename: string): Promise<void> {
+  // Process a single pre-parsed task
+  private async processTask(filename: string, task: PipelineTask): Promise<void> {
     const taskPath = join(this.tasksDir, filename);
 
-    // 1. Read and parse task JSON
-    let task: PipelineTask;
-    try {
-      const raw = await readFile(taskPath, "utf-8");
-      task = JSON.parse(raw) as PipelineTask;
-    } catch (err) {
-      // Malformed JSON or file still being written — skip, retry next cycle
-      console.warn(`[pipeline] Skipping ${filename}: ${err}`);
-      return;
-    }
-
-    // 2. Validate required fields
-    if (!task.id || !task.prompt) {
-      console.warn(
-        `[pipeline] Skipping ${filename}: missing id or prompt`,
-      );
-      return;
-    }
-
     console.log(
-      `[pipeline] Processing task ${task.id} from ${task.from} (${task.prompt.slice(0, 80)}...)`,
+      `[pipeline] Processing task ${task.id} from ${task.from} [${task.priority || "normal"}] (${task.prompt.slice(0, 80)}...)`,
     );
 
-    // 3. Dispatch to Claude via one-shot invocation
+    // 1. Dispatch to Claude
     const result = await this.dispatch(task);
 
-    // 4. Write result atomically (write .tmp, rename)
+    // 2. Write result atomically (write .tmp, rename)
     const resultFilename = `${task.id}.json`;
     const resultTmpPath = join(this.resultsDir, `${resultFilename}.tmp`);
     const resultFinalPath = join(this.resultsDir, resultFilename);
@@ -143,7 +162,7 @@ export class PipelineWatcher {
       return; // Don't ack if result write failed
     }
 
-    // 5. Move task to ack/
+    // 3. Move task to ack/
     const ackPath = join(this.ackDir, filename);
     try {
       await rename(taskPath, ackPath);
@@ -189,7 +208,7 @@ export class PipelineWatcher {
     }
   }
 
-  // Invoke Claude one-shot and build result
+  // Invoke Claude and build result (one-shot or --resume for multi-turn)
   private async dispatch(task: PipelineTask): Promise<PipelineResult> {
     // Build the prompt — include context and constraints if provided
     let prompt = task.prompt;
@@ -204,7 +223,15 @@ export class PipelineWatcher {
     const { cwd, warnings } = await this.resolveCwd(task);
 
     try {
-      const args = [this.config.claudeBinary, "-p", prompt, "--output-format", "json"];
+      const args = [this.config.claudeBinary];
+
+      // Pass --resume if task includes a session_id (multi-turn)
+      if (task.session_id) {
+        args.push("--resume", task.session_id);
+      }
+
+      args.push("-p", prompt, "--output-format", "json");
+
       const proc = Bun.spawn(args, {
         stdout: "pipe",
         stderr: "pipe",
@@ -222,6 +249,20 @@ export class PipelineWatcher {
       const exitCode = await proc.exited;
       clearTimeout(timeout);
 
+      // Handle bad/stale session — retry without --resume
+      // Catches: invalid UUID format, expired session, unknown session ID
+      if (exitCode !== 0 && task.session_id && (
+        stderr.includes("No conversation found with session ID") ||
+        stderr.includes("--resume requires a valid session ID")
+      )) {
+        const warning = `session_id ${task.session_id.slice(0, 8)}... was invalid, ran as one-shot`;
+        console.warn(`[pipeline] Bad session ${task.session_id.slice(0, 8)}... for task ${task.id}, retrying fresh`);
+        const retryResult = await this.dispatch({ ...task, session_id: undefined });
+        // Preserve the warning in the retry result
+        retryResult.warnings = [...(retryResult.warnings || []), warning];
+        return retryResult;
+      }
+
       if (exitCode !== 0) {
         return this.buildResult(task, "error", undefined, undefined, `Exit ${exitCode}: ${stderr.slice(0, 500)}`, warnings);
       }
@@ -229,6 +270,7 @@ export class PipelineWatcher {
       // Parse Claude JSON output
       try {
         const parsed = JSON.parse(stdout);
+        const sessionId = parsed.session_id || undefined;
         return this.buildResult(
           task,
           "completed",
@@ -236,9 +278,10 @@ export class PipelineWatcher {
           parsed.usage,
           undefined,
           warnings,
+          sessionId,
         );
       } catch {
-        // JSON parse failed — use raw stdout
+        // JSON parse failed — use raw stdout, no session_id available
         return this.buildResult(task, "completed", stdout.trim(), undefined, undefined, warnings);
       }
     } catch (err) {
@@ -253,6 +296,7 @@ export class PipelineWatcher {
     usage?: { input_tokens: number; output_tokens: number },
     error?: string,
     warnings?: string[],
+    session_id?: string,
   ): PipelineResult {
     return {
       id: crypto.randomUUID(),
@@ -265,6 +309,7 @@ export class PipelineWatcher {
       ...(usage && { usage }),
       ...(error && { error }),
       ...(warnings && warnings.length > 0 && { warnings }),
+      ...(session_id && { session_id }),
     };
   }
 }

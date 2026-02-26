@@ -483,16 +483,19 @@ Bridge startup
   → PipelineWatcher.start()
   → Poll /var/lib/pai-pipeline/tasks/ every 5 seconds
   → For each .json file found:
-      1. Read and parse JSON
+      1. Read and parse all JSON task files
       2. Validate required fields (id, prompt)
-      3. Resolve working directory (project → dir, with fallback)
-      4. Dispatch to claude -p (one-shot, no session)
-      5. Write result atomically (.tmp → rename) to results/
-      6. Move task file from tasks/ to ack/
+      3. Sort by priority (high > normal > low), tie-break by timestamp
+      4. For each task in priority order:
+         a. Resolve working directory (project → dir, with fallback)
+         b. Dispatch to claude -p (one-shot, or --resume if session_id provided)
+         c. Write result atomically (.tmp → rename) to results/
+         d. Move task file from tasks/ to ack/
 ```
 
 **Design decisions:**
-- **One-shot invocations** — Pipeline tasks don't share Marius's conversation session. Each task gets a fresh Claude context.
+- **One-shot by default, multi-turn optional** — Pipeline tasks default to fresh Claude context (one-shot). If a task includes a `session_id` from a previous result, Claude resumes that conversation via `--resume`. Stale session IDs are handled gracefully — the watcher retries without `--resume` and includes a warning in the result.
+- **Priority-sorted processing** — Tasks with `priority: "high"` are processed before `"normal"` (default), which are processed before `"low"`. Within the same priority level, earlier timestamps win. Priority ordering applies within a single poll batch — a running task is never interrupted.
 - **Atomic result writes** — Results are written to a `.tmp` file first, then renamed. Gregor never reads a partial result.
 - **Malformed JSON handling** — If a task file can't be parsed (e.g., still being written), it's skipped and retried on the next poll cycle. No crash, no data loss.
 - **Non-blocking** — A `processing` flag prevents overlapping poll cycles. The pipeline never blocks Telegram message handling.
@@ -524,12 +527,15 @@ Written by Gregor (Layer 3) to `/var/lib/pai-pipeline/tasks/<id>.json`:
   "project": "openclaw-bot",
   "prompt": "Review backup.sh for edge cases in the rotation logic",
   "context": { "file": "scripts/backup.sh", "line_range": "45-80" },
-  "constraints": { "max_response_length": 500 }
+  "constraints": { "max_response_length": 500 },
+  "session_id": null
 }
 ```
 
 **Required fields:** `id`, `prompt`
-**Optional fields:** `from`, `to`, `timestamp`, `type`, `priority`, `mode`, `project`, `context`, `constraints`
+**Optional fields:** `from`, `to`, `timestamp`, `type`, `priority`, `mode`, `project`, `context`, `constraints`, `session_id`
+
+- `session_id` — Resume a prior pipeline conversation. Use the `session_id` returned in a previous result to continue the same Claude context. If omitted or null, a fresh one-shot conversation is started.
 
 ### Result Schema
 
@@ -545,7 +551,8 @@ Written by Isidore Cloud (Layer 2) to `/var/lib/pai-pipeline/results/<task-id>.j
   "status": "completed",
   "result": "The rotation logic has two edge cases...",
   "usage": { "input_tokens": 450, "output_tokens": 120 },
-  "warnings": []
+  "warnings": [],
+  "session_id": "abc-123-session-id-for-follow-ups"
 }
 ```
 
@@ -554,8 +561,9 @@ Written by Isidore Cloud (Layer 2) to `/var/lib/pai-pipeline/results/<task-id>.j
 - `status` — `"completed"` or `"error"`
 - `result` — Claude's response text (present when completed)
 - `error` — Error message (present when status is `"error"`)
-- `warnings` — Array of non-fatal warnings (e.g., cwd fallback)
+- `warnings` — Array of non-fatal warnings (e.g., cwd fallback, stale session)
 - `usage` — Token usage from Claude's response
+- `session_id` — Claude's session ID; provide in follow-up tasks to resume the conversation
 
 ### Flow Diagram
 
@@ -595,6 +603,7 @@ Pipeline settings in `config.ts`:
 | Claude invocation fails | Result written with `status: "error"` and error message |
 | Project directory doesn't exist | Falls back to `$HOME`, warning in result |
 | Result file write fails | Logged, task not moved to ack (retried next cycle) |
+| Stale session ID in task | Retries without `--resume`, warning in result |
 | Pipeline directory missing | Poll logs warning, no crash |
 
 ---
