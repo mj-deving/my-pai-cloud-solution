@@ -6,7 +6,7 @@
 set -euo pipefail
 
 VPS_HOST="isidore_cloud"  # Uses isidore_cloud SSH alias
-PROJECT_DIR="/home/isidore_cloud/my-pai-cloud-solution"
+PROJECT_DIR="/home/isidore_cloud/projects/my-pai-cloud-solution"
 
 echo "=== Deploying Isidore Cloud to VPS ==="
 
@@ -51,14 +51,14 @@ ssh "$VPS_HOST" "chmod +x $PROJECT_DIR/scripts/*.sh"
 
 # 7. Set up cron for auth health check
 echo "Setting up auth health check cron..."
-ssh "$VPS_HOST" '(crontab -l 2>/dev/null | grep -v auth-health-check; echo "0 */4 * * * /home/isidore_cloud/my-pai-cloud-solution/scripts/auth-health-check.sh") | crontab -'
+ssh "$VPS_HOST" '(crontab -l 2>/dev/null | grep -v auth-health-check; echo "0 */4 * * * /home/isidore_cloud/projects/my-pai-cloud-solution/scripts/auth-health-check.sh") | crontab -'
 
 # 8. Install isidore-cloud-session as a global command
 echo "Installing isidore-cloud-session CLI..."
 ssh "$VPS_HOST" "mkdir -p ~/bin && \
     cat > ~/bin/isidore-cloud-session << 'SCRIPT'
 #!/bin/bash
-exec ~/.bun/bin/bun run /home/isidore_cloud/my-pai-cloud-solution/src/isidore-cloud-session.ts \"\$@\"
+exec ~/.bun/bin/bun run /home/isidore_cloud/projects/my-pai-cloud-solution/src/isidore-cloud-session.ts \"\$@\"
 SCRIPT
 chmod +x ~/bin/isidore-cloud-session && \
     grep -q 'PATH.*\$HOME/bin' ~/.bashrc || echo 'export PATH=\"\$HOME/bin:\$PATH\"' >> ~/.bashrc"

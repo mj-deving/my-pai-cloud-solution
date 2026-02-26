@@ -99,7 +99,7 @@ VPS: 213.199.32.18 (Ubuntu 24.04, Contabo)
 │   └── Gregor / OpenClaw services — completely separate
 │
 ├── User: isidore_cloud (SSH alias: isidore_cloud)
-│   ├── ~/my-pai-cloud-solution/      # Deployed project code
+│   ├── ~/projects/my-pai-cloud-solution/      # Deployed project code
 │   │   ├── src/                       # TypeScript bridge + helpers
 │   │   ├── scripts/                   # Deployment & maintenance
 │   │   └── systemd/                   # Service definitions
@@ -194,7 +194,7 @@ One-shot invocations for scheduled work:
 
 ```bash
 # Every 4 hours: check Claude OAuth health
-0 */4 * * * /home/isidore_cloud/my-pai-cloud-solution/scripts/auth-health-check.sh
+0 */4 * * * /home/isidore_cloud/projects/my-pai-cloud-solution/scripts/auth-health-check.sh
 ```
 
 Cron jobs use `claude -p "task"` (no `--resume` — fresh context each time).
@@ -443,7 +443,7 @@ Host isidore_cloud
 
 **isidore-cloud-bridge.service** — The Telegram bridge:
 - Runs as: `isidore_cloud:isidore_cloud`
-- WorkingDirectory: `~/my-pai-cloud-solution`
+- WorkingDirectory: `~/projects/my-pai-cloud-solution`
 - Command: `bun run src/bridge.ts`
 - EnvironmentFile: `~/.config/isidore_cloud/bridge.env`
 - Restart: always (on failure)
@@ -468,7 +468,7 @@ ssh isidore_cloud 'sudo journalctl -u isidore-cloud-bridge -f'
 ### Cron Jobs
 
 ```
-0 */4 * * * /home/isidore_cloud/my-pai-cloud-solution/scripts/auth-health-check.sh
+0 */4 * * * /home/isidore_cloud/projects/my-pai-cloud-solution/scripts/auth-health-check.sh
 ```
 
 Checks Claude OAuth token health every 4 hours. If auth fails, logs to `~/.claude/auth-health.log`.
@@ -588,7 +588,7 @@ This rsyncs the project, installs npm deps, copies systemd services, and (re)sta
 ```bash
 ssh isidore_cloud
 mkdir -p ~/.config/isidore_cloud
-cp ~/my-pai-cloud-solution/bridge.env.example ~/.config/isidore_cloud/bridge.env
+cp ~/projects/my-pai-cloud-solution/bridge.env.example ~/.config/isidore_cloud/bridge.env
 nano ~/.config/isidore_cloud/bridge.env
 # Set TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_USER_ID
 ```
@@ -634,7 +634,7 @@ ssh isidore_cloud 'git clone git@github.com:your-username/pai-knowledge.git ~/pa
 scripts/sync-knowledge.sh push
 
 # Pull on VPS
-ssh isidore_cloud 'CLAUDE_DIR=~/.claude bash ~/my-pai-cloud-solution/scripts/sync-knowledge.sh pull'
+ssh isidore_cloud 'CLAUDE_DIR=~/.claude bash ~/projects/my-pai-cloud-solution/scripts/sync-knowledge.sh pull'
 ```
 
 #### 8. Verify Everything
@@ -652,7 +652,7 @@ ssh isidore_cloud 'sudo systemctl status isidore-cloud-tmux'    # → active
 # → Send a message to your bot, expect a response
 
 # Knowledge sync works
-ssh isidore_cloud 'CLAUDE_DIR=~/.claude bash ~/my-pai-cloud-solution/scripts/sync-knowledge.sh pull'
+ssh isidore_cloud 'CLAUDE_DIR=~/.claude bash ~/projects/my-pai-cloud-solution/scripts/sync-knowledge.sh pull'
 ssh isidore_cloud 'ls ~/.claude/MEMORY/RELATIONSHIP/'  # → dated files
 
 # GitHub access (VPS)

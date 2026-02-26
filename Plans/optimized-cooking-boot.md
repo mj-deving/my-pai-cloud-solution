@@ -128,12 +128,12 @@ All files in `/home/mj/projects/my-pai-cloud-solution/`:
 # After all file renames/edits done locally:
 rsync -avz -e "ssh -i ~/.ssh/id_ed25519_isidore_cloud" \
   /home/mj/projects/my-pai-cloud-solution/ \
-  isidore_cloud:~/my-pai-cloud-solution/ \
+  isidore_cloud:~/projects/my-pai-cloud-solution/ \
   --exclude='node_modules/' --exclude='.git/' --exclude='*.env'
 
 # Deploy new systemd services
-ssh isidore_cloud 'sudo cp ~/my-pai-cloud-solution/systemd/isidore-cloud-bridge.service /etc/systemd/system/ && \
-  sudo cp ~/my-pai-cloud-solution/systemd/isidore-cloud-tmux.service /etc/systemd/system/ && \
+ssh isidore_cloud 'sudo cp ~/projects/my-pai-cloud-solution/systemd/isidore-cloud-bridge.service /etc/systemd/system/ && \
+  sudo cp ~/projects/my-pai-cloud-solution/systemd/isidore-cloud-tmux.service /etc/systemd/system/ && \
   sudo rm -f /etc/systemd/system/isidore-bridge.service /etc/systemd/system/isidore-tmux.service && \
   sudo systemctl daemon-reload && \
   sudo systemctl enable --now isidore-cloud-bridge isidore-cloud-tmux'

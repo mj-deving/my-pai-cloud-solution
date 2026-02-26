@@ -39,17 +39,29 @@ export function compactFormat(raw: string): string {
   // Trim
   text = text.trim();
 
-  // If still too verbose (>2000 chars), try to extract the voice summary
-  if (text.length > 2000) {
-    const voiceLine = text.match(/🗣️ Isidore(?:\s+Cloud)?: (.+)/);
-    const taskLine = text.match(/🗒️ TASK: (.+)/);
+  // Remove Algorithm phase content that's not user-facing
+  // (OBSERVE reverse engineering, THINK pressure test, PLAN strategy, etc.)
+  text = text.replace(/🔎 \*\*REVERSE ENGINEERING\*\*[\s\S]*?(?=\n##|\n━━━|\n🗣️|$)/g, "");
+  text = text.replace(/🔬 \*\*PRESSURE TEST\*\*[\s\S]*?(?=\n##|\n━━━|\n🗣️|$)/g, "");
+  text = text.replace(/📋 \*\*PLAN MODE[\s\S]*?(?=\n##|\n━━━|\n🗣️|$)/g, "");
+  text = text.replace(/📋 \*\*PREREQUISITE[\s\S]*?(?=\n##|\n━━━|\n🗣️|$)/g, "");
+  text = text.replace(/📋 \*\*EXECUTION STRATEGY[\s\S]*?(?=\n##|\n━━━|\n🗣️|$)/g, "");
+  text = text.replace(/📋 \*\*FILE-EDIT MANIFEST[\s\S]*?(?=\n##|\n━━━|\n🗣️|$)/g, "");
+  text = text.replace(/🔍 \*\*VERIFICATION PLAN[\s\S]*?(?=\n##|\n━━━|\n🗣️|$)/g, "");
+  text = text.replace(/🔍 \*\*ALGORITHM REFLECTION[\s\S]*?(?=\n##|\n━━━|\n🗣️|$)/g, "");
+  text = text.replace(/📝 \*\*ISC MUTATIONS[\s\S]*?(?=\n##|\n━━━|\n🗣️|$)/g, "");
+  text = text.replace(/🔍 \*\*MECHANICAL VERIFICATION[\s\S]*?(?=\n##|\n━━━|\n🗣️|$)/g, "");
+  text = text.replace(/📝 \*\*LEARNING:[\s\S]*?(?=\n🗣️|$)/g, "");
 
-    if (voiceLine) {
-      // Find the main content between BUILD/EXECUTE and VERIFY
-      const sections = extractKeyContent(text);
-      text = sections || voiceLine[1] || text;
-    }
-  }
+  // Remove TASK line (already shown as context)
+  text = text.replace(/🗒️ TASK:.*\n?/g, "");
+
+  // Remove blank line runs again after all stripping
+  text = text.replace(/\n{3,}/g, "\n\n");
+  text = text.trim();
+
+  // Note: don't truncate here — let chunkMessage() handle splitting
+  // for Telegram's 4096 char limit. Preserving full content > losing it.
 
   return text;
 }

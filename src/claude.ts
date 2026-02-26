@@ -54,6 +54,12 @@ export class ClaudeInvoker {
       clearTimeout(timeout);
 
       if (exitCode !== 0) {
+        // If session ID is stale/expired, clear it and retry without --resume
+        if (sessionId && stderr.includes("No conversation found with session ID")) {
+          console.warn(`[claude] Stale session ${sessionId.slice(0, 8)}..., clearing and retrying fresh`);
+          await this.sessions.newSession();
+          return this.send(message);
+        }
         return {
           sessionId: sessionId || "",
           result: "",

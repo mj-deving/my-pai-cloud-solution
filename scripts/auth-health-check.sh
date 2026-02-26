@@ -1,7 +1,7 @@
 #!/bin/bash
 # auth-health-check.sh — Check Claude Code OAuth token validity
 # Run via cron every 4 hours. Alerts via Telegram bot on failure.
-# Usage: crontab: 0 */4 * * * /home/isidore_cloud/my-pai-cloud-solution/scripts/auth-health-check.sh
+# Usage: crontab: 0 */4 * * * /home/isidore_cloud/projects/my-pai-cloud-solution/scripts/auth-health-check.sh
 
 set -euo pipefail
 

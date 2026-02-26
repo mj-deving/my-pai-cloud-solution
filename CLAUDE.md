@@ -65,6 +65,7 @@ PAI cloud infrastructure solution — deploys Isidore Cloud to a VPS for 24/7 ac
 - **SSH key:** `~/.ssh/id_ed25519_isidore_cloud`
 - **Linux user:** `isidore_cloud`
 - **Home dir:** `/home/isidore_cloud/`
+- **Project dir:** `/home/isidore_cloud/projects/my-pai-cloud-solution/`
 - **Config:** `/home/isidore_cloud/.config/isidore_cloud/bridge.env`
 - **Claude binary:** `/home/isidore_cloud/.npm-global/bin/claude`
 
@@ -72,7 +73,7 @@ PAI cloud infrastructure solution — deploys Isidore Cloud to a VPS for 24/7 ac
 
 <!-- Update this section at the end of each session -->
 
-**Status:** 13/14 ISC passing (C6 email deferred), naming renamed to isidore_cloud
+**Status:** All ISC passing (C6 email deferred), knowledge sync working, VPS directories restructured
 **Last session:** 2026-02-26
-**Completed:** VPS user (isidore_cloud), SSH key, Claude CLI, Bun, PAI skills, tmux, cron, bridge, knowledge sync
-**Next steps:** Email bridge (C6) when Marius provides IMAP/SMTP details
+**Completed:** VPS user, SSH, Claude CLI, Bun, PAI skills, tmux, cron, bridge, knowledge sync, GitHub PAT, ARCHITECTURE.md
+**Next steps:** Knowledge sync hooks (auto push/pull), email bridge (C6), VPS CLAUDE.local.md

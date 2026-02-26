@@ -178,7 +178,7 @@ After=network.target
 [Service]
 Type=simple
 User=isidore_cloud
-WorkingDirectory=/home/isidore_cloud/my-pai-cloud-solution
+WorkingDirectory=/home/isidore_cloud/projects/my-pai-cloud-solution
 ExecStart=/home/isidore_cloud/.bun/bin/bun run src/bridge.ts
 Restart=always
 RestartSec=5
@@ -218,7 +218,7 @@ WantedBy=multi-user.target
 - Crontab for `isidore_cloud` user
 - Cron jobs use `claude -p` (one-shot, separate sessions)
 - Interactive session reserved for Marius's direct use
-- Template: `0 8 * * * /home/isidore_cloud/my-pai-cloud-solution/scripts/run-task.sh "morning briefing"`
+- Template: `0 8 * * * /home/isidore_cloud/projects/my-pai-cloud-solution/scripts/run-task.sh "morning briefing"`
 
 ## IDEAL STATE CRITERIA (Verification Criteria)
 
