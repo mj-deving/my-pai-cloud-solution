@@ -6,6 +6,7 @@ import { SessionManager } from "./session";
 import { ClaudeInvoker } from "./claude";
 import { ProjectManager } from "./projects";
 import { createTelegramBot } from "./telegram";
+import { escMd } from "./format";
 import { PipelineWatcher } from "./pipeline";
 import { ReversePipelineWatcher } from "./reverse-pipeline";
 import { TaskOrchestrator } from "./orchestrator";
@@ -97,9 +98,9 @@ async function main() {
       const msg =
         `**Delegation result** (${status})\n` +
         `Task: \`${taskId.slice(0, 8)}...\`\n` +
-        (delegation.project ? `Project: ${delegation.project}\n` : "") +
-        `Prompt: ${delegation.prompt}\n\n` +
-        summary;
+        (delegation.project ? `Project: ${escMd(delegation.project)}\n` : "") +
+        `Prompt: ${escMd(delegation.prompt)}\n\n` +
+        escMd(summary);
       try {
         await bot.api.sendMessage(config.telegramAllowedUserId, msg, {
           parse_mode: "Markdown",
@@ -113,7 +114,7 @@ async function main() {
     const recovered = await reversePipeline.loadPending();
     if (recovered.length > 0) {
       const lines = recovered.map(
-        (d) => `- \`${d.taskId.slice(0, 8)}...\` ${d.prompt}`,
+        (d) => `- \`${d.taskId.slice(0, 8)}...\` ${escMd(d.prompt)}`,
       );
       try {
         await bot.api.sendMessage(

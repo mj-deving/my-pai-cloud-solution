@@ -8,6 +8,7 @@ import type { Config } from "./config";
 import type { ClaudeInvoker } from "./claude";
 import type { ReversePipelineWatcher } from "./reverse-pipeline";
 import type { PipelineTask } from "./pipeline";
+import { escMd } from "./format";
 import type { BranchManager } from "./branch-manager";
 
 // --- Types ---
@@ -457,9 +458,9 @@ export class TaskOrchestrator {
 
     await this.notify(
       `**Workflow failed**\nID: \`${workflowId.slice(0, 8)}...\`\n` +
-        `Description: ${wf.description}\n` +
+        `Description: ${escMd(wf.description)}\n` +
         `Failed step: ${step.id} (${step.assignee})\n` +
-        `Error: ${error}`,
+        `Error: ${escMd(error)}`,
     );
   }
 
@@ -503,7 +504,7 @@ export class TaskOrchestrator {
 
     await this.notify(
       `**Workflow timed out**\nID: \`${wf.id.slice(0, 8)}...\`\n` +
-        `Description: ${wf.description}\n` +
+        `Description: ${escMd(wf.description)}\n` +
         `Completed: ${completed.length}/${wf.steps.length} steps\n` +
         `Timed out: ${timedOut.map((s) => s.id).join(", ")}`,
     );
@@ -527,7 +528,7 @@ export class TaskOrchestrator {
 
     await this.notify(
       `**Workflow ${status}**\nID: \`${wf.id.slice(0, 8)}...\`\n` +
-        `Description: ${wf.description}\n` +
+        `Description: ${escMd(wf.description)}\n` +
         `Steps: ${completed}/${wf.steps.length} completed`,
     );
   }

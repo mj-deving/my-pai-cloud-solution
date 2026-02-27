@@ -87,6 +87,11 @@ function extractKeyContent(text: string): string | null {
   return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
+// Escape special characters for Telegram Markdown (v1) in untrusted text
+export function escMd(text: string): string {
+  return text.replace(/([_*`\[])/g, "\\$1");
+}
+
 // Chunk a message into Telegram-safe pieces (< maxSize chars)
 export function chunkMessage(text: string, maxSize: number): string[] {
   if (text.length <= maxSize) return [text];
