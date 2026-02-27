@@ -7,6 +7,7 @@ import { ClaudeInvoker } from "./claude";
 import { ProjectManager } from "./projects";
 import { createTelegramBot } from "./telegram";
 import { PipelineWatcher } from "./pipeline";
+import { ReversePipelineWatcher } from "./reverse-pipeline";
 
 async function main() {
   console.log("[bridge] Starting Isidore Cloud communication bridge...");
@@ -43,8 +44,56 @@ async function main() {
     console.log(`[bridge] Restored project: ${activeProject.displayName} (${path || "no local path"})`);
   }
 
-  // Start Telegram bot
-  const bot = createTelegramBot(config, claude, sessions, projectManager);
+  // Initialize reverse pipeline watcher (Isidore → Gregor delegation)
+  let reversePipeline: ReversePipelineWatcher | null = null;
+  if (config.reversePipelineEnabled) {
+    reversePipeline = new ReversePipelineWatcher(config);
+  } else {
+    console.log("[bridge] Reverse pipeline disabled (REVERSE_PIPELINE_ENABLED=0)");
+  }
+
+  // Start Telegram bot (pass reverse pipeline for /delegate command)
+  const bot = createTelegramBot(config, claude, sessions, projectManager, reversePipeline);
+
+  // Wire reverse pipeline result callback → Telegram notification
+  if (reversePipeline) {
+    reversePipeline.setResultCallback(async (taskId, result, delegation) => {
+      const status = result.status === "completed" ? "completed" : "failed";
+      const summary = result.result?.slice(0, 500) || result.error || "no output";
+      const msg =
+        `**Delegation result** (${status})\n` +
+        `Task: \`${taskId.slice(0, 8)}...\`\n` +
+        (delegation.project ? `Project: ${delegation.project}\n` : "") +
+        `Prompt: ${delegation.prompt}\n\n` +
+        summary;
+      try {
+        await bot.api.sendMessage(config.telegramAllowedUserId, msg, {
+          parse_mode: "Markdown",
+        });
+      } catch (err) {
+        console.error(`[bridge] Failed to send delegation result notification: ${err}`);
+      }
+    });
+
+    // Recover in-flight delegations from before restart
+    const recovered = await reversePipeline.loadPending();
+    if (recovered.length > 0) {
+      const lines = recovered.map(
+        (d) => `- \`${d.taskId.slice(0, 8)}...\` ${d.prompt}`,
+      );
+      try {
+        await bot.api.sendMessage(
+          config.telegramAllowedUserId,
+          `**Recovered ${recovered.length} in-flight delegation(s) from before restart:**\n${lines.join("\n")}`,
+          { parse_mode: "Markdown" },
+        );
+      } catch (err) {
+        console.error(`[bridge] Failed to send recovery notification: ${err}`);
+      }
+    }
+
+    reversePipeline.start();
+  }
 
   // Start pipeline watcher (cross-user task queue)
   let pipeline: PipelineWatcher | null = null;
@@ -58,6 +107,7 @@ async function main() {
   // Graceful shutdown
   const shutdown = async () => {
     console.log("[bridge] Shutting down...");
+    reversePipeline?.stop();
     pipeline?.stop();
     bot.stop();
     process.exit(0);

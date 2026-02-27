@@ -6,6 +6,7 @@ import type { Config } from "./config";
 import type { ClaudeInvoker } from "./claude";
 import type { SessionManager } from "./session";
 import type { ProjectManager } from "./projects";
+import type { ReversePipelineWatcher } from "./reverse-pipeline";
 import { compactFormat, chunkMessage } from "./format";
 import { lightweightWrapup } from "./wrapup";
 
@@ -14,6 +15,7 @@ export function createTelegramBot(
   claude: ClaudeInvoker,
   sessions: SessionManager,
   projects: ProjectManager,
+  reversePipeline?: ReversePipelineWatcher | null,
 ): Bot {
   const bot = new Bot(config.telegramBotToken);
 
@@ -51,7 +53,8 @@ export function createTelegramBot(
     msg += `/newproject <name> — Create new project\n`;
     msg += `/deleteproject <name> — Remove project from registry\n`;
     msg += `/compact — Compact context\n`;
-    msg += `/oneshot <msg> — One-shot (no session)`;
+    msg += `/oneshot <msg> — One-shot (no session)\n`;
+    msg += `/delegate <prompt> — Delegate task to Gregor`;
 
     await ctx.reply(msg);
   });
@@ -334,6 +337,37 @@ export function createTelegramBot(
     const chunks = chunkMessage(formatted, config.telegramMaxChunkSize);
     for (const chunk of chunks) {
       await ctx.reply(chunk);
+    }
+  });
+
+  // /delegate <prompt> — Delegate a task to Gregor via reverse pipeline
+  bot.command("delegate", async (ctx) => {
+    const prompt = ctx.match?.trim();
+    if (!prompt) {
+      await ctx.reply("Usage: /delegate <prompt>\nSends a task to Gregor via the reverse pipeline.");
+      return;
+    }
+
+    if (!reversePipeline) {
+      await ctx.reply("Reverse pipeline is not enabled. Set REVERSE_PIPELINE_ENABLED=1.");
+      return;
+    }
+
+    await ctx.replyWithChatAction("typing");
+
+    const activeProject = projects.getActiveProject();
+    const projectName = activeProject?.name;
+
+    try {
+      const taskId = await reversePipeline.delegateToGregor(prompt, projectName);
+      await ctx.reply(
+        `**Delegated to Gregor**\nTask: \`${taskId.slice(0, 8)}...\`\n` +
+          (projectName ? `Project: ${projectName}\n` : "") +
+          `Status: pending\n\nYou'll be notified when the result arrives.`,
+        { parse_mode: "Markdown" },
+      );
+    } catch (err) {
+      await ctx.reply(`Delegation failed: ${err}`);
     }
   });
 

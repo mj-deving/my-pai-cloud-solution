@@ -33,6 +33,10 @@ export interface Config {
   pipelinePollIntervalMs: number;
   pipelineMaxConcurrent: number; // Max simultaneous Claude dispatches
 
+  // Reverse pipeline (Isidore → Gregor delegation)
+  reversePipelineEnabled: boolean;
+  reversePipelinePollIntervalMs: number;
+
   // Limits
   telegramMaxChunkSize: number; // Telegram API limit is 4096
   maxClaudeTimeoutMs: number;
@@ -92,6 +96,11 @@ export function loadConfig(): Config {
     pipelineMaxConcurrent: process.env.PIPELINE_MAX_CONCURRENT
       ? parseInt(process.env.PIPELINE_MAX_CONCURRENT, 10)
       : 1, // Default 1 = backwards compatible sequential
+
+    reversePipelineEnabled: process.env.REVERSE_PIPELINE_ENABLED !== "0",
+    reversePipelinePollIntervalMs: process.env.REVERSE_PIPELINE_POLL_INTERVAL_MS
+      ? parseInt(process.env.REVERSE_PIPELINE_POLL_INTERVAL_MS, 10)
+      : 5_000,
 
     telegramMaxChunkSize: 4000, // Leave margin below 4096 API limit
     maxClaudeTimeoutMs: 5 * 60 * 1000, // 5 minutes max per invocation
