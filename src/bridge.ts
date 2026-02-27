@@ -84,8 +84,10 @@ async function main() {
     reversePipeline.setResultCallback(async (taskId, result, delegation) => {
       // Route workflow-associated results to orchestrator
       if (orchestrator && delegation.workflowId && delegation.stepId) {
+        // Tolerate handler writing 'summary' instead of 'result' (schema compat)
+        const resultText = result.result || (result as unknown as Record<string, unknown>).summary as string || "";
         if (result.status === "completed") {
-          await orchestrator.completeStep(delegation.workflowId, delegation.stepId, result.result || "");
+          await orchestrator.completeStep(delegation.workflowId, delegation.stepId, resultText);
         } else {
           await orchestrator.failStep(delegation.workflowId, delegation.stepId, result.error || "unknown error");
         }
@@ -94,7 +96,7 @@ async function main() {
 
       // Non-workflow results → direct Telegram notification
       const status = result.status === "completed" ? "completed" : "failed";
-      const summary = result.result?.slice(0, 500) || result.error || "no output";
+      const summary = result.result?.slice(0, 500) || (result as unknown as Record<string, unknown>).summary as string || result.error || "no output";
       const msg =
         `**Delegation result** (${status})\n` +
         `Task: \`${taskId.slice(0, 8)}...\`\n` +
