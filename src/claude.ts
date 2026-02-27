@@ -14,13 +14,26 @@ export interface ClaudeResponse {
   error?: string;
 }
 
+// Rate-limit error patterns in Claude CLI stderr
+const RATE_LIMIT_PATTERNS = ["rate_limit", "429", "overloaded", "Too many requests"];
+
+function isRateLimitError(stderr: string): boolean {
+  return RATE_LIMIT_PATTERNS.some((p) => stderr.includes(p));
+}
+
 export class ClaudeInvoker {
   private cwd?: string;
+  private rateLimiter?: { recordFailure(): void };
 
   constructor(
     private config: Config,
     private sessions: SessionManager,
   ) {}
+
+  // Phase 6A: Wire rate limiter for failure detection
+  setRateLimiter(rl: { recordFailure(): void }): void {
+    this.rateLimiter = rl;
+  }
 
   // Set the working directory for Claude invocations (project switching)
   setWorkingDirectory(path: string | undefined): void {
@@ -72,6 +85,10 @@ export class ClaudeInvoker {
       clearTimeout(timeout);
 
       if (exitCode !== 0) {
+        // Phase 6A: Detect rate-limit errors and record for cooldown
+        if (isRateLimitError(stderr)) {
+          this.rateLimiter?.recordFailure();
+        }
         // If session ID is stale/expired, clear it and retry without --resume
         if (sessionId && stderr.includes("No conversation found with session ID")) {
           console.warn(`[claude] Stale session ${sessionId.slice(0, 8)}..., clearing and retrying fresh`);
@@ -149,6 +166,75 @@ export class ClaudeInvoker {
       clearTimeout(timeout);
 
       if (exitCode !== 0) {
+        // Phase 6A: Detect rate-limit errors and record for cooldown
+        if (isRateLimitError(stderr)) {
+          this.rateLimiter?.recordFailure();
+        }
+        return {
+          sessionId: "",
+          result: "",
+          error: `Claude exited with code ${exitCode}: ${stderr.slice(0, 500)}`,
+        };
+      }
+
+      try {
+        const parsed = JSON.parse(stdout);
+        return {
+          sessionId: parsed.session_id || "",
+          result: parsed.result || stdout,
+          usage: parsed.usage,
+        };
+      } catch {
+        return { sessionId: "", result: stdout.trim() };
+      }
+    } catch (err) {
+      return {
+        sessionId: "",
+        result: "",
+        error: `Failed to invoke Claude: ${err}`,
+      };
+    }
+  }
+
+  // Phase 6C: Quick one-shot with lightweight model (no session persistence)
+  async quickShot(message: string, model?: string): Promise<ClaudeResponse> {
+    const modelName = model || this.config.quickModel || "haiku";
+    const args = [
+      this.config.claudeBinary,
+      "-p",
+      message,
+      "--model",
+      modelName,
+      "--output-format",
+      "json",
+    ];
+
+    try {
+      const proc = Bun.spawn(args, {
+        stdout: "pipe",
+        stderr: "pipe",
+        cwd: this.cwd,
+        env: {
+          ...process.env,
+          ANTHROPIC_API_KEY: undefined,
+          SKIP_KNOWLEDGE_SYNC: "1",
+        },
+      });
+
+      const timeout = setTimeout(() => {
+        proc.kill();
+      }, this.config.maxClaudeTimeoutMs);
+
+      const stdout = await new Response(proc.stdout).text();
+      const stderr = await new Response(proc.stderr).text();
+      const exitCode = await proc.exited;
+
+      clearTimeout(timeout);
+
+      if (exitCode !== 0) {
+        if (isRateLimitError(stderr)) {
+          this.rateLimiter?.recordFailure();
+        }
         return {
           sessionId: "",
           result: "",

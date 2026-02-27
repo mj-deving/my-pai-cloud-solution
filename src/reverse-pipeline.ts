@@ -6,6 +6,7 @@ import { readdir, readFile, rename, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { Config } from "./config";
 import type { PipelineTask, PipelineResult } from "./pipeline";
+import type { Verifier } from "./verifier";
 
 // Serializable metadata for pending delegations — NO closures, NO functions
 export interface PendingDelegation {
@@ -30,6 +31,8 @@ export class ReversePipelineWatcher {
   private reverseResultsDir: string;
   private reverseAckDir: string;
   private pendingDelegations = new Map<string, PendingDelegation>();
+  // Phase 6B: optional verifier for Gregor result verification
+  private verifier: Verifier | null = null;
 
   constructor(
     private config: Config,
@@ -43,6 +46,11 @@ export class ReversePipelineWatcher {
   // Set callback after construction (allows bridge.ts to wire bot after init)
   setResultCallback(cb: ResultCallback): void {
     this.onResult = cb;
+  }
+
+  // Phase 6B: Set verifier for independent result verification
+  setVerifier(verifier: Verifier): void {
+    this.verifier = verifier;
   }
 
   // Reconstruct pending delegations from directory state after restart
@@ -199,6 +207,18 @@ export class ReversePipelineWatcher {
             `[reverse-pipeline] Result received for task ${result.taskId.slice(0, 8)}... (${result.status})` +
               (delegation ? "" : " [no matching delegation]"),
           );
+
+          // Phase 6B: Verify completed results before routing
+          if (this.verifier && result.status === "completed") {
+            const resultText = result.result || (result as unknown as Record<string, unknown>).summary as string || "";
+            const promptText = delegation?.prompt || "unknown";
+            const verification = await this.verifier.verify(promptText, resultText);
+            if (!verification.passed) {
+              console.warn(`[reverse-pipeline] Verification failed for ${result.taskId.slice(0, 8)}...: ${verification.concerns}`);
+              result.status = "error";
+              result.error = `Verification failed: ${verification.concerns || verification.verdict}`;
+            }
+          }
 
           // Notify via callback
           if (this.onResult) {

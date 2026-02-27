@@ -46,6 +46,23 @@ export interface Config {
   branchIsolationEnabled: boolean;
   branchIsolationStaleLockMaxMs: number; // Max age before stale lock cleanup
 
+  // Resource guard (Phase 6A)
+  resourceGuardEnabled: boolean;
+  resourceGuardMemoryThresholdMb: number;
+
+  // Rate limiter (Phase 6A)
+  rateLimiterEnabled: boolean;
+  rateLimiterFailureThreshold: number;
+  rateLimiterWindowMs: number;
+  rateLimiterCooldownMs: number;
+
+  // Verifier (Phase 6B)
+  verifierEnabled: boolean;
+  verifierTimeoutMs: number;
+
+  // Quick model (Phase 6C)
+  quickModel: string;
+
   // Limits
   telegramMaxChunkSize: number; // Telegram API limit is 4096
   maxClaudeTimeoutMs: number;
@@ -123,6 +140,29 @@ export function loadConfig(): Config {
     branchIsolationStaleLockMaxMs: process.env.BRANCH_ISOLATION_STALE_LOCK_MAX_MS
       ? parseInt(process.env.BRANCH_ISOLATION_STALE_LOCK_MAX_MS, 10)
       : 60 * 60 * 1000, // 1 hour
+
+    resourceGuardEnabled: process.env.RESOURCE_GUARD_ENABLED !== "0",
+    resourceGuardMemoryThresholdMb: process.env.RESOURCE_GUARD_MEMORY_THRESHOLD_MB
+      ? parseInt(process.env.RESOURCE_GUARD_MEMORY_THRESHOLD_MB, 10)
+      : 512,
+
+    rateLimiterEnabled: process.env.RATE_LIMITER_ENABLED !== "0",
+    rateLimiterFailureThreshold: process.env.RATE_LIMITER_FAILURE_THRESHOLD
+      ? parseInt(process.env.RATE_LIMITER_FAILURE_THRESHOLD, 10)
+      : 3,
+    rateLimiterWindowMs: process.env.RATE_LIMITER_WINDOW_MS
+      ? parseInt(process.env.RATE_LIMITER_WINDOW_MS, 10)
+      : 300_000, // 5 minutes
+    rateLimiterCooldownMs: process.env.RATE_LIMITER_COOLDOWN_MS
+      ? parseInt(process.env.RATE_LIMITER_COOLDOWN_MS, 10)
+      : 3_600_000, // 60 minutes
+
+    verifierEnabled: process.env.VERIFIER_ENABLED !== "0",
+    verifierTimeoutMs: process.env.VERIFIER_TIMEOUT_MS
+      ? parseInt(process.env.VERIFIER_TIMEOUT_MS, 10)
+      : 30_000, // 30 seconds
+
+    quickModel: process.env.QUICK_MODEL || "haiku",
 
     telegramMaxChunkSize: 4000, // Leave margin below 4096 API limit
     maxClaudeTimeoutMs: 5 * 60 * 1000, // 5 minutes max per invocation

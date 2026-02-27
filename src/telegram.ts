@@ -10,6 +10,7 @@ import type { ReversePipelineWatcher } from "./reverse-pipeline";
 import type { TaskOrchestrator } from "./orchestrator";
 import type { PipelineWatcher } from "./pipeline";
 import type { BranchManager } from "./branch-manager";
+import type { RateLimiter } from "./rate-limiter";
 import { compactFormat, chunkMessage } from "./format";
 import { lightweightWrapup } from "./wrapup";
 
@@ -21,6 +22,7 @@ export function createTelegramBot(
   reversePipeline?: ReversePipelineWatcher | null,
   orchestrator?: TaskOrchestrator | null,
   branchManager?: BranchManager | null,
+  rateLimiter?: RateLimiter | null,
 ): Bot {
   const bot = new Bot(config.telegramBotToken);
 
@@ -59,6 +61,7 @@ export function createTelegramBot(
     msg += `/deleteproject <name> — Remove project from registry\n`;
     msg += `/compact — Compact context\n`;
     msg += `/oneshot <msg> — One-shot (no session)\n`;
+    msg += `/quick <msg> — Quick answer (lightweight model)\n`;
     msg += `/delegate <prompt> — Delegate task to Gregor\n`;
     msg += `/workflow create <prompt> — Create workflow\n`;
     msg += `/workflows — List workflows\n`;
@@ -351,6 +354,26 @@ export function createTelegramBot(
     }
   });
 
+  // /quick <message> — Quick answer using lightweight model (Phase 6C)
+  bot.command("quick", async (ctx) => {
+    const message = ctx.match;
+    if (!message) {
+      await ctx.reply("Usage: /quick <your message>\nUses a lightweight model for fast, cheap responses.");
+      return;
+    }
+    await ctx.replyWithChatAction("typing");
+    const response = await claude.quickShot(message);
+    if (response.error) {
+      await ctx.reply(`Error: ${response.error}`);
+      return;
+    }
+    const formatted = compactFormat(response.result);
+    const chunks = chunkMessage(formatted, config.telegramMaxChunkSize);
+    for (const chunk of chunks) {
+      await ctx.reply(chunk);
+    }
+  });
+
   // /delegate <prompt> — Delegate a task to Gregor via reverse pipeline
   bot.command("delegate", async (ctx) => {
     const prompt = ctx.match?.trim();
@@ -601,6 +624,21 @@ export function createTelegramBot(
       }
     } else {
       msg += `**Orchestrator:** disabled\n`;
+    }
+    msg += `\n`;
+
+    // Phase 6A: Rate limiter status
+    if (rateLimiter) {
+      const rlStatus = rateLimiter.getStatus();
+      msg += `**Rate Limiter:**\n`;
+      msg += `Status: ${rlStatus.paused ? "PAUSED (cooldown)" : "active"}\n`;
+      msg += `Recent failures: ${rlStatus.recentFailures}/${rlStatus.threshold}\n`;
+      if (rlStatus.paused && rlStatus.cooldownRemainingMs > 0) {
+        const remainMin = Math.ceil(rlStatus.cooldownRemainingMs / 60000);
+        msg += `Cooldown remaining: ~${remainMin}min\n`;
+      }
+    } else {
+      msg += `**Rate Limiter:** disabled\n`;
     }
 
     await ctx.reply(msg, { parse_mode: "Markdown" });

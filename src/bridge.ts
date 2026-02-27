@@ -11,6 +11,9 @@ import { PipelineWatcher } from "./pipeline";
 import { ReversePipelineWatcher } from "./reverse-pipeline";
 import { TaskOrchestrator } from "./orchestrator";
 import { BranchManager } from "./branch-manager";
+import { ResourceGuard } from "./resource-guard";
+import { RateLimiter } from "./rate-limiter";
+import { Verifier } from "./verifier";
 
 async function main() {
   console.log("[bridge] Starting Isidore Cloud communication bridge...");
@@ -76,8 +79,37 @@ async function main() {
     console.log("[bridge] Branch isolation disabled (BRANCH_ISOLATION_ENABLED=0)");
   }
 
+  // Phase 6A: Initialize resource guard
+  let resourceGuard: ResourceGuard | null = null;
+  if (config.resourceGuardEnabled) {
+    resourceGuard = new ResourceGuard(config);
+    const status = resourceGuard.getStatus();
+    console.log(`[bridge] Resource guard enabled (threshold: ${status.thresholdMb}MB, free: ${status.freeMb}MB)`);
+  } else {
+    console.log("[bridge] Resource guard disabled (RESOURCE_GUARD_ENABLED=0)");
+  }
+
+  // Phase 6A: Initialize rate limiter
+  let rateLimiter: RateLimiter | null = null;
+  if (config.rateLimiterEnabled) {
+    rateLimiter = new RateLimiter(config);
+    claude.setRateLimiter(rateLimiter);
+    console.log(`[bridge] Rate limiter enabled (threshold: ${config.rateLimiterFailureThreshold} failures in ${config.rateLimiterWindowMs / 1000}s)`);
+  } else {
+    console.log("[bridge] Rate limiter disabled (RATE_LIMITER_ENABLED=0)");
+  }
+
+  // Phase 6B: Initialize verifier
+  let verifier: Verifier | null = null;
+  if (config.verifierEnabled) {
+    verifier = new Verifier(config);
+    console.log(`[bridge] Verifier enabled (timeout: ${config.verifierTimeoutMs}ms)`);
+  } else {
+    console.log("[bridge] Verifier disabled (VERIFIER_ENABLED=0)");
+  }
+
   // Start Telegram bot (pass reverse pipeline, orchestrator, and pipeline watcher)
-  const bot = createTelegramBot(config, claude, sessions, projectManager, reversePipeline, orchestrator, branchManager);
+  const bot = createTelegramBot(config, claude, sessions, projectManager, reversePipeline, orchestrator, branchManager, rateLimiter);
 
   // Wire reverse pipeline result callback → orchestrator routing or Telegram notification
   if (reversePipeline) {
@@ -152,6 +184,41 @@ async function main() {
     console.log(`[bridge] Orchestrator ready (${count} workflow(s) recovered)`);
   }
 
+  // Phase 6A: Wire rate limiter events → Telegram notifications + orchestrator re-kick
+  if (rateLimiter) {
+    rateLimiter.onEvent((event) => {
+      const msg = event === "paused"
+        ? "**Rate limiter activated** — automated dispatch paused (cooldown active)"
+        : "**Rate limiter resumed** — automated dispatch active";
+      bot.api.sendMessage(config.telegramAllowedUserId, msg, { parse_mode: "Markdown" })
+        .catch((err: unknown) => console.error(`[bridge] Rate limiter notification error: ${err}`));
+
+      // On resume: kick orchestrator to retry deferred steps
+      if (event === "resumed" && orchestrator) {
+        for (const wf of orchestrator.getActiveWorkflows()) {
+          orchestrator.advanceWorkflow(wf.id).catch((err: unknown) => {
+            console.warn(`[bridge] Orchestrator re-kick error: ${err}`);
+          });
+        }
+      }
+    });
+
+    // Wire rate limiter to orchestrator
+    if (orchestrator) {
+      orchestrator.setRateLimiter(rateLimiter);
+    }
+  }
+
+  // Phase 6B: Wire verifier to orchestrator and reverse pipeline
+  if (verifier) {
+    if (orchestrator) {
+      orchestrator.setVerifier(verifier);
+    }
+    if (reversePipeline) {
+      reversePipeline.setVerifier(verifier);
+    }
+  }
+
   // Start pipeline watcher (cross-user task queue)
   let pipeline: PipelineWatcher | null = null;
   if (config.pipelineEnabled) {
@@ -164,6 +231,17 @@ async function main() {
     if (branchManager) {
       pipeline.setBranchManager(branchManager);
     }
+    // Phase 6A: Wire resource guard and rate limiter
+    if (resourceGuard) {
+      pipeline.setResourceGuard(resourceGuard);
+    }
+    if (rateLimiter) {
+      pipeline.setRateLimiter(rateLimiter);
+    }
+    // Phase 6B: Wire verifier
+    if (verifier) {
+      pipeline.setVerifier(verifier);
+    }
     pipeline.start();
   } else {
     console.log("[bridge] Pipeline watcher disabled (PIPELINE_ENABLED=0)");
@@ -172,6 +250,7 @@ async function main() {
   // Graceful shutdown
   const shutdown = async () => {
     console.log("[bridge] Shutting down...");
+    rateLimiter?.stop();
     reversePipeline?.stop();
     pipeline?.stop();
     bot.stop();

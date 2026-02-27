@@ -13,6 +13,9 @@ import { join } from "node:path";
 import type { Config } from "./config";
 import type { TaskOrchestrator } from "./orchestrator";
 import type { BranchManager } from "./branch-manager";
+import type { ResourceGuard } from "./resource-guard";
+import type { RateLimiter } from "./rate-limiter";
+import type { Verifier } from "./verifier";
 
 // Inbound task from the pipeline
 export interface PipelineTask {
@@ -84,6 +87,11 @@ export class PipelineWatcher {
   private orchestrator: TaskOrchestrator | null = null;
   // Phase 5C: optional branch manager for task-specific branches
   private branchManager: BranchManager | null = null;
+  // Phase 6A: optional resource guard and rate limiter
+  private resourceGuard: ResourceGuard | null = null;
+  private rateLimiter: RateLimiter | null = null;
+  // Phase 6B: optional verifier for independent result verification
+  private verifier: Verifier | null = null;
 
   constructor(private config: Config) {
     this.tasksDir = join(config.pipelineDir, "tasks");
@@ -116,6 +124,21 @@ export class PipelineWatcher {
     this.branchManager = branchManager;
   }
 
+  // Phase 6A: Set resource guard for memory-based dispatch gating
+  setResourceGuard(guard: ResourceGuard): void {
+    this.resourceGuard = guard;
+  }
+
+  // Phase 6A: Set rate limiter for failure-based cooldown
+  setRateLimiter(limiter: RateLimiter): void {
+    this.rateLimiter = limiter;
+  }
+
+  // Phase 6B: Set verifier for independent result verification
+  setVerifier(verifier: Verifier): void {
+    this.verifier = verifier;
+  }
+
   // Get pipeline status (for /pipeline dashboard)
   getStatus(): { active: number; max: number; inFlight: number } {
     return {
@@ -136,6 +159,9 @@ export class PipelineWatcher {
 
   // One poll cycle: scan tasks/, sort by priority, dispatch up to available slots
   private async poll(): Promise<void> {
+    // Phase 6A: Skip entire poll cycle if rate limiter is in cooldown
+    if (this.rateLimiter?.isPaused()) return;
+
     // How many slots are free?
     const availableSlots = this.maxConcurrent - this.activeCount;
     if (availableSlots <= 0) return; // All slots busy
@@ -183,6 +209,8 @@ export class PipelineWatcher {
       const batchProjects = new Set<string>();
       for (const entry of parsed) {
         if (batch.length >= availableSlots) break;
+        // Phase 6A: Stop batching if memory is too low
+        if (this.resourceGuard && !this.resourceGuard.canDispatch()) break;
         const project = entry.task.project || "";
         // Per-project lock: skip if this project already has an active or batched task
         if (project && (this.activeProjects.has(project) || batchProjects.has(project))) {
@@ -233,6 +261,18 @@ export class PipelineWatcher {
 
       // 1. Dispatch to Claude
       const result = await this.dispatch(task);
+
+      // Phase 6B: Verify completed results before writing
+      if (this.verifier && result.status === "completed") {
+        const { cwd } = await this.resolveCwd(task);
+        const verification = await this.verifier.verify(task.prompt, result.result || "", cwd);
+        if (!verification.passed) {
+          console.warn(`[pipeline] Verification failed for ${task.id}: ${verification.concerns}`);
+          result.status = "error";
+          result.error = `Verification failed: ${verification.concerns || verification.verdict}`;
+          result.warnings = [...(result.warnings || []), `Verifier: ${verification.verdict}`];
+        }
+      }
 
       // Phase 5C: Include branch in result
       if (taskBranch) {

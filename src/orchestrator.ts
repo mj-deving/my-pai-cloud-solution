@@ -10,6 +10,8 @@ import type { ReversePipelineWatcher } from "./reverse-pipeline";
 import type { PipelineTask } from "./pipeline";
 import { escMd } from "./format";
 import type { BranchManager } from "./branch-manager";
+import type { RateLimiter } from "./rate-limiter";
+import type { Verifier } from "./verifier";
 
 // --- Types ---
 
@@ -50,6 +52,8 @@ export class TaskOrchestrator {
   private workflows = new Map<string, Workflow>();
   private workflowsDir: string;
   private branchManager: BranchManager | null = null;
+  private rateLimiter: RateLimiter | null = null;
+  private verifier: Verifier | null = null;
 
   constructor(
     private config: Config,
@@ -62,6 +66,16 @@ export class TaskOrchestrator {
 
   setBranchManager(branchManager: BranchManager): void {
     this.branchManager = branchManager;
+  }
+
+  // Phase 6A: Set rate limiter for dispatch gating
+  setRateLimiter(limiter: RateLimiter): void {
+    this.rateLimiter = limiter;
+  }
+
+  // Phase 6B: Set verifier for step result verification
+  setVerifier(verifier: Verifier): void {
+    this.verifier = verifier;
   }
 
   setNotifyCallback(cb: NotifyCallback): void {
@@ -352,6 +366,15 @@ export class TaskOrchestrator {
   // --- Step dispatch ---
 
   private async dispatchStep(wf: Workflow, step: WorkflowStep): Promise<void> {
+    // Phase 6A: Defer if rate limiter is in cooldown
+    if (this.rateLimiter?.isPaused()) {
+      console.log(`[orchestrator] Deferring ${step.id} — rate limiter paused`);
+      step.status = "pending";
+      step.startedAt = undefined;
+      await this.saveWorkflow(wf);
+      return;
+    }
+
     console.log(
       `[orchestrator] Dispatching ${step.id} (${step.assignee}) in workflow ${wf.id.slice(0, 8)}...`,
     );
@@ -416,6 +439,16 @@ export class TaskOrchestrator {
 
     const step = wf.steps.find((s) => s.id === stepId);
     if (!step || step.status === "completed") return; // Idempotent
+
+    // Phase 6B: Verify result before marking complete
+    if (this.verifier) {
+      const verification = await this.verifier.verify(step.prompt, result);
+      if (!verification.passed) {
+        console.warn(`[orchestrator] Verification failed for ${stepId}: ${verification.concerns}`);
+        await this.failStep(workflowId, stepId, `Verification failed: ${verification.concerns || verification.verdict}`);
+        return;
+      }
+    }
 
     step.status = "completed";
     step.result = result.slice(0, 2000); // Cap stored result size
