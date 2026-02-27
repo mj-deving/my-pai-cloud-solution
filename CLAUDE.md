@@ -58,9 +58,36 @@ Telegram message → Grammy bot (telegram.ts)
 Gregor writes JSON → /var/lib/pai-pipeline/tasks/task.json
   → PipelineWatcher (pipeline.ts) polls every 5s
   → Reads task, resolves cwd (with fallback if project dir missing)
+  → Branch isolation: checkout pipeline/<taskId> branch (if enabled)
   → Bun.spawn: claude -p "prompt" --output-format json (one-shot, no session)
   → Writes result atomically (.tmp → rename) to results/
   → Moves task to ack/
+  → Branch isolation: release branch, return to main
+```
+
+### Reverse Pipeline (Isidore → Gregor delegation)
+
+```
+/delegate or orchestrator step (assignee: gregor)
+  → ReversePipelineWatcher writes JSON to reverse-tasks/
+  → Gregor's side picks up and executes
+  → Result written to reverse-results/
+  → ReversePipelineWatcher polls, reads result, routes:
+    - Workflow step → orchestrator.completeStep()/failStep()
+    - Standalone → Telegram notification
+```
+
+### Task Orchestrator (DAG workflows)
+
+```
+/workflow create "complex task"
+  → Claude one-shot decomposes into DAG steps
+  → Each step: {id, description, assignee, dependsOn}
+  → Orchestrator dispatches ready steps (all deps satisfied)
+  → Parallel execution where dependencies allow
+  → Isidore steps: local claude oneShot
+  → Gregor steps: reverse pipeline delegation
+  → Persists to workflows/*.json for crash recovery
 ```
 
 ### Key Design Decisions
@@ -71,6 +98,9 @@ Gregor writes JSON → /var/lib/pai-pipeline/tasks/task.json
 - **Hook suppression:** Bridge sets `SKIP_KNOWLEDGE_SYNC=1` in Claude's env to prevent hooks from firing on every `claude -p` invocation. Bridge handles sync explicitly via `/project` (pull) and `/done` (push).
 - **Auto-commit:** After each Telegram response, `lightweightWrapup()` runs `git add -u && git commit` with a 10-second timeout. Only tracked files — never `git add -A`.
 - **Atomic writes:** Pipeline results use write-to-tmp + rename pattern to prevent Gregor from reading partial files.
+- **Concurrency pool:** Pipeline processes up to `PIPELINE_MAX_CONCURRENT` tasks simultaneously with per-project locking.
+- **Branch isolation:** Pipeline tasks run on `pipeline/<taskId>` branches to prevent contamination of main. Wrapup has a branch guard.
+- **DAG orchestrator:** Workflows decomposed via Claude, validated for cycles and referential integrity. Steps dispatched as dependencies resolve.
 
 ### Module Responsibilities
 
@@ -81,10 +111,13 @@ Gregor writes JSON → /var/lib/pai-pipeline/tasks/task.json
 | `claude.ts` | `ClaudeInvoker` — spawns CLI, manages timeouts, handles stale session recovery |
 | `session.ts` | `SessionManager` — reads/writes/archives the active session ID file |
 | `projects.ts` | `ProjectManager` — project registry, handoff state, git sync, project creation |
-| `pipeline.ts` | `PipelineWatcher` — polls tasks/, dispatches to Claude, writes results, moves to ack/ |
+| `pipeline.ts` | `PipelineWatcher` — polls tasks/, dispatches to Claude, writes results, concurrency pool |
+| `reverse-pipeline.ts` | `ReversePipelineWatcher` — Isidore→Gregor delegation via reverse-tasks/results dirs |
+| `orchestrator.ts` | `TaskOrchestrator` — DAG workflow decomposition, step dispatch, crash recovery |
+| `branch-manager.ts` | `BranchManager` — task-specific branch checkout/release, lock persistence |
 | `config.ts` | `loadConfig()` — reads env vars with defaults, validates required fields |
-| `format.ts` | `compactFormat()` strips Algorithm phases; `chunkMessage()` splits for Telegram |
-| `wrapup.ts` | `lightweightWrapup()` — non-blocking git commit of tracked changes |
+| `format.ts` | `compactFormat()`, `chunkMessage()`, `escMd()` — formatting + Markdown escaping |
+| `wrapup.ts` | `lightweightWrapup()` — non-blocking git commit with branch guard |
 
 ## Cross-Instance Continuity
 
@@ -105,5 +138,5 @@ If `CLAUDE.handoff.md` exists in this directory, read it on session start. It co
 - **Linux user:** `isidore_cloud`
 - **Project dir:** `/home/isidore_cloud/projects/my-pai-cloud-solution/`
 - **Config:** `/home/isidore_cloud/.config/isidore_cloud/bridge.env`
-- **Pipeline:** `/var/lib/pai-pipeline/{tasks,results,ack}` — shared via `pai` group (setgid 2770)
-- **Services:** `isidore-cloud-bridge` (Telegram + pipeline), `isidore-cloud-tmux` (persistent tmux)
+- **Pipeline:** `/var/lib/pai-pipeline/{tasks,results,ack,reverse-tasks,reverse-results,reverse-ack,workflows}` — shared via `pai` group (setgid 2770)
+- **Services:** `isidore-cloud-bridge` (Telegram + pipeline + orchestrator), `isidore-cloud-tmux` (persistent tmux)

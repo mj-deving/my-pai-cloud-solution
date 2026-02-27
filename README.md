@@ -23,11 +23,17 @@ All channels share one conversation via a session ID file:
 
 ```
 src/
-  bridge.ts                # Main entry: Telegram + email polling
-  telegram.ts              # Telegram bot (Grammy)
-  claude.ts                # Claude CLI --resume wrapper
+  bridge.ts                # Main entry: wires Telegram + pipeline + orchestrator
+  telegram.ts              # Telegram bot (Grammy) — auth, commands, message forwarding
+  claude.ts                # Claude CLI --resume wrapper with timeout handling
   session.ts               # Shared session ID management
-  format.ts                # Compact mobile-friendly formatter
+  projects.ts              # Project registry, handoff state, git sync
+  pipeline.ts              # Cross-user task queue (Gregor → Isidore) with concurrency pool
+  reverse-pipeline.ts      # Reverse delegation (Isidore → Gregor)
+  orchestrator.ts          # DAG-based workflow decomposition and execution
+  branch-manager.ts        # Task-specific branch isolation with lock persistence
+  format.ts                # Compact mobile-friendly formatter + Markdown escaping
+  wrapup.ts                # Auto-commit tracked changes with branch guard
   config.ts                # Environment configuration
   isidore-cloud-session.ts # CLI session management tool
 scripts/
@@ -38,7 +44,7 @@ scripts/
   run-task.sh              # Cron: one-shot task runner
   sync-knowledge.sh        # Bidirectional knowledge sync (local <-> VPS)
 systemd/
-  isidore-cloud-bridge.service  # Telegram + email bridge service
+  isidore-cloud-bridge.service  # Telegram + pipeline + orchestrator service
   isidore-cloud-tmux.service    # Persistent tmux session
 ```
 

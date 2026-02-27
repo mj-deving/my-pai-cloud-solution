@@ -133,10 +133,15 @@ VPS: 213.199.32.18 (Ubuntu 24.04, Contabo)
 ├── Shared: /var/lib/pai-pipeline/     # Cross-user task queue (group: pai, mode: 2770)
 │   ├── tasks/                         # Incoming task files (written by Gregor)
 │   ├── results/                       # Result files (written by Isidore Cloud)
-│   └── ack/                           # Processed tasks (moved after completion)
+│   ├── ack/                           # Processed tasks (moved after completion)
+│   ├── reverse-tasks/                 # Delegation files (Isidore → Gregor)
+│   ├── reverse-results/               # Delegation results (Gregor → Isidore)
+│   ├── reverse-ack/                   # Processed reverse tasks
+│   ├── workflows/                     # Persisted orchestrator DAG workflows
+│   └── branch-locks.json             # Active branch isolation locks
 │
 └── Systemd services:
-    ├── isidore-cloud-bridge.service   # Telegram bot + pipeline watcher (always running)
+    ├── isidore-cloud-bridge.service   # Telegram bot + pipeline + orchestrator (always running)
     └── isidore-cloud-tmux.service     # Persistent tmux (for SSH sessions)
 ```
 
@@ -181,6 +186,14 @@ The Telegram bot (`@IsidoreCloudBot`) is the main way to talk to Isidore Cloud f
 - `/clear` — Archive current session and start fresh
 - `/compact` — Send `/compact` to Claude to compress context
 - `/oneshot <msg>` — One-shot query without session (for quick questions)
+- `/delegate <prompt>` — Delegate a task to Gregor via reverse pipeline
+- `/workflow create <prompt>` — Create a DAG workflow (auto-decomposes into steps)
+- `/workflow status [id]` — List all workflows or show specific workflow details
+- `/workflow <id>` — Show details for a specific workflow
+- `/workflows` — List all workflows with status
+- `/cancel <id>` — Cancel an active workflow
+- `/pipeline` — Dashboard: forward + reverse pipeline + workflow status
+- `/branches` — Show active branch isolation locks
 
 **Authentication:** Only one Telegram user ID is allowed (configured in `bridge.env`). All other users get "Unauthorized. This bot is private."
 
@@ -198,9 +211,9 @@ The tmux session persists across SSH disconnections. When you SSH in later, your
 
 **Session sharing:** Both tmux (interactive) and Telegram (programmatic) read/write the same session ID file. If you start a conversation in Telegram and then SSH in, `claude --resume` picks up the same conversation.
 
-### 3. Email (Planned — Phase 4)
+### 3. Email (Planned — C6)
 
-IMAP polling + SMTP response. Not yet implemented — waiting on email server credentials. The architecture is in place:
+IMAP polling + SMTP response. Not yet implemented — waiting on email server credentials from Marius. The architecture is in place:
 - `config.ts` already has all email configuration fields
 - `bridge.ts` has the placeholder for email polling
 - Same pattern: poll → invoke Claude → format → reply
@@ -224,14 +237,18 @@ The bridge is a single Bun process (`src/bridge.ts`) that orchestrates everythin
 
 ```
 bridge.ts (entry point)
-├── loadConfig()        → config.ts    — reads bridge.env, validates, returns typed config
-├── SessionManager      → session.ts   — reads/writes ~/.claude/active-session-id
-├── ClaudeInvoker       → claude.ts    — spawns claude CLI, handles timeouts, parses JSON
-├── ProjectManager      → projects.ts  — project registry, handoff state, git sync
-├── createTelegramBot() → telegram.ts  — Grammy bot with auth middleware + handlers
-├── PipelineWatcher     → pipeline.ts  — cross-user task queue for Gregor collaboration
-└── compactFormat()     → format.ts    — strips PAI Algorithm formatting for mobile
-    chunkMessage()      → format.ts    — splits long responses for Telegram's 4096 limit
+├── loadConfig()            → config.ts           — reads bridge.env, validates, returns typed config
+├── SessionManager          → session.ts          — reads/writes ~/.claude/active-session-id
+├── ClaudeInvoker           → claude.ts           — spawns claude CLI, handles timeouts, parses JSON
+├── ProjectManager          → projects.ts         — project registry, handoff state, git sync
+├── createTelegramBot()     → telegram.ts         — Grammy bot with auth middleware + handlers
+├── PipelineWatcher         → pipeline.ts         — cross-user task queue (Gregor → Isidore)
+├── ReversePipelineWatcher  → reverse-pipeline.ts — delegation queue (Isidore → Gregor)
+├── TaskOrchestrator        → orchestrator.ts     — DAG workflow decomposition + execution
+├── BranchManager           → branch-manager.ts   — task-specific branch isolation + locks
+├── compactFormat()         → format.ts           — strips PAI Algorithm formatting for mobile
+├── chunkMessage()          → format.ts           — splits long responses for Telegram's 4096 limit
+└── escMd()                 → format.ts           — escapes Markdown in notifications
 ```
 
 ### Message Flow (Telegram)
@@ -593,6 +610,13 @@ Pipeline settings in `config.ts`:
 | `PIPELINE_ENABLED` | `"1"` (enabled) | Set to `"0"` to disable the watcher |
 | `PIPELINE_DIR` | `/var/lib/pai-pipeline` | Root directory for the pipeline |
 | `PIPELINE_POLL_INTERVAL_MS` | `5000` | Milliseconds between poll cycles |
+| `PIPELINE_MAX_CONCURRENT` | `3` | Maximum tasks executing simultaneously |
+| `REVERSE_PIPELINE_ENABLED` | `"1"` (enabled) | Enable Isidore→Gregor delegation |
+| `ORCHESTRATOR_ENABLED` | `"1"` (enabled) | Enable DAG workflow orchestrator |
+| `ORCHESTRATOR_TIMEOUT_MS` | `1800000` (30min) | Workflow-level timeout |
+| `ORCHESTRATOR_MAX_DEPTH` | `3` | Maximum decomposition re-decomposition depth |
+| `BRANCH_ISOLATION_ENABLED` | `"1"` (enabled) | Enable task-specific branch isolation |
+| `BRANCH_ISOLATION_STALE_LOCK_MAX_MS` | `3600000` (1hr) | Max age before stale lock cleanup |
 
 ### Error Handling
 
@@ -605,6 +629,96 @@ Pipeline settings in `config.ts`:
 | Result file write fails | Logged, task not moved to ack (retried next cycle) |
 | Stale session ID in task | Retries without `--resume`, warning in result |
 | Pipeline directory missing | Poll logs warning, no crash |
+
+### Concurrency Pool (Phase 4)
+
+The pipeline supports concurrent task execution up to `PIPELINE_MAX_CONCURRENT` (default 3):
+
+- **`activeCount`** — Number of tasks currently executing
+- **`inFlight`** set — Task IDs being processed (prevents double-dispatch)
+- **`activeProjects`** set — Projects with running tasks (prevents concurrent writes to same repo)
+- **Session-project affinity** — In-memory Map prevents cross-project session contamination
+
+Tasks exceeding the concurrency limit wait until a slot opens. Per-project locking ensures only one task writes to a given project directory at a time.
+
+### Reverse Pipeline (Phase 5A — Isidore → Gregor Delegation)
+
+The reverse direction: Isidore Cloud delegates tasks to Gregor via `/delegate` or orchestrator workflow steps.
+
+```
+Isidore Cloud                              Gregor (openclaw user)
+┌───────────────────────┐                  ┌───────────────────────┐
+│ /delegate "prompt"    │                  │                       │
+│   or orchestrator     │                  │                       │
+│   step (gregor)       │                  │   Picks up task       │
+│   ▼                   │                  │   Executes            │
+│ Write JSON ───────────┼──► reverse-tasks │   ▼                   │
+│                       │                  │   Writes result       │
+│ ReversePipelineWatcher│                  │                       │
+│   polls reverse-results◄─── reverse-results                     │
+│   routes result:      │                  │                       │
+│   - workflow → orch.  │                  │                       │
+│   - standalone → TG   │                  │                       │
+└───────────────────────┘                  └───────────────────────┘
+```
+
+**Key design:**
+- `PendingDelegation` is fully serializable (no closures) — crash recovery via `loadPending()` directory scan
+- On restart, in-flight delegations are recovered and re-watched
+- Results for workflow steps route to `orchestrator.completeStep()`/`failStep()` instead of Telegram
+
+### Task Orchestrator (Phase 5B — DAG Workflows)
+
+Complex tasks can be decomposed into multi-step workflows with dependency ordering:
+
+```
+/workflow create "Add headers to all source files"
+  ▼
+Claude one-shot decomposes into steps:
+  step-001 (isidore) Read files to understand       [depends: none]
+  step-002 (isidore) Add headers to batch 1         [depends: step-001]
+  step-003 (isidore) Add headers to batch 2         [depends: step-001]
+  step-004 (gregor)  Verify + type check            [depends: step-002, step-003]
+  ▼
+Orchestrator dispatches ready steps:
+  - step-001 dispatched immediately
+  - step-002 + step-003 dispatched in parallel (after step-001 completes)
+  - step-004 delegated to Gregor via reverse pipeline (after 002+003)
+```
+
+**Architecture:**
+- **Decomposition** — Claude one-shot with structured prompt produces `{steps, dependsOn}` DAG
+- **Validation** — Cycle detection (DFS), referential integrity check, min/max step limits
+- **Dispatch** — `advanceWorkflow()` is idempotent; marks `in_progress` before spawning
+- **Persistence** — Workflows serialized to `workflows/*.json` for crash recovery
+- **Mixed assignees** — `isidore` steps run via local `claude oneShot`, `gregor` steps delegate via reverse pipeline
+- **Timeouts** — Configurable per-workflow timeout (default 30min), depth cap (default 3)
+- **Notifications** — Telegram messages for workflow creation, completion, failure, timeout
+
+**Commands:** `/workflow create`, `/workflow status`, `/workflow <id>`, `/workflows`, `/cancel <id>`
+
+### Branch Isolation (Phase 5C)
+
+Pipeline and orchestrator tasks run on isolated git branches to prevent contamination of `main`:
+
+```
+Task arrives → BranchManager.checkout(projectDir, taskId)
+  → git checkout -b pipeline/<taskId-prefix>
+  → Lock recorded in branch-locks.json (atomic write)
+  → Task executes on branch
+  → BranchManager.release(projectDir, taskId)
+  → git checkout main
+  → Lock removed
+```
+
+**Design decisions:**
+- **Branch naming:** `pipeline/<first-8-chars-of-taskId>` for readability
+- **Lock persistence:** `branch-locks.json` in pipeline dir, atomic writes via `.tmp` + `rename`
+- **Lock key:** `{projectDir}:{branch}` for multi-project support
+- **Wrapup guard:** `lightweightWrapup()` accepts optional `expectedBranch` — refuses to commit if on wrong branch
+- **Crash recovery:** Existing branches are reused (not error), stale locks cleaned on startup
+- **Orchestrator integration:** Isidore workflow steps also use branch isolation (`pipeline/<wfId>-<stepId>`)
+- **`/branches` command:** Shows active locks with source, project, task ID, and age
 
 ---
 
@@ -972,14 +1086,17 @@ ssh isidore_cloud 'ssh -T git@github.com'  # → "Hi your-username/pai-knowledge
 
 | File | Purpose | Key exports |
 |------|---------|-------------|
-| `bridge.ts` | Entry point. Loads config, initializes all components, starts Telegram + pipeline. | `main()` |
+| `bridge.ts` | Entry point. Loads config, initializes all components, wires callbacks, starts services. | `main()` |
 | `telegram.ts` | Grammy bot setup. Auth middleware, command handlers, message forwarding. | `createTelegramBot()` |
 | `claude.ts` | Claude CLI wrapper. Spawns `claude` with `--resume`, handles timeouts, parses JSON. | `ClaudeInvoker`, `ClaudeResponse` |
 | `session.ts` | Reads/writes the shared session ID file. Archives old sessions. | `SessionManager` |
 | `projects.ts` | Project registry, handoff state, git sync, project creation. | `ProjectManager`, `ProjectEntry` |
-| `pipeline.ts` | Cross-user task queue watcher. Polls tasks/, dispatches to Claude, writes results. | `PipelineWatcher`, `PipelineTask`, `PipelineResult` |
-| `wrapup.ts` | Lightweight auto-commit after each Telegram response (git add -u, 10s timeout). | `lightweightWrapup()` |
-| `format.ts` | Strips PAI Algorithm verbosity for mobile. Chunks messages for Telegram. | `compactFormat()`, `chunkMessage()` |
+| `pipeline.ts` | Cross-user task queue watcher with concurrency pool and branch isolation. | `PipelineWatcher`, `PipelineTask`, `PipelineResult` |
+| `reverse-pipeline.ts` | Isidore→Gregor delegation. Writes tasks, polls results, crash recovery. | `ReversePipelineWatcher`, `PendingDelegation` |
+| `orchestrator.ts` | DAG workflow decomposition via Claude, step dispatch, persistence. | `TaskOrchestrator`, `Workflow`, `WorkflowStep` |
+| `branch-manager.ts` | Task-specific branch creation, locking, release, stale cleanup. | `BranchManager`, `BranchLock` |
+| `wrapup.ts` | Auto-commit tracked changes with branch guard (refuses wrong branch). | `lightweightWrapup()` |
+| `format.ts` | Strips PAI Algorithm verbosity, chunks for Telegram, escapes Markdown. | `compactFormat()`, `chunkMessage()`, `escMd()` |
 | `config.ts` | Reads environment variables, validates required ones, returns typed config. | `Config`, `loadConfig()` |
 | `isidore-cloud-session.ts` | CLI tool for manual session management (inspect, clear, archive). | CLI script |
 
@@ -1073,25 +1190,29 @@ ssh isidore_cloud 'crontab -l'
 
 ## What's Next
 
-### Completed Since Last Architecture Update
+### Completed
 
-- **GitHub PAT for VPS** — Classic PAT with `repo` scope, authenticated via `gh auth`. Isidore Cloud can clone any repo, create repos, push/pull.
-- **VPS CLAUDE.local.md** — Isidore Cloud has self-awareness about its infrastructure, identity, and behaviors.
+- **GitHub PAT for VPS** — Classic PAT with `repo` scope, authenticated via `gh auth`.
+- **VPS CLAUDE.local.md** — Isidore Cloud has self-awareness about its infrastructure.
 - **Handoff protocol** — Full project registry, per-project sessions, `/project`, `/done`, `/handoff` commands.
 - **`/newproject` command** — Telegram-driven project creation (GitHub repo + VPS dir + scaffold + registry).
-- **Cross-user pipeline** — Gregor↔Isidore Cloud task queue with Layer 1 (shared dirs), Layer 2 (watcher), Layer 3 (sender scripts).
+- **Cross-user pipeline (Phase 3)** — Gregor↔Isidore Cloud task queue with shared dirs, watcher, sender scripts.
+- **Session-project affinity + structured results (Phase 2)** — Per-project session isolation, priority sorting.
+- **Parallel pipeline execution (Phase 4)** — Concurrency pool with per-project locking, `PIPELINE_MAX_CONCURRENT`.
+- **Reverse pipeline (Phase 5A)** — Isidore→Gregor delegation via `/delegate` command. Crash recovery via directory scan.
+- **Task orchestrator (Phase 5B)** — DAG workflow decomposition, parallel step dispatch, mixed isidore/gregor assignees. Persists to disk.
+- **Branch isolation (Phase 5C)** — Pipeline/orchestrator tasks run on `pipeline/<taskId>` branches. Lock persistence, wrapup branch guard, `/branches` command.
+- **UX fixes** — `/workflow status` subcommand, `escMd()` Markdown escaping in all notifications.
 
 ### Planned
 
 - **Email bridge (C6)** — IMAP polling + SMTP response. Architecture is in place, needs email server credentials from Marius.
-- **`/deleteproject` command** — Clean up test projects (GitHub repo + VPS dir + registry entry).
-- **Local path auto-detection** — When you first `/project` switch locally, auto-detect if the repo is cloned and set `paths.local`.
 
 ### Vision
 
 - **Full parity** — Isidore Cloud should be able to do everything local Isidore can (minus voice/browser), including working on repos, running tests, deploying code.
 - **Proactive behavior** — Cron-triggered tasks: daily summaries, project monitoring, automated maintenance.
-- **Gregor collaboration maturity** — Session-based pipeline tasks (multi-turn conversations), priority queuing, timeout handling on Gregor's side.
+- **Gregor collaboration maturity** — Gregor's side needs a watcher for reverse-tasks to complete the delegation loop.
 - **Multi-channel unified inbox** — Telegram, email, and future channels (Signal, Matrix?) all feed into one conversation.
 
 ---
@@ -1134,5 +1255,5 @@ Want to build this for your own AI assistant? Here's what you need:
 
 ---
 
-*Last updated: 2026-02-26 (handoff protocol, /newproject, cross-user pipeline)*
+*Last updated: 2026-02-27 (Phases 4-5C: concurrency, reverse pipeline, orchestrator, branch isolation)*
 *Author: Marius Jonathan Jauernik + Isidore (PAI)*

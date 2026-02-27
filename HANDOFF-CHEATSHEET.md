@@ -159,7 +159,7 @@ If `CLAUDE.handoff.md` exists in this directory, read it on session start.
 It contains the other instance's (local/Cloud) last session state.
 ```
 
-**Status:** NOT YET ADDED — needs your approval on approach.
+**Status:** Added to CLAUDE.md (see "Cross-Instance Continuity" section).
 
 ---
 
@@ -173,3 +173,10 @@ It contains the other instance's (local/Cloud) last session state.
 | `/handoff` | Same as /done + detailed status |
 | `/new` | Fresh Claude session (no project change) |
 | `/status` | Show active project + session info |
+| `/delegate <prompt>` | Delegate a task to Gregor via reverse pipeline |
+| `/workflow create <prompt>` | Create a multi-step DAG workflow |
+| `/workflow status [id]` | List all workflows or show one |
+| `/workflows` | List all workflows |
+| `/cancel <id>` | Cancel an active workflow |
+| `/pipeline` | Pipeline dashboard (forward + reverse + workflows) |
+| `/branches` | Show active branch isolation locks |
