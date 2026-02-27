@@ -186,6 +186,8 @@ The Telegram bot (`@IsidoreCloudBot`) is the main way to talk to Isidore Cloud f
 - `/clear` — Archive current session and start fresh
 - `/compact` — Send `/compact` to Claude to compress context
 - `/oneshot <msg>` — One-shot query without session (for quick questions)
+- `/quick <msg>` — Quick query using Haiku model (fast, cheap)
+- `/deleteproject <name>` — Remove a project from the registry
 - `/delegate <prompt>` — Delegate a task to Gregor via reverse pipeline
 - `/workflow create <prompt>` — Create a DAG workflow (auto-decomposes into steps)
 - `/workflow status [id]` — List all workflows or show specific workflow details
@@ -265,7 +267,7 @@ User message
     → Save real session ID from Claude's response
   → compactFormat(response)
     → Strip Algorithm headers, ISC gates, voice curls, time checks
-    → If still >2000 chars, extract voice summary + key content
+    → No truncation — chunkMessage() handles splitting
   → chunkMessage(formatted, 4000)
     → Split at paragraph → line → space → hard break boundaries
     → Add [1/N] part indicators
@@ -287,7 +289,7 @@ Claude Code with PAI runs the full Algorithm for every response — phase header
 
 **Preserved:**
 - The actual answer/content
-- Code blocks (up to 2 for space)
+- Code blocks (all preserved)
 - Voice summary line (`🗣️ Isidore Cloud: ...`)
 
 ---
@@ -331,7 +333,7 @@ If the session ID file points to a session that no longer exists (e.g., after a 
 Error: No conversation found with session ID: abc-123...
 ```
 
-**Fix:** Delete the file (`rm ~/.claude/active-session-id`) — the bridge will create a new session on the next message.
+**Auto-recovery:** The bridge detects this automatically (`claude.ts:93-97`), clears the stale session, and retries. No manual intervention needed. **Manual fallback:** Delete the file (`rm ~/.claude/active-session-id`) if auto-recovery fails.
 
 ---
 
@@ -515,7 +517,7 @@ Bridge startup
 - **Priority-sorted processing** — Tasks with `priority: "high"` are processed before `"normal"` (default), which are processed before `"low"`. Within the same priority level, earlier timestamps win. Priority ordering applies within a single poll batch — a running task is never interrupted.
 - **Atomic result writes** — Results are written to a `.tmp` file first, then renamed. Gregor never reads a partial result.
 - **Malformed JSON handling** — If a task file can't be parsed (e.g., still being written), it's skipped and retried on the next poll cycle. No crash, no data loss.
-- **Non-blocking** — A `processing` flag prevents overlapping poll cycles. The pipeline never blocks Telegram message handling.
+- **Non-blocking** — A concurrency pool (`activeCount`/`inFlight`/`activeProjects`) manages parallel dispatch. The pipeline never blocks Telegram message handling.
 - **cwd fallback** — If a task's `project` field points to a non-existent directory, the watcher falls back to `$HOME` and includes a warning in the result. Tasks still get processed.
 
 ### Layer 3 — Sender Scripts (Gregor Side)
@@ -614,13 +616,22 @@ Pipeline settings in `config.ts`:
 | `PIPELINE_ENABLED` | `"1"` (enabled) | Set to `"0"` to disable the watcher |
 | `PIPELINE_DIR` | `/var/lib/pai-pipeline` | Root directory for the pipeline |
 | `PIPELINE_POLL_INTERVAL_MS` | `5000` | Milliseconds between poll cycles |
-| `PIPELINE_MAX_CONCURRENT` | `3` | Maximum tasks executing simultaneously |
+| `PIPELINE_MAX_CONCURRENT` | `1` | Maximum tasks executing simultaneously |
 | `REVERSE_PIPELINE_ENABLED` | `"1"` (enabled) | Enable Isidore→Gregor delegation |
 | `ORCHESTRATOR_ENABLED` | `"1"` (enabled) | Enable DAG workflow orchestrator |
-| `ORCHESTRATOR_TIMEOUT_MS` | `1800000` (30min) | Workflow-level timeout |
-| `ORCHESTRATOR_MAX_DEPTH` | `3` | Maximum decomposition re-decomposition depth |
+| `ORCHESTRATOR_WORKFLOW_TIMEOUT_MS` | `1800000` (30min) | Workflow-level timeout |
+| `ORCHESTRATOR_MAX_DELEGATION_DEPTH` | `3` | Maximum decomposition re-decomposition depth |
 | `BRANCH_ISOLATION_ENABLED` | `"1"` (enabled) | Enable task-specific branch isolation |
 | `BRANCH_ISOLATION_STALE_LOCK_MAX_MS` | `3600000` (1hr) | Max age before stale lock cleanup |
+| `RESOURCE_GUARD_ENABLED` | `"1"` (enabled) | Enable memory-gated dispatch |
+| `RESOURCE_GUARD_MEMORY_THRESHOLD_MB` | `512` | Minimum free MB before dispatch blocked |
+| `RATE_LIMITER_ENABLED` | `"1"` (enabled) | Enable failure-rate circuit breaker |
+| `RATE_LIMITER_FAILURE_THRESHOLD` | `3` | Failures before cooldown triggers |
+| `RATE_LIMITER_WINDOW_MS` | `300000` (5min) | Sliding window for failure counting |
+| `RATE_LIMITER_COOLDOWN_MS` | `3600000` (60min) | Cooldown period after threshold breached |
+| `VERIFIER_ENABLED` | `"1"` (enabled) | Enable result verification via Claude one-shot |
+| `VERIFIER_TIMEOUT_MS` | `30000` (30s) | Timeout for verifier invocation |
+| `QUICK_MODEL` | `"haiku"` | Model used for `/quick` command |
 
 ### Error Handling
 
@@ -636,10 +647,10 @@ Pipeline settings in `config.ts`:
 
 ### Concurrency Pool (Phase 4)
 
-The pipeline supports concurrent task execution up to `PIPELINE_MAX_CONCURRENT` (default 3):
+The pipeline supports concurrent task execution up to `PIPELINE_MAX_CONCURRENT` (default 1, set to 8 on VPS):
 
 - **`activeCount`** — Number of tasks currently executing
-- **`inFlight`** set — Task IDs being processed (prevents double-dispatch)
+- **`inFlight`** set — Filenames being processed (prevents double-dispatch)
 - **`activeProjects`** set — Projects with running tasks (prevents concurrent writes to same repo)
 - **Session-project affinity** — In-memory Map prevents cross-project session contamination
 
@@ -692,7 +703,7 @@ Orchestrator dispatches ready steps:
 
 **Architecture:**
 - **Decomposition** — Claude one-shot with structured prompt produces `{steps, dependsOn}` DAG
-- **Validation** — Cycle detection (DFS), referential integrity check, min/max step limits
+- **Validation** — Cycle detection (Kahn's algorithm/BFS), referential integrity check, min/max step limits
 - **Dispatch** — `advanceWorkflow()` is idempotent; marks `in_progress` before spawning
 - **Persistence** — Workflows serialized to `workflows/*.json` for crash recovery
 - **Mixed assignees** — `isidore` steps run via local `claude oneShot`, `gregor` steps delegate via reverse pipeline
@@ -1103,7 +1114,11 @@ ssh isidore_cloud 'ssh -T git@github.com'  # → "Hi your-username/pai-knowledge
 | `wrapup.ts` | Auto-commit tracked changes with branch guard (refuses wrong branch). | `lightweightWrapup()` |
 | `format.ts` | Strips PAI Algorithm verbosity, chunks for Telegram, escapes Markdown. | `compactFormat()`, `chunkMessage()`, `escMd()` |
 | `config.ts` | Reads environment variables, validates required ones, returns typed config. | `Config`, `loadConfig()` |
+| `resource-guard.ts` | Memory-gated dispatch. Checks `os.freemem()` before allowing tasks. | `ResourceGuard` |
+| `rate-limiter.ts` | Sliding-window failure tracking with cooldown period. | `RateLimiter` |
+| `verifier.ts` | Result verification via separate Claude one-shot. Fail-open. | `Verifier` |
 | `isidore-cloud-session.ts` | CLI tool for manual session management (inspect, clear, archive). | CLI script |
+| `isidore-session.ts` | CLI helper (alternate usage string variant of session tool). | CLI script |
 
 ### Scripts (`scripts/`)
 
