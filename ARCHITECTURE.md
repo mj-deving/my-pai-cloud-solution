@@ -1282,4 +1282,4 @@ Want to build this for your own AI assistant? Here's what you need:
 ---
 
 *Last updated: 2026-02-27 (Phases 4-6D + per-task timeout, workflow-completion results, overnight queue support)*
-*Author: Marius Jonathan Jauernik + Isidore (PAI)*
+*Author: mj-deving + Isidore (PAI)*
