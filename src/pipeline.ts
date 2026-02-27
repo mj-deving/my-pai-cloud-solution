@@ -3,7 +3,7 @@
 // writes results to results/, moves processed tasks to ack/.
 //
 // Task schema (written by Gregor):
-//   { id, from, to, timestamp, type, priority, mode, project, prompt, context?, constraints?, session_id? }
+//   { id, from, to, timestamp, type, priority, mode, project, prompt, context?, constraints?, session_id?, timeout_minutes?, max_turns? }
 //
 // Result schema (written by this watcher):
 //   { id, taskId, from, to, timestamp, status, result, usage?, error?, warnings?, session_id? }
@@ -31,6 +31,8 @@ export interface PipelineTask {
   context?: Record<string, unknown>;
   constraints?: Record<string, unknown>;
   session_id?: string; // Resume a prior pipeline conversation
+  timeout_minutes?: number; // Per-task timeout (overrides global maxClaudeTimeoutMs)
+  max_turns?: number; // Pass --max-turns to Claude CLI
   // Phase 3: Escalation metadata — why Gregor escalated this task
   escalation?: {
     reason: string; // Why Gregor escalated
@@ -413,6 +415,11 @@ export class PipelineWatcher {
         args.push("--resume", task.session_id);
       }
 
+      // Pass --max-turns if task specifies it (e.g., overnight PRD runs)
+      if (task.max_turns) {
+        args.push("--max-turns", String(task.max_turns));
+      }
+
       args.push("-p", prompt, "--output-format", "json");
 
       const proc = Bun.spawn(args, {
@@ -426,7 +433,11 @@ export class PipelineWatcher {
         },
       });
 
-      const timeout = setTimeout(() => proc.kill(), this.config.maxClaudeTimeoutMs);
+      // Per-task timeout: use task.timeout_minutes if provided, else global default
+      const timeoutMs = task.timeout_minutes
+        ? task.timeout_minutes * 60 * 1000
+        : this.config.maxClaudeTimeoutMs;
+      const timeout = setTimeout(() => proc.kill(), timeoutMs);
       const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
