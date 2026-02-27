@@ -28,10 +28,13 @@ src/
   claude.ts                # Claude CLI --resume wrapper with timeout handling
   session.ts               # Shared session ID management
   projects.ts              # Project registry, handoff state, git sync
-  pipeline.ts              # Cross-user task queue (Gregor → Isidore) with concurrency pool
+  pipeline.ts              # Cross-user task queue (Gregor → Isidore) with concurrency pool, per-task timeout
   reverse-pipeline.ts      # Reverse delegation (Isidore → Gregor)
-  orchestrator.ts          # DAG-based workflow decomposition and execution
+  orchestrator.ts          # DAG-based workflow decomposition, execution, completion results
   branch-manager.ts        # Task-specific branch isolation with lock persistence
+  resource-guard.ts        # Memory-gated dispatch (Phase 6A)
+  rate-limiter.ts          # Failure-rate circuit breaker (Phase 6A)
+  verifier.ts              # Result verification via separate Claude one-shot (Phase 6B)
   format.ts                # Compact mobile-friendly formatter + Markdown escaping
   wrapup.ts                # Auto-commit tracked changes with branch guard
   config.ts                # Environment configuration

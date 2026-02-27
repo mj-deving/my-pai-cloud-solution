@@ -100,7 +100,9 @@ Gregor writes JSON → /var/lib/pai-pipeline/tasks/task.json
 - **Atomic writes:** Pipeline results use write-to-tmp + rename pattern to prevent Gregor from reading partial files.
 - **Concurrency pool:** Pipeline processes up to `PIPELINE_MAX_CONCURRENT` tasks simultaneously with per-project locking.
 - **Branch isolation:** Pipeline tasks run on `pipeline/<taskId>` branches to prevent contamination of main. Wrapup has a branch guard.
-- **DAG orchestrator:** Workflows decomposed via Claude, validated for cycles and referential integrity. Steps dispatched as dependencies resolve.
+- **DAG orchestrator:** Workflows decomposed via Claude, validated for cycles and referential integrity. Steps dispatched as dependencies resolve. Workflow-completion results written to `results/workflow-<taskId>.json`.
+- **Per-task timeout:** Pipeline tasks can specify `timeout_minutes` (overrides 5min default) and `max_turns` (passed to CLI). Essential for overnight PRD queue processing.
+- **Resource guard / rate limiter / verifier (Phase 6):** Memory-gated dispatch, failure-rate circuit breaker, result verification via separate Claude one-shot. All feature-flagged.
 
 ### Module Responsibilities
 
@@ -111,10 +113,13 @@ Gregor writes JSON → /var/lib/pai-pipeline/tasks/task.json
 | `claude.ts` | `ClaudeInvoker` — spawns CLI, manages timeouts, handles stale session recovery |
 | `session.ts` | `SessionManager` — reads/writes/archives the active session ID file |
 | `projects.ts` | `ProjectManager` — project registry, handoff state, git sync, project creation |
-| `pipeline.ts` | `PipelineWatcher` — polls tasks/, dispatches to Claude, writes results, concurrency pool |
+| `pipeline.ts` | `PipelineWatcher` — polls tasks/, dispatches to Claude, writes results, concurrency pool, per-task timeout/max-turns |
 | `reverse-pipeline.ts` | `ReversePipelineWatcher` — Isidore→Gregor delegation via reverse-tasks/results dirs |
-| `orchestrator.ts` | `TaskOrchestrator` — DAG workflow decomposition, step dispatch, crash recovery |
+| `orchestrator.ts` | `TaskOrchestrator` — DAG workflow decomposition, step dispatch, crash recovery, workflow-completion results |
 | `branch-manager.ts` | `BranchManager` — task-specific branch checkout/release, lock persistence |
+| `resource-guard.ts` | `ResourceGuard` — memory-gated dispatch, `os.freemem()` check (Phase 6A) |
+| `rate-limiter.ts` | `RateLimiter` — sliding window failure tracking, cooldown (Phase 6A) |
+| `verifier.ts` | `Verifier` — result verification via separate Claude one-shot (Phase 6B) |
 | `config.ts` | `loadConfig()` — reads env vars with defaults, validates required fields |
 | `format.ts` | `compactFormat()`, `chunkMessage()`, `escMd()` — formatting + Markdown escaping |
 | `wrapup.ts` | `lightweightWrapup()` — non-blocking git commit with branch guard |

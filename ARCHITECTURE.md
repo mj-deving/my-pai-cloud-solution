@@ -545,14 +545,18 @@ Written by Gregor (Layer 3) to `/var/lib/pai-pipeline/tasks/<id>.json`:
   "prompt": "Review backup.sh for edge cases in the rotation logic",
   "context": { "file": "scripts/backup.sh", "line_range": "45-80" },
   "constraints": { "max_response_length": 500 },
-  "session_id": null
+  "session_id": null,
+  "timeout_minutes": 120,
+  "max_turns": 50
 }
 ```
 
 **Required fields:** `id`, `prompt`
-**Optional fields:** `from`, `to`, `timestamp`, `type`, `priority`, `mode`, `project`, `context`, `constraints`, `session_id`
+**Optional fields:** `from`, `to`, `timestamp`, `type`, `priority`, `mode`, `project`, `context`, `constraints`, `session_id`, `timeout_minutes`, `max_turns`
 
 - `session_id` — Resume a prior pipeline conversation. Use the `session_id` returned in a previous result to continue the same Claude context. If omitted or null, a fresh one-shot conversation is started.
+- `timeout_minutes` — Per-task timeout in minutes. Overrides the global 5-minute default (`maxClaudeTimeoutMs`). Essential for long-running tasks like overnight PRD execution (typically 30-120 min).
+- `max_turns` — Maximum agentic turns for this task. Passed as `--max-turns N` to the Claude CLI. Controls how many tool-use rounds Claude gets before stopping.
 
 ### Result Schema
 
@@ -694,6 +698,7 @@ Orchestrator dispatches ready steps:
 - **Mixed assignees** — `isidore` steps run via local `claude oneShot`, `gregor` steps delegate via reverse pipeline
 - **Timeouts** — Configurable per-workflow timeout (default 30min), depth cap (default 3)
 - **Notifications** — Telegram messages for workflow creation, completion, failure, timeout
+- **Workflow-completion results** — When a workflow finishes (completed, failed, or timed out), a summary result is written atomically to `results/workflow-<originTaskId>.json`. Includes step-level statuses, result snippets, errors, and total duration. This lets Gregor (or any result consumer) see the outcome of orchestrated workflows without Telegram access.
 
 **Commands:** `/workflow create`, `/workflow status`, `/workflow <id>`, `/workflows`, `/cancel <id>`
 
@@ -1203,16 +1208,22 @@ ssh isidore_cloud 'crontab -l'
 - **Task orchestrator (Phase 5B)** — DAG workflow decomposition, parallel step dispatch, mixed isidore/gregor assignees. Persists to disk.
 - **Branch isolation (Phase 5C)** — Pipeline/orchestrator tasks run on `pipeline/<taskId>` branches. Lock persistence, wrapup branch guard, `/branches` command.
 - **UX fixes** — `/workflow status` subcommand, `escMd()` Markdown escaping in all notifications.
+- **Resource guard, rate limiter, verifier, quick model (Phase 6A-6D)** — Memory-gated dispatch, failure-rate circuit breaker, result verification, `/quick` Haiku shortcut.
+- **Per-task timeout + max-turns** — Pipeline tasks can specify `timeout_minutes` (overrides 5min default) and `max_turns` (passed to CLI). Enables long-running overnight PRD execution.
+- **Workflow-completion results** — Orchestrator writes `results/workflow-<taskId>.json` when workflows finish (success, failure, or timeout) so Gregor can consume outcomes programmatically.
+- **Gregor reverse handler fix** — `pai-reverse-handler.sh` now uses `--local` flag for `openclaw agent` routing.
+- **Gregor overnight queue system** — `pai-overnight.sh` + `pai-overnight-local.sh` for PRD-driven overnight batch processing with sequential queue, cron-based advancement, and morning reports.
 
 ### Planned
 
+- **E2E multi-step orchestrate test** — Test workflow with both isidore and gregor-assigned steps now that reverse handler is fixed.
+- **E2E overnight queue test** — Smoke test with trivial PRDs to validate the full overnight flow.
 - **Email bridge (C6)** — IMAP polling + SMTP response. Architecture is in place, needs email server credentials from Marius.
 
 ### Vision
 
 - **Full parity** — Isidore Cloud should be able to do everything local Isidore can (minus voice/browser), including working on repos, running tests, deploying code.
 - **Proactive behavior** — Cron-triggered tasks: daily summaries, project monitoring, automated maintenance.
-- **Gregor collaboration maturity** — Gregor's side needs a watcher for reverse-tasks to complete the delegation loop.
 - **Multi-channel unified inbox** — Telegram, email, and future channels (Signal, Matrix?) all feed into one conversation.
 
 ---
@@ -1255,5 +1266,5 @@ Want to build this for your own AI assistant? Here's what you need:
 
 ---
 
-*Last updated: 2026-02-27 (Phases 4-5C: concurrency, reverse pipeline, orchestrator, branch isolation)*
+*Last updated: 2026-02-27 (Phases 4-6D + per-task timeout, workflow-completion results, overnight queue support)*
 *Author: Marius Jonathan Jauernik + Isidore (PAI)*
