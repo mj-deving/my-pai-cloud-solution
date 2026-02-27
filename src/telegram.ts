@@ -7,6 +7,8 @@ import type { ClaudeInvoker } from "./claude";
 import type { SessionManager } from "./session";
 import type { ProjectManager } from "./projects";
 import type { ReversePipelineWatcher } from "./reverse-pipeline";
+import type { TaskOrchestrator } from "./orchestrator";
+import type { PipelineWatcher } from "./pipeline";
 import { compactFormat, chunkMessage } from "./format";
 import { lightweightWrapup } from "./wrapup";
 
@@ -16,6 +18,7 @@ export function createTelegramBot(
   sessions: SessionManager,
   projects: ProjectManager,
   reversePipeline?: ReversePipelineWatcher | null,
+  orchestrator?: TaskOrchestrator | null,
 ): Bot {
   const bot = new Bot(config.telegramBotToken);
 
@@ -54,7 +57,12 @@ export function createTelegramBot(
     msg += `/deleteproject <name> — Remove project from registry\n`;
     msg += `/compact — Compact context\n`;
     msg += `/oneshot <msg> — One-shot (no session)\n`;
-    msg += `/delegate <prompt> — Delegate task to Gregor`;
+    msg += `/delegate <prompt> — Delegate task to Gregor\n`;
+    msg += `/workflow create <prompt> — Create workflow\n`;
+    msg += `/workflows — List workflows\n`;
+    msg += `/workflow <id> — Workflow details\n`;
+    msg += `/cancel <id> — Cancel workflow\n`;
+    msg += `/pipeline — Pipeline dashboard`;
 
     await ctx.reply(msg);
   });
@@ -369,6 +377,166 @@ export function createTelegramBot(
     } catch (err) {
       await ctx.reply(`Delegation failed: ${err}`);
     }
+  });
+
+  // /workflow — Create workflow or show workflow details
+  bot.command("workflow", async (ctx) => {
+    const input = ctx.match?.trim() || "";
+
+    if (!input) {
+      await ctx.reply(
+        "Usage:\n/workflow create <prompt> — Create a new workflow\n/workflow <id> — Show workflow details",
+      );
+      return;
+    }
+
+    // Parse subcommand
+    const firstSpace = input.indexOf(" ");
+    const subcommand = firstSpace > 0 ? input.slice(0, firstSpace) : input;
+    const rest = firstSpace > 0 ? input.slice(firstSpace + 1).trim() : "";
+
+    if (subcommand === "create") {
+      if (!rest) {
+        await ctx.reply("Usage: /workflow create <prompt>");
+        return;
+      }
+
+      if (!orchestrator) {
+        await ctx.reply("Orchestrator is not enabled. Set ORCHESTRATOR_ENABLED=1.");
+        return;
+      }
+
+      await ctx.replyWithChatAction("typing");
+      await ctx.reply("Creating workflow...");
+
+      const activeProject = projects.getActiveProject();
+      const result = await orchestrator.createWorkflow(
+        rest,
+        activeProject?.name,
+      );
+
+      if (result.error) {
+        await ctx.reply(`Failed: ${result.error}`);
+        return;
+      }
+
+      const wf = result.workflow!;
+      const stepSummary = wf.steps
+        .map((s) => `  ${s.id} (${s.assignee}) ${s.description}`)
+        .join("\n");
+
+      await ctx.reply(
+        `**Workflow created: \`${wf.id.slice(0, 8)}...\`**\n` +
+          `Steps: ${wf.steps.length}\n\n${stepSummary}`,
+        { parse_mode: "Markdown" },
+      );
+      return;
+    }
+
+    // /workflow <id> — show details
+    if (!orchestrator) {
+      await ctx.reply("Orchestrator is not enabled.");
+      return;
+    }
+
+    const wf = orchestrator.getWorkflow(subcommand);
+    if (!wf) {
+      await ctx.reply(`Workflow not found: "${subcommand}"`);
+      return;
+    }
+
+    await ctx.reply(orchestrator.getWorkflowSummary(wf), { parse_mode: "Markdown" });
+  });
+
+  // /workflows — List all workflows
+  bot.command("workflows", async (ctx) => {
+    if (!orchestrator) {
+      await ctx.reply("Orchestrator is not enabled.");
+      return;
+    }
+
+    const all = orchestrator.getAllWorkflows();
+    if (all.length === 0) {
+      await ctx.reply("No workflows. Use /workflow create <prompt> to start one.");
+      return;
+    }
+
+    // Sort: active first, then by creation date desc
+    all.sort((a, b) => {
+      if (a.status === "active" && b.status !== "active") return -1;
+      if (b.status === "active" && a.status !== "active") return 1;
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+
+    let msg = "**Workflows:**\n\n";
+    for (const wf of all) {
+      const completed = wf.steps.filter((s) => s.status === "completed").length;
+      msg += `\`${wf.id.slice(0, 8)}...\` [${wf.status}] ${completed}/${wf.steps.length} steps — ${wf.description.slice(0, 50)}\n`;
+    }
+
+    await ctx.reply(msg, { parse_mode: "Markdown" });
+  });
+
+  // /cancel <id> — Cancel active workflow
+  bot.command("cancel", async (ctx) => {
+    const id = ctx.match?.trim();
+    if (!id) {
+      await ctx.reply("Usage: /cancel <workflow-id>");
+      return;
+    }
+
+    if (!orchestrator) {
+      await ctx.reply("Orchestrator is not enabled.");
+      return;
+    }
+
+    const wf = orchestrator.getWorkflow(id);
+    if (!wf) {
+      await ctx.reply(`Workflow not found: "${id}"`);
+      return;
+    }
+
+    const cancelled = await orchestrator.cancelWorkflow(wf.id);
+    if (cancelled) {
+      await ctx.reply(`Workflow \`${wf.id.slice(0, 8)}...\` cancelled.`, { parse_mode: "Markdown" });
+    } else {
+      await ctx.reply(`Cannot cancel — workflow is ${wf.status}.`);
+    }
+  });
+
+  // /pipeline — Dashboard: forward + reverse pipeline + workflow status
+  bot.command("pipeline", async (ctx) => {
+    let msg = "**Pipeline Dashboard**\n\n";
+
+    // Reverse pipeline
+    if (reversePipeline) {
+      const pending = reversePipeline.getPending();
+      msg += `**Reverse Pipeline:**\n`;
+      msg += `Pending delegations: ${pending.length}\n`;
+      if (pending.length > 0) {
+        for (const d of pending.slice(0, 5)) {
+          msg += `  \`${d.taskId.slice(0, 8)}...\` ${d.prompt}\n`;
+        }
+      }
+    } else {
+      msg += `**Reverse Pipeline:** disabled\n`;
+    }
+    msg += `\n`;
+
+    // Orchestrator
+    if (orchestrator) {
+      const active = orchestrator.getActiveWorkflows();
+      msg += `**Orchestrator:**\n`;
+      msg += `Active workflows: ${active.length}\n`;
+      for (const wf of active.slice(0, 5)) {
+        const completed = wf.steps.filter((s) => s.status === "completed").length;
+        msg += `  \`${wf.id.slice(0, 8)}...\` ${completed}/${wf.steps.length} steps — ${wf.description.slice(0, 40)}\n`;
+      }
+    } else {
+      msg += `**Orchestrator:** disabled\n`;
+    }
+
+    await ctx.reply(msg, { parse_mode: "Markdown" });
   });
 
   // Default: forward message to Claude in the active session

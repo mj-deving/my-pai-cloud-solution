@@ -37,6 +37,11 @@ export interface Config {
   reversePipelineEnabled: boolean;
   reversePipelinePollIntervalMs: number;
 
+  // Orchestrator (DAG-based workflow decomposition)
+  orchestratorEnabled: boolean;
+  orchestratorMaxDelegationDepth: number;
+  orchestratorWorkflowTimeoutMs: number;
+
   // Limits
   telegramMaxChunkSize: number; // Telegram API limit is 4096
   maxClaudeTimeoutMs: number;
@@ -101,6 +106,14 @@ export function loadConfig(): Config {
     reversePipelinePollIntervalMs: process.env.REVERSE_PIPELINE_POLL_INTERVAL_MS
       ? parseInt(process.env.REVERSE_PIPELINE_POLL_INTERVAL_MS, 10)
       : 5_000,
+
+    orchestratorEnabled: process.env.ORCHESTRATOR_ENABLED !== "0",
+    orchestratorMaxDelegationDepth: process.env.ORCHESTRATOR_MAX_DELEGATION_DEPTH
+      ? parseInt(process.env.ORCHESTRATOR_MAX_DELEGATION_DEPTH, 10)
+      : 3,
+    orchestratorWorkflowTimeoutMs: process.env.ORCHESTRATOR_WORKFLOW_TIMEOUT_MS
+      ? parseInt(process.env.ORCHESTRATOR_WORKFLOW_TIMEOUT_MS, 10)
+      : 30 * 60 * 1000, // 30 minutes
 
     telegramMaxChunkSize: 4000, // Leave margin below 4096 API limit
     maxClaudeTimeoutMs: 5 * 60 * 1000, // 5 minutes max per invocation

@@ -11,6 +11,7 @@
 import { readdir, rename, writeFile, readFile, unlink, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Config } from "./config";
+import type { TaskOrchestrator } from "./orchestrator";
 
 // Inbound task from the pipeline
 export interface PipelineTask {
@@ -76,6 +77,8 @@ export class PipelineWatcher {
   private activeProjects = new Set<string>(); // Projects with active tasks (per-project lock)
   // Phase 2: session-project affinity — prevents cross-project session contamination
   private sessionProjectMap = new Map<string, string>();
+  // Phase 5B: optional orchestrator for type:"orchestrate" tasks
+  private orchestrator: TaskOrchestrator | null = null;
 
   constructor(private config: Config) {
     this.tasksDir = join(config.pipelineDir, "tasks");
@@ -96,6 +99,20 @@ export class PipelineWatcher {
     );
     // Also poll immediately on start
     this.poll();
+  }
+
+  // Set orchestrator for type:"orchestrate" task hook
+  setOrchestrator(orchestrator: TaskOrchestrator): void {
+    this.orchestrator = orchestrator;
+  }
+
+  // Get pipeline status (for /pipeline dashboard)
+  getStatus(): { active: number; max: number; inFlight: number } {
+    return {
+      active: this.activeCount,
+      max: this.maxConcurrent,
+      inFlight: this.inFlight.size,
+    };
   }
 
   // Stop polling
@@ -208,6 +225,13 @@ export class PipelineWatcher {
         console.error(`[pipeline] Failed to write result for ${task.id}: ${err}`);
         try { await unlink(resultTmpPath); } catch { /* ignore */ }
         return; // Don't ack if result write failed
+      }
+
+      // 2b. Orchestrator hook — type:"orchestrate" tasks trigger workflow creation
+      if (this.orchestrator && task.type === "orchestrate") {
+        this.orchestrator.handleOrchestrationTask(task).catch((err) => {
+          console.error(`[pipeline] Orchestrator hook error for ${task.id}: ${err}`);
+        });
       }
 
       // 3. Move task to ack/
