@@ -66,10 +66,14 @@ const PRIORITY_ORDER: Record<string, number> = { high: 3, normal: 2, low: 1 };
 
 export class PipelineWatcher {
   private timer: ReturnType<typeof setInterval> | null = null;
-  private processing = false; // Prevent overlapping poll cycles
   private tasksDir: string;
   private resultsDir: string;
   private ackDir: string;
+  // Phase 4: Concurrency pool — replaces single `processing` boolean
+  private activeCount = 0;
+  private maxConcurrent: number;
+  private inFlight = new Set<string>(); // Filenames currently being processed
+  private activeProjects = new Set<string>(); // Projects with active tasks (per-project lock)
   // Phase 2: session-project affinity — prevents cross-project session contamination
   private sessionProjectMap = new Map<string, string>();
 
@@ -77,13 +81,14 @@ export class PipelineWatcher {
     this.tasksDir = join(config.pipelineDir, "tasks");
     this.resultsDir = join(config.pipelineDir, "results");
     this.ackDir = join(config.pipelineDir, "ack");
+    this.maxConcurrent = config.pipelineMaxConcurrent;
   }
 
   // Start polling for task files
   start(): void {
     if (this.timer) return;
     console.log(
-      `[pipeline] Watching ${this.tasksDir} (poll every ${this.config.pipelinePollIntervalMs}ms)`,
+      `[pipeline] Watching ${this.tasksDir} (poll every ${this.config.pipelinePollIntervalMs}ms, max concurrent: ${this.maxConcurrent})`,
     );
     this.timer = setInterval(
       () => this.poll(),
@@ -102,14 +107,17 @@ export class PipelineWatcher {
     }
   }
 
-  // One poll cycle: scan tasks/, sort by priority, process in order
+  // One poll cycle: scan tasks/, sort by priority, dispatch up to available slots
   private async poll(): Promise<void> {
-    if (this.processing) return; // Skip if prior cycle still running
-    this.processing = true;
+    // How many slots are free?
+    const availableSlots = this.maxConcurrent - this.activeCount;
+    if (availableSlots <= 0) return; // All slots busy
 
     try {
       const files = await readdir(this.tasksDir);
-      const taskFiles = files.filter((f) => f.endsWith(".json"));
+      const taskFiles = files.filter(
+        (f) => f.endsWith(".json") && !this.inFlight.has(f),
+      );
 
       if (taskFiles.length === 0) return;
 
@@ -143,52 +151,78 @@ export class PipelineWatcher {
         return a.filename.localeCompare(b.filename);
       });
 
-      // Process in priority order
-      for (const { filename, task } of parsed) {
-        await this.processTask(filename, task);
+      // Select tasks to dispatch — respect available slots + per-project lock
+      const batch: Array<{ filename: string; task: PipelineTask }> = [];
+      const batchProjects = new Set<string>();
+      for (const entry of parsed) {
+        if (batch.length >= availableSlots) break;
+        const project = entry.task.project || "";
+        // Per-project lock: skip if this project already has an active or batched task
+        if (project && (this.activeProjects.has(project) || batchProjects.has(project))) {
+          continue;
+        }
+        batch.push(entry);
+        if (project) batchProjects.add(project);
+      }
+
+      if (batch.length === 0) return;
+
+      // Launch batch concurrently — fire-and-forget, processTask manages its own lifecycle
+      for (const { filename, task } of batch) {
+        this.inFlight.add(filename);
+        this.activeCount++;
+        if (task.project) this.activeProjects.add(task.project);
+        // Do NOT await — let tasks run concurrently
+        this.processTask(filename, task).catch((err) => {
+          console.error(`[pipeline] Uncaught error in processTask ${task.id}: ${err}`);
+        });
       }
     } catch (err) {
       // readdir failure (permissions, dir missing) — log but don't crash
       console.warn(`[pipeline] Poll error: ${err}`);
-    } finally {
-      this.processing = false;
     }
   }
 
-  // Process a single pre-parsed task
+  // Process a single pre-parsed task (manages its own concurrency lifecycle)
   private async processTask(filename: string, task: PipelineTask): Promise<void> {
     const taskPath = join(this.tasksDir, filename);
 
-    console.log(
-      `[pipeline] Processing task ${task.id} from ${task.from} [${task.priority || "normal"}] (${task.prompt.slice(0, 80)}...)`,
-    );
-
-    // 1. Dispatch to Claude
-    const result = await this.dispatch(task);
-
-    // 2. Write result atomically (write .tmp, rename)
-    const resultFilename = `${task.id}.json`;
-    const resultTmpPath = join(this.resultsDir, `${resultFilename}.tmp`);
-    const resultFinalPath = join(this.resultsDir, resultFilename);
-
     try {
-      await writeFile(resultTmpPath, JSON.stringify(result, null, 2) + "\n", "utf-8");
-      await rename(resultTmpPath, resultFinalPath);
-      console.log(`[pipeline] Result written: ${resultFilename} (${result.status})`);
-    } catch (err) {
-      console.error(`[pipeline] Failed to write result for ${task.id}: ${err}`);
-      // Clean up tmp file if it exists
-      try { await unlink(resultTmpPath); } catch { /* ignore */ }
-      return; // Don't ack if result write failed
-    }
+      console.log(
+        `[pipeline] Processing task ${task.id} from ${task.from} [${task.priority || "normal"}] (active: ${this.activeCount}/${this.maxConcurrent}) (${task.prompt.slice(0, 80)}...)`,
+      );
 
-    // 3. Move task to ack/
-    const ackPath = join(this.ackDir, filename);
-    try {
-      await rename(taskPath, ackPath);
-      console.log(`[pipeline] Task ${task.id} moved to ack/`);
-    } catch (err) {
-      console.warn(`[pipeline] Failed to move ${filename} to ack/: ${err}`);
+      // 1. Dispatch to Claude
+      const result = await this.dispatch(task);
+
+      // 2. Write result atomically (write .tmp, rename)
+      const resultFilename = `${task.id}.json`;
+      const resultTmpPath = join(this.resultsDir, `${resultFilename}.tmp`);
+      const resultFinalPath = join(this.resultsDir, resultFilename);
+
+      try {
+        await writeFile(resultTmpPath, JSON.stringify(result, null, 2) + "\n", "utf-8");
+        await rename(resultTmpPath, resultFinalPath);
+        console.log(`[pipeline] Result written: ${resultFilename} (${result.status})`);
+      } catch (err) {
+        console.error(`[pipeline] Failed to write result for ${task.id}: ${err}`);
+        try { await unlink(resultTmpPath); } catch { /* ignore */ }
+        return; // Don't ack if result write failed
+      }
+
+      // 3. Move task to ack/
+      const ackPath = join(this.ackDir, filename);
+      try {
+        await rename(taskPath, ackPath);
+        console.log(`[pipeline] Task ${task.id} moved to ack/`);
+      } catch (err) {
+        console.warn(`[pipeline] Failed to move ${filename} to ack/: ${err}`);
+      }
+    } finally {
+      // Phase 4: Release concurrency resources — always runs, even on crash
+      this.inFlight.delete(filename);
+      this.activeCount--;
+      if (task.project) this.activeProjects.delete(task.project);
     }
   }
 
