@@ -388,7 +388,7 @@ export function createTelegramBot(
 
     if (!input) {
       await ctx.reply(
-        "Usage:\n/workflow create <prompt> — Create a new workflow\n/workflow <id> — Show workflow details",
+        "Usage:\n/workflow create <prompt> — Create a new workflow\n/workflow status [id] — List all or show one\n/workflow <id> — Show workflow details",
       );
       return;
     }
@@ -397,6 +397,43 @@ export function createTelegramBot(
     const firstSpace = input.indexOf(" ");
     const subcommand = firstSpace > 0 ? input.slice(0, firstSpace) : input;
     const rest = firstSpace > 0 ? input.slice(firstSpace + 1).trim() : "";
+
+    if (subcommand === "status") {
+      if (!orchestrator) {
+        await ctx.reply("Orchestrator is not enabled.");
+        return;
+      }
+
+      if (rest) {
+        // /workflow status <id> — show specific workflow
+        const wf = orchestrator.getWorkflow(rest);
+        if (!wf) {
+          await ctx.reply(`Workflow not found: "${rest}"`);
+          return;
+        }
+        await ctx.reply(orchestrator.getWorkflowSummary(wf), { parse_mode: "Markdown" });
+        return;
+      }
+
+      // /workflow status — list all
+      const all = orchestrator.getAllWorkflows();
+      if (all.length === 0) {
+        await ctx.reply("No workflows. Use /workflow create <prompt> to start one.");
+        return;
+      }
+      all.sort((a, b) => {
+        if (a.status === "active" && b.status !== "active") return -1;
+        if (b.status === "active" && a.status !== "active") return 1;
+        return b.createdAt.localeCompare(a.createdAt);
+      });
+      let msg = "**Workflows:**\n\n";
+      for (const wf of all) {
+        const completed = wf.steps.filter((s) => s.status === "completed").length;
+        msg += `\`${wf.id.slice(0, 8)}...\` [${wf.status}] ${completed}/${wf.steps.length} steps — ${wf.description.slice(0, 50)}\n`;
+      }
+      await ctx.reply(msg, { parse_mode: "Markdown" });
+      return;
+    }
 
     if (subcommand === "create") {
       if (!rest) {
