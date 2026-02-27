@@ -280,7 +280,8 @@ export class PipelineWatcher {
       }
 
       // 2. Write result atomically (write .tmp, rename)
-      const resultFilename = `${task.id}.json`;
+      // Use source task filename so submitter can look up result by the same name they submitted
+      const resultFilename = filename;
       const resultTmpPath = join(this.resultsDir, `${resultFilename}.tmp`);
       const resultFinalPath = join(this.resultsDir, resultFilename);
 
