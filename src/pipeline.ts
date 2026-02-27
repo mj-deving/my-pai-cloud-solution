@@ -28,6 +28,14 @@ export interface PipelineTask {
   session_id?: string; // Resume a prior pipeline conversation
 }
 
+// Structured result for machine-parseable output (Phase 2)
+export interface StructuredResult {
+  summary: string;
+  artifacts?: Array<{ path: string; type: string; description: string }>;
+  follow_up_needed?: boolean;
+  suggested_next_prompt?: string;
+}
+
 // Outbound result written to results/
 export interface PipelineResult {
   id: string;
@@ -41,6 +49,7 @@ export interface PipelineResult {
   error?: string;
   warnings?: string[];
   session_id?: string; // Session ID for follow-up tasks
+  structured?: StructuredResult; // Machine-parseable output (Phase 2)
 }
 
 // Priority levels — higher number = processed first
@@ -52,6 +61,8 @@ export class PipelineWatcher {
   private tasksDir: string;
   private resultsDir: string;
   private ackDir: string;
+  // Phase 2: session-project affinity — prevents cross-project session contamination
+  private sessionProjectMap = new Map<string, string>();
 
   constructor(private config: Config) {
     this.tasksDir = join(config.pipelineDir, "tasks");
@@ -210,6 +221,19 @@ export class PipelineWatcher {
 
   // Invoke Claude and build result (one-shot or --resume for multi-turn)
   private async dispatch(task: PipelineTask): Promise<PipelineResult> {
+    // Phase 2: Session-project affinity guard
+    // If session_id maps to a different project, warn and drop --resume
+    if (task.session_id && task.project) {
+      const boundProject = this.sessionProjectMap.get(task.session_id);
+      if (boundProject && boundProject !== task.project) {
+        const warning = `session_id ${task.session_id.slice(0, 8)}... belongs to project "${boundProject}", not "${task.project}" — running as one-shot`;
+        console.warn(`[pipeline] ${warning}`);
+        const result = await this.dispatch({ ...task, session_id: undefined });
+        result.warnings = [...(result.warnings || []), warning];
+        return result;
+      }
+    }
+
     // Build the prompt — include context and constraints if provided
     let prompt = task.prompt;
     if (task.context && Object.keys(task.context).length > 0) {
@@ -271,6 +295,12 @@ export class PipelineWatcher {
       try {
         const parsed = JSON.parse(stdout);
         const sessionId = parsed.session_id || undefined;
+
+        // Phase 2: Record session-project affinity for future mismatch detection
+        if (sessionId && task.project) {
+          this.sessionProjectMap.set(sessionId, task.project);
+        }
+
         return this.buildResult(
           task,
           "completed",
@@ -279,6 +309,7 @@ export class PipelineWatcher {
           undefined,
           warnings,
           sessionId,
+          parsed.structured as StructuredResult | undefined,
         );
       } catch {
         // JSON parse failed — use raw stdout, no session_id available
@@ -297,6 +328,7 @@ export class PipelineWatcher {
     error?: string,
     warnings?: string[],
     session_id?: string,
+    structured?: StructuredResult,
   ): PipelineResult {
     return {
       id: crypto.randomUUID(),
@@ -310,6 +342,7 @@ export class PipelineWatcher {
       ...(error && { error }),
       ...(warnings && warnings.length > 0 && { warnings }),
       ...(session_id && { session_id }),
+      ...(structured && { structured }),
     };
   }
 }
