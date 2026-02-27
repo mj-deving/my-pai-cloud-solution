@@ -2,7 +2,7 @@
 // Decomposes complex tasks into steps, assigns to isidore/gregor, manages dependencies.
 // Persists workflows to disk for crash recovery. Uses Claude one-shot for decomposition.
 
-import { readdir, readFile, writeFile, rename, mkdir } from "node:fs/promises";
+import { readdir, readFile, writeFile, rename, mkdir, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import type { Config } from "./config";
 import type { ClaudeInvoker } from "./claude";
@@ -51,6 +51,7 @@ export type NotifyCallback = (message: string) => Promise<void>;
 export class TaskOrchestrator {
   private workflows = new Map<string, Workflow>();
   private workflowsDir: string;
+  private resultsDir: string;
   private branchManager: BranchManager | null = null;
   private rateLimiter: RateLimiter | null = null;
   private verifier: Verifier | null = null;
@@ -62,6 +63,7 @@ export class TaskOrchestrator {
     private onNotify?: NotifyCallback,
   ) {
     this.workflowsDir = join(config.pipelineDir, "workflows");
+    this.resultsDir = join(config.pipelineDir, "results");
   }
 
   setBranchManager(branchManager: BranchManager): void {
@@ -495,6 +497,8 @@ export class TaskOrchestrator {
         `Failed step: ${step.id} (${step.assignee})\n` +
         `Error: ${escMd(error)}`,
     );
+
+    await this.writeWorkflowResult(wf);
   }
 
   // --- Cancellation / timeout ---
@@ -541,6 +545,8 @@ export class TaskOrchestrator {
         `Completed: ${completed.length}/${wf.steps.length} steps\n` +
         `Timed out: ${timedOut.map((s) => s.id).join(", ")}`,
     );
+
+    await this.writeWorkflowResult(wf);
   }
 
   // --- Notifications ---
@@ -564,6 +570,63 @@ export class TaskOrchestrator {
         `Description: ${escMd(wf.description)}\n` +
         `Steps: ${completed}/${wf.steps.length} completed`,
     );
+
+    await this.writeWorkflowResult(wf);
+  }
+
+  // Write workflow result to results/ for Gregor consumption
+  private async writeWorkflowResult(wf: Workflow): Promise<void> {
+    if (!wf.originTaskId) return; // Only write for pipeline-originated workflows
+
+    const completed = wf.steps.filter((s) => s.status === "completed");
+    const failed = wf.steps.filter((s) => s.status === "failed");
+
+    // Build step-level summary
+    const stepSummaries = wf.steps.map((s) => {
+      let line = `[${s.status}] ${s.id} (${s.assignee}): ${s.description}`;
+      if (s.result) line += `\n  Result: ${s.result.slice(0, 500)}`;
+      if (s.error) line += `\n  Error: ${s.error}`;
+      return line;
+    });
+
+    const duration = wf.completedAt && wf.createdAt
+      ? Math.round((new Date(wf.completedAt).getTime() - new Date(wf.createdAt).getTime()) / 1000)
+      : null;
+
+    const result = {
+      id: `workflow-result-${wf.id}`,
+      taskId: wf.originTaskId,
+      workflowId: wf.id,
+      from: "isidore_cloud",
+      to: wf.originFrom,
+      timestamp: new Date().toISOString(),
+      type: "workflow_completion",
+      status: wf.status === "completed" ? "completed" as const : "error" as const,
+      result: [
+        `Workflow ${wf.status}: ${wf.description}`,
+        `Steps: ${completed.length}/${wf.steps.length} completed, ${failed.length} failed`,
+        duration !== null ? `Duration: ${duration}s` : null,
+        "",
+        ...stepSummaries,
+      ].filter(Boolean).join("\n"),
+      error: wf.status !== "completed"
+        ? `Workflow ${wf.status}: ${failed.map((s) => `${s.id}: ${s.error}`).join("; ")}`
+        : undefined,
+    };
+
+    // Atomic write: .tmp → rename
+    const filename = `workflow-${wf.originTaskId}.json`;
+    const tmpPath = join(this.resultsDir, `${filename}.tmp`);
+    const finalPath = join(this.resultsDir, filename);
+
+    try {
+      await writeFile(tmpPath, JSON.stringify(result, null, 2) + "\n", "utf-8");
+      await chmod(tmpPath, 0o660);
+      await rename(tmpPath, finalPath);
+      console.log(`[orchestrator] Wrote workflow result to results/${filename}`);
+    } catch (err) {
+      console.error(`[orchestrator] Failed to write workflow result: ${err}`);
+    }
   }
 
   // --- Pipeline hook ---
