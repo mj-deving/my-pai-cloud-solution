@@ -72,4 +72,4 @@ Local Isidore and Isidore Cloud share knowledge via a private GitHub repo (`mj-d
 
 ---
 
-**Author:** Marius Jonathan Jauernik
+**Author:** mj-deving
