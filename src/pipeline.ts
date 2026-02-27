@@ -26,6 +26,12 @@ export interface PipelineTask {
   context?: Record<string, unknown>;
   constraints?: Record<string, unknown>;
   session_id?: string; // Resume a prior pipeline conversation
+  // Phase 3: Escalation metadata — why Gregor escalated this task
+  escalation?: {
+    reason: string; // Why Gregor escalated
+    criteria: string[]; // Which classifier triggers fired
+    gregor_partial_result?: string; // What Gregor accomplished before escalating
+  };
 }
 
 // Structured result for machine-parseable output (Phase 2)
@@ -50,6 +56,9 @@ export interface PipelineResult {
   warnings?: string[];
   session_id?: string; // Session ID for follow-up tasks
   structured?: StructuredResult; // Machine-parseable output (Phase 2)
+  // Phase 3: Escalation acknowledgment
+  escalation_handled?: boolean; // True when task had escalation context
+  recommendations_for_sender?: string; // Advice for Gregor on similar future tasks
 }
 
 // Priority levels — higher number = processed first
@@ -236,6 +245,21 @@ export class PipelineWatcher {
 
     // Build the prompt — include context and constraints if provided
     let prompt = task.prompt;
+
+    // Phase 3: Prepend escalation context so Claude understands the escalation chain
+    if (task.escalation) {
+      const esc = task.escalation;
+      const parts = [
+        `[ESCALATED TASK] This was escalated from ${task.from}.`,
+        `Reason: ${esc.reason}`,
+        `Triggers: ${esc.criteria.join(", ")}`,
+      ];
+      if (esc.gregor_partial_result) {
+        parts.push(`Previous partial result:\n${esc.gregor_partial_result}`);
+      }
+      prompt = parts.join("\n") + `\n\nTask:\n${prompt}`;
+    }
+
     if (task.context && Object.keys(task.context).length > 0) {
       prompt += `\n\nContext: ${JSON.stringify(task.context)}`;
     }
@@ -301,7 +325,7 @@ export class PipelineWatcher {
           this.sessionProjectMap.set(sessionId, task.project);
         }
 
-        return this.buildResult(
+        const pipelineResult = this.buildResult(
           task,
           "completed",
           parsed.result || stdout,
@@ -311,6 +335,13 @@ export class PipelineWatcher {
           sessionId,
           parsed.structured as StructuredResult | undefined,
         );
+
+        // Phase 3: Mark escalation as handled when task had escalation context
+        if (task.escalation) {
+          pipelineResult.escalation_handled = true;
+        }
+
+        return pipelineResult;
       } catch {
         // JSON parse failed — use raw stdout, no session_id available
         return this.buildResult(task, "completed", stdout.trim(), undefined, undefined, warnings);
