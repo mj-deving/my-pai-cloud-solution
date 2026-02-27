@@ -42,6 +42,10 @@ export interface Config {
   orchestratorMaxDelegationDepth: number;
   orchestratorWorkflowTimeoutMs: number;
 
+  // Branch isolation (Phase 5C)
+  branchIsolationEnabled: boolean;
+  branchIsolationStaleLockMaxMs: number; // Max age before stale lock cleanup
+
   // Limits
   telegramMaxChunkSize: number; // Telegram API limit is 4096
   maxClaudeTimeoutMs: number;
@@ -114,6 +118,11 @@ export function loadConfig(): Config {
     orchestratorWorkflowTimeoutMs: process.env.ORCHESTRATOR_WORKFLOW_TIMEOUT_MS
       ? parseInt(process.env.ORCHESTRATOR_WORKFLOW_TIMEOUT_MS, 10)
       : 30 * 60 * 1000, // 30 minutes
+
+    branchIsolationEnabled: process.env.BRANCH_ISOLATION_ENABLED !== "0",
+    branchIsolationStaleLockMaxMs: process.env.BRANCH_ISOLATION_STALE_LOCK_MAX_MS
+      ? parseInt(process.env.BRANCH_ISOLATION_STALE_LOCK_MAX_MS, 10)
+      : 60 * 60 * 1000, // 1 hour
 
     telegramMaxChunkSize: 4000, // Leave margin below 4096 API limit
     maxClaudeTimeoutMs: 5 * 60 * 1000, // 5 minutes max per invocation

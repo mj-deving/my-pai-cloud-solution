@@ -1,13 +1,45 @@
 // wrapup.ts — Lightweight auto-commit after each Cloud response
 // Only commits tracked files (git add -u), never adds new files
 // Non-blocking with timeout to avoid delaying Telegram responses
+// Phase 5C: Branch guard prevents committing to main during pipeline tasks
 
 const WRAPUP_TIMEOUT_MS = 10_000;
 
-// Auto-commit tracked changes in a project directory
-// Returns true if a commit was made, false otherwise
-export async function lightweightWrapup(projectDir: string): Promise<boolean> {
+// Check the current git branch name in a directory
+async function getCurrentBranch(projectDir: string): Promise<string | null> {
   try {
+    const proc = Bun.spawn(["git", "rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: projectDir,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) return null;
+    return stdout.trim();
+  } catch {
+    return null;
+  }
+}
+
+// Auto-commit tracked changes in a project directory.
+// If expectedBranch is provided (pipeline task), only commits if on that branch.
+// Returns true if a commit was made, false otherwise
+export async function lightweightWrapup(
+  projectDir: string,
+  expectedBranch?: string,
+): Promise<boolean> {
+  try {
+    // Phase 5C: Branch guard — refuse to commit if on wrong branch
+    if (expectedBranch) {
+      const currentBranch = await getCurrentBranch(projectDir);
+      if (currentBranch !== expectedBranch) {
+        console.warn(
+          `[wrapup] Branch guard: expected ${expectedBranch}, on ${currentBranch} — skipping commit`,
+        );
+        return false;
+      }
+    }
     // Stage tracked files only — never git add -A
     const addProc = Bun.spawn(["git", "add", "-u"], {
       cwd: projectDir,

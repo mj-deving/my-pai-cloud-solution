@@ -8,6 +8,7 @@ import type { Config } from "./config";
 import type { ClaudeInvoker } from "./claude";
 import type { ReversePipelineWatcher } from "./reverse-pipeline";
 import type { PipelineTask } from "./pipeline";
+import type { BranchManager } from "./branch-manager";
 
 // --- Types ---
 
@@ -47,6 +48,7 @@ export type NotifyCallback = (message: string) => Promise<void>;
 export class TaskOrchestrator {
   private workflows = new Map<string, Workflow>();
   private workflowsDir: string;
+  private branchManager: BranchManager | null = null;
 
   constructor(
     private config: Config,
@@ -55,6 +57,10 @@ export class TaskOrchestrator {
     private onNotify?: NotifyCallback,
   ) {
     this.workflowsDir = join(config.pipelineDir, "workflows");
+  }
+
+  setBranchManager(branchManager: BranchManager): void {
+    this.branchManager = branchManager;
   }
 
   setNotifyCallback(cb: NotifyCallback): void {
@@ -366,11 +372,37 @@ export class TaskOrchestrator {
       await this.saveWorkflow(wf);
     } else {
       // Isidore step — execute via Claude one-shot
-      const response = await this.claude.oneShot(step.prompt);
-      if (response.error) {
-        await this.failStep(wf.id, step.id, response.error);
-      } else {
-        await this.completeStep(wf.id, step.id, response.result || "");
+      // Phase 5C: Branch isolation for isidore steps with a project
+      let taskBranch: string | null = null;
+      const projectDir = step.project
+        ? `/home/isidore_cloud/projects/${step.project}`
+        : null;
+
+      if (this.branchManager && projectDir) {
+        taskBranch = await this.branchManager.checkout(
+          projectDir,
+          `${wf.id.slice(0, 8)}-${step.id}`,
+          "orchestrator",
+        );
+      }
+
+      try {
+        const response = await this.claude.oneShot(step.prompt);
+        if (response.error) {
+          await this.failStep(wf.id, step.id, response.error);
+        } else {
+          await this.completeStep(wf.id, step.id, response.result || "");
+        }
+      } finally {
+        // Release branch lock
+        if (this.branchManager && projectDir && taskBranch) {
+          await this.branchManager.release(
+            projectDir,
+            `${wf.id.slice(0, 8)}-${step.id}`,
+          ).catch((err) => {
+            console.warn(`[orchestrator] Branch release error for ${step.id}: ${err}`);
+          });
+        }
       }
     }
   }

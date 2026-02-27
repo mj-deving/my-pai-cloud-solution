@@ -12,6 +12,7 @@ import { readdir, rename, writeFile, readFile, unlink, stat } from "node:fs/prom
 import { join } from "node:path";
 import type { Config } from "./config";
 import type { TaskOrchestrator } from "./orchestrator";
+import type { BranchManager } from "./branch-manager";
 
 // Inbound task from the pipeline
 export interface PipelineTask {
@@ -60,6 +61,8 @@ export interface PipelineResult {
   // Phase 3: Escalation acknowledgment
   escalation_handled?: boolean; // True when task had escalation context
   recommendations_for_sender?: string; // Advice for Gregor on similar future tasks
+  // Phase 5C: Branch isolation
+  branch?: string; // Task branch name when branch isolation was active
 }
 
 // Priority levels — higher number = processed first
@@ -79,6 +82,8 @@ export class PipelineWatcher {
   private sessionProjectMap = new Map<string, string>();
   // Phase 5B: optional orchestrator for type:"orchestrate" tasks
   private orchestrator: TaskOrchestrator | null = null;
+  // Phase 5C: optional branch manager for task-specific branches
+  private branchManager: BranchManager | null = null;
 
   constructor(private config: Config) {
     this.tasksDir = join(config.pipelineDir, "tasks");
@@ -104,6 +109,11 @@ export class PipelineWatcher {
   // Set orchestrator for type:"orchestrate" task hook
   setOrchestrator(orchestrator: TaskOrchestrator): void {
     this.orchestrator = orchestrator;
+  }
+
+  // Set branch manager for task-specific branch isolation
+  setBranchManager(branchManager: BranchManager): void {
+    this.branchManager = branchManager;
   }
 
   // Get pipeline status (for /pipeline dashboard)
@@ -203,14 +213,31 @@ export class PipelineWatcher {
   // Process a single pre-parsed task (manages its own concurrency lifecycle)
   private async processTask(filename: string, task: PipelineTask): Promise<void> {
     const taskPath = join(this.tasksDir, filename);
+    let taskBranch: string | null = null;
 
     try {
       console.log(
         `[pipeline] Processing task ${task.id} from ${task.from} [${task.priority || "normal"}] (active: ${this.activeCount}/${this.maxConcurrent}) (${task.prompt.slice(0, 80)}...)`,
       );
 
+      // Phase 5C: Create task-specific branch before dispatch
+      if (this.branchManager && task.project) {
+        const { cwd } = await this.resolveCwd(task);
+        if (cwd) {
+          taskBranch = await this.branchManager.checkout(cwd, task.id, "pipeline");
+          if (taskBranch) {
+            console.log(`[pipeline] Task ${task.id} running on branch ${taskBranch}`);
+          }
+        }
+      }
+
       // 1. Dispatch to Claude
       const result = await this.dispatch(task);
+
+      // Phase 5C: Include branch in result
+      if (taskBranch) {
+        result.branch = taskBranch;
+      }
 
       // 2. Write result atomically (write .tmp, rename)
       const resultFilename = `${task.id}.json`;
@@ -243,6 +270,15 @@ export class PipelineWatcher {
         console.warn(`[pipeline] Failed to move ${filename} to ack/: ${err}`);
       }
     } finally {
+      // Phase 5C: Release branch lock and return to base branch
+      if (this.branchManager && taskBranch && task.project) {
+        const { cwd } = await this.resolveCwd(task);
+        if (cwd) {
+          await this.branchManager.release(cwd, task.id).catch((err) => {
+            console.warn(`[pipeline] Branch release error for ${task.id}: ${err}`);
+          });
+        }
+      }
       // Phase 4: Release concurrency resources — always runs, even on crash
       this.inFlight.delete(filename);
       this.activeCount--;
@@ -418,6 +454,7 @@ export class PipelineWatcher {
     warnings?: string[],
     session_id?: string,
     structured?: StructuredResult,
+    branch?: string,
   ): PipelineResult {
     return {
       id: crypto.randomUUID(),
@@ -432,6 +469,7 @@ export class PipelineWatcher {
       ...(warnings && warnings.length > 0 && { warnings }),
       ...(session_id && { session_id }),
       ...(structured && { structured }),
+      ...(branch && { branch }),
     };
   }
 }

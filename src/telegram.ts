@@ -9,6 +9,7 @@ import type { ProjectManager } from "./projects";
 import type { ReversePipelineWatcher } from "./reverse-pipeline";
 import type { TaskOrchestrator } from "./orchestrator";
 import type { PipelineWatcher } from "./pipeline";
+import type { BranchManager } from "./branch-manager";
 import { compactFormat, chunkMessage } from "./format";
 import { lightweightWrapup } from "./wrapup";
 
@@ -19,6 +20,7 @@ export function createTelegramBot(
   projects: ProjectManager,
   reversePipeline?: ReversePipelineWatcher | null,
   orchestrator?: TaskOrchestrator | null,
+  branchManager?: BranchManager | null,
 ): Bot {
   const bot = new Bot(config.telegramBotToken);
 
@@ -62,6 +64,7 @@ export function createTelegramBot(
     msg += `/workflows — List workflows\n`;
     msg += `/workflow <id> — Workflow details\n`;
     msg += `/cancel <id> — Cancel workflow\n`;
+    msg += `/branches — Active branch locks\n`;
     msg += `/pipeline — Pipeline dashboard`;
 
     await ctx.reply(msg);
@@ -502,6 +505,33 @@ export function createTelegramBot(
     } else {
       await ctx.reply(`Cannot cancel — workflow is ${wf.status}.`);
     }
+  });
+
+  // /branches — Show active branch locks (Phase 5C)
+  bot.command("branches", async (ctx) => {
+    if (!branchManager) {
+      await ctx.reply("Branch isolation is not enabled. Set BRANCH_ISOLATION_ENABLED=1.");
+      return;
+    }
+
+    const locks = await branchManager.getActiveLocks();
+    if (locks.length === 0) {
+      await ctx.reply("No active branch locks.");
+      return;
+    }
+
+    let msg = "**Active Branch Locks:**\n\n";
+    for (const lock of locks) {
+      const age = Date.now() - new Date(lock.acquiredAt).getTime();
+      const ageMin = Math.round(age / 60000);
+      const projectName = lock.projectDir.split("/").pop() || lock.projectDir;
+      msg += `\`${lock.branch}\` (${lock.source})\n`;
+      msg += `  Project: ${projectName}\n`;
+      msg += `  Task: \`${lock.taskId.slice(0, 8)}...\`\n`;
+      msg += `  Age: ${ageMin}min\n\n`;
+    }
+
+    await ctx.reply(msg, { parse_mode: "Markdown" });
   });
 
   // /pipeline — Dashboard: forward + reverse pipeline + workflow status

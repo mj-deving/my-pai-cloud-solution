@@ -9,6 +9,7 @@ import { createTelegramBot } from "./telegram";
 import { PipelineWatcher } from "./pipeline";
 import { ReversePipelineWatcher } from "./reverse-pipeline";
 import { TaskOrchestrator } from "./orchestrator";
+import { BranchManager } from "./branch-manager";
 
 async function main() {
   console.log("[bridge] Starting Isidore Cloud communication bridge...");
@@ -61,8 +62,21 @@ async function main() {
     console.log("[bridge] Orchestrator disabled (ORCHESTRATOR_ENABLED=0)");
   }
 
+  // Initialize branch manager (Phase 5C: task-specific branch isolation)
+  let branchManager: BranchManager | null = null;
+  if (config.branchIsolationEnabled) {
+    branchManager = new BranchManager(config.pipelineDir);
+    const cleaned = await branchManager.cleanStale(config.branchIsolationStaleLockMaxMs);
+    if (cleaned > 0) {
+      console.log(`[bridge] Cleaned ${cleaned} stale branch lock(s)`);
+    }
+    console.log("[bridge] Branch isolation enabled");
+  } else {
+    console.log("[bridge] Branch isolation disabled (BRANCH_ISOLATION_ENABLED=0)");
+  }
+
   // Start Telegram bot (pass reverse pipeline, orchestrator, and pipeline watcher)
-  const bot = createTelegramBot(config, claude, sessions, projectManager, reversePipeline, orchestrator);
+  const bot = createTelegramBot(config, claude, sessions, projectManager, reversePipeline, orchestrator, branchManager);
 
   // Wire reverse pipeline result callback → orchestrator routing or Telegram notification
   if (reversePipeline) {
@@ -127,6 +141,10 @@ async function main() {
       }
     });
 
+    if (branchManager) {
+      orchestrator.setBranchManager(branchManager);
+    }
+
     const count = await orchestrator.loadWorkflows();
     console.log(`[bridge] Orchestrator ready (${count} workflow(s) recovered)`);
   }
@@ -138,6 +156,10 @@ async function main() {
     // Wire orchestrator hook for type:"orchestrate" tasks
     if (orchestrator) {
       pipeline.setOrchestrator(orchestrator);
+    }
+    // Wire branch manager for task-specific branch isolation
+    if (branchManager) {
+      pipeline.setBranchManager(branchManager);
     }
     pipeline.start();
   } else {
