@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { Config } from "./config";
 import type { PipelineTask, PipelineResult } from "./pipeline";
 import type { Verifier } from "./verifier";
+import { PipelineTaskSchema, PipelineResultSchema, safeParse } from "./schemas";
 
 // Serializable metadata for pending delegations — NO closures, NO functions
 export interface PendingDelegation {
@@ -74,7 +75,12 @@ export class ReversePipelineWatcher {
 
         try {
           const raw = await readFile(join(this.reverseTasksDir, file), "utf-8");
-          const task = JSON.parse(raw) as PipelineTask;
+          const parseResult = safeParse(PipelineTaskSchema, raw, `reverse-pipeline/task/${file}`);
+          if (!parseResult.success) {
+            console.warn(`[reverse-pipeline] Skipping invalid task file ${file}: ${parseResult.error}`);
+            continue;
+          }
+          const task = parseResult.data;
 
           // Skip if result already exists (will be picked up by poll)
           if (resultFiles.has(task.id)) continue;
@@ -193,7 +199,12 @@ export class ReversePipelineWatcher {
 
         try {
           const raw = await readFile(resultPath, "utf-8");
-          const result = JSON.parse(raw) as PipelineResult;
+          const resultParse = safeParse(PipelineResultSchema, raw, `reverse-pipeline/result/${file}`);
+          if (!resultParse.success) {
+            console.warn(`[reverse-pipeline] Skipping ${file}: ${resultParse.error}`);
+            continue;
+          }
+          const result = resultParse.data;
 
           if (!result.taskId) {
             console.warn(`[reverse-pipeline] Skipping ${file}: missing taskId`);

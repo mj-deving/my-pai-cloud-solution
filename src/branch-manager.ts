@@ -5,14 +5,10 @@
 
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { join } from "node:path";
+import { BranchLockMapSchema, strictParse, type BranchLock, type BranchLockMap } from "./schemas";
 
-export interface BranchLock {
-  projectDir: string;
-  branch: string;
-  taskId: string;
-  acquiredAt: string;
-  source: "pipeline" | "orchestrator";
-}
+// Re-export for backward compatibility
+export type { BranchLock };
 
 export class BranchManager {
   private lockFilePath: string;
@@ -27,7 +23,7 @@ export class BranchManager {
   private async loadLocks(): Promise<void> {
     try {
       const raw = await readFile(this.lockFilePath, "utf-8");
-      const parsed = JSON.parse(raw) as Record<string, BranchLock>;
+      const parsed = strictParse(BranchLockMapSchema, raw, "branch-manager/locks") as BranchLockMap;
       this.locks = new Map(Object.entries(parsed));
     } catch {
       // File doesn't exist or is corrupt — start fresh

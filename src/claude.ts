@@ -3,6 +3,7 @@
 
 import type { Config } from "./config";
 import type { SessionManager } from "./session";
+import { ClaudeJsonOutputSchema, safeParse } from "./schemas";
 
 export interface ClaudeResponse {
   sessionId: string;
@@ -103,8 +104,9 @@ export class ClaudeInvoker {
       }
 
       // Parse JSON output and persist the real session ID
-      try {
-        const parsed = JSON.parse(stdout);
+      const parseResult = safeParse(ClaudeJsonOutputSchema, stdout, "claude/send");
+      if (parseResult.success) {
+        const parsed = parseResult.data;
         const realSessionId = parsed.session_id || sessionId || "";
 
         // Save the real session ID so subsequent messages use --resume
@@ -117,8 +119,8 @@ export class ClaudeInvoker {
           result: parsed.result || stdout,
           usage: parsed.usage,
         };
-      } catch {
-        // If JSON parsing fails, return raw stdout
+      } else {
+        // Parse failed — return raw stdout
         return {
           sessionId: sessionId || "",
           result: stdout.trim(),
@@ -177,14 +179,15 @@ export class ClaudeInvoker {
         };
       }
 
-      try {
-        const parsed = JSON.parse(stdout);
+      const oneShotParse = safeParse(ClaudeJsonOutputSchema, stdout, "claude/oneShot");
+      if (oneShotParse.success) {
+        const parsed = oneShotParse.data;
         return {
           sessionId: parsed.session_id || "",
           result: parsed.result || stdout,
           usage: parsed.usage,
         };
-      } catch {
+      } else {
         return { sessionId: "", result: stdout.trim() };
       }
     } catch (err) {
@@ -242,14 +245,15 @@ export class ClaudeInvoker {
         };
       }
 
-      try {
-        const parsed = JSON.parse(stdout);
+      const quickParse = safeParse(ClaudeJsonOutputSchema, stdout, "claude/quickShot");
+      if (quickParse.success) {
+        const parsed = quickParse.data;
         return {
           sessionId: parsed.session_id || "",
           result: parsed.result || stdout,
           usage: parsed.usage,
         };
-      } catch {
+      } else {
         return { sessionId: "", result: stdout.trim() };
       }
     } catch (err) {

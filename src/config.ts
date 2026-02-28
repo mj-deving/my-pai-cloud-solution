@@ -1,6 +1,100 @@
 // Isidore Cloud was here — handoff test 2026-02-26
 // config.ts — Central configuration for Isidore Cloud bridge service
-// Reads from environment variables with sensible defaults
+// Reads from environment variables with Zod validation (Phase 1: Pipeline Hardening)
+
+import { z } from "zod";
+
+// Helper: parse optional numeric env var with validation
+const optionalInt = (min: number, max: number, fallback: number) =>
+  z
+    .string()
+    .optional()
+    .transform((v) => (v ? parseInt(v, 10) : fallback))
+    .pipe(z.number().int().min(min).max(max));
+
+// Helper: parse boolean-ish env var ("0" = false, anything else = true)
+const envBool = (fallback: boolean) =>
+  z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined ? fallback : v !== "0"));
+
+const EnvSchema = z.object({
+  // Required
+  TELEGRAM_BOT_TOKEN: z.string().min(1, "TELEGRAM_BOT_TOKEN is required"),
+  TELEGRAM_ALLOWED_USER_ID: z
+    .string()
+    .min(1, "TELEGRAM_ALLOWED_USER_ID is required")
+    .transform((v) => parseInt(v, 10))
+    .pipe(z.number().int().positive()),
+
+  // Email (optional — Phase 4)
+  EMAIL_IMAP_HOST: z.string().optional(),
+  EMAIL_IMAP_PORT: optionalInt(1, 65535, 993),
+  EMAIL_IMAP_USER: z.string().optional(),
+  EMAIL_IMAP_PASS: z.string().optional(),
+  EMAIL_SMTP_HOST: z.string().optional(),
+  EMAIL_SMTP_PORT: optionalInt(1, 65535, 587),
+  EMAIL_FROM_ADDRESS: z.string().optional(),
+  EMAIL_ALLOWED_SENDERS: z
+    .string()
+    .optional()
+    .transform((v) => v?.split(",")),
+
+  // Session
+  SESSION_ID_FILE: z.string().optional(),
+  CLAUDE_BINARY: z.string().optional(),
+
+  // Project handoff
+  PROJECT_REGISTRY_FILE: z.string().optional(),
+  HANDOFF_STATE_FILE: z.string().optional(),
+  PROJECT_SYNC_SCRIPT: z.string().optional(),
+  KNOWLEDGE_SYNC_SCRIPT: z.string().optional(),
+
+  // Pipeline
+  PIPELINE_ENABLED: envBool(true),
+  PIPELINE_DIR: z.string().optional(),
+  PIPELINE_POLL_INTERVAL_MS: optionalInt(500, 300_000, 5_000),
+  PIPELINE_MAX_CONCURRENT: optionalInt(1, 32, 1),
+
+  // Reverse pipeline
+  REVERSE_PIPELINE_ENABLED: envBool(true),
+  REVERSE_PIPELINE_POLL_INTERVAL_MS: optionalInt(500, 300_000, 5_000),
+
+  // Orchestrator
+  ORCHESTRATOR_ENABLED: envBool(true),
+  ORCHESTRATOR_MAX_DELEGATION_DEPTH: optionalInt(1, 10, 3),
+  ORCHESTRATOR_WORKFLOW_TIMEOUT_MS: optionalInt(60_000, 7_200_000, 30 * 60 * 1000),
+
+  // Branch isolation
+  BRANCH_ISOLATION_ENABLED: envBool(true),
+  BRANCH_ISOLATION_STALE_LOCK_MAX_MS: optionalInt(60_000, 86_400_000, 60 * 60 * 1000),
+
+  // Resource guard
+  RESOURCE_GUARD_ENABLED: envBool(true),
+  RESOURCE_GUARD_MEMORY_THRESHOLD_MB: optionalInt(64, 16384, 512),
+
+  // Rate limiter
+  RATE_LIMITER_ENABLED: envBool(true),
+  RATE_LIMITER_FAILURE_THRESHOLD: optionalInt(1, 100, 3),
+  RATE_LIMITER_WINDOW_MS: optionalInt(10_000, 3_600_000, 300_000),
+  RATE_LIMITER_COOLDOWN_MS: optionalInt(30_000, 7_200_000, 3_600_000),
+
+  // Verifier
+  VERIFIER_ENABLED: envBool(true),
+  VERIFIER_TIMEOUT_MS: optionalInt(5_000, 300_000, 30_000),
+
+  // Quick model
+  QUICK_MODEL: z.string().optional(),
+
+  // Phase 1: Pipeline hardening
+  PIPELINE_DEDUP_ENABLED: envBool(true),
+  AGENT_REGISTRY_ENABLED: envBool(false),
+  AGENT_REGISTRY_DB_PATH: z.string().optional(),
+  AGENT_REGISTRY_HEARTBEAT_INTERVAL_MS: optionalInt(1_000, 300_000, 10_000),
+  AGENT_REGISTRY_STALE_THRESHOLD_MS: optionalInt(5_000, 600_000, 60_000),
+  MESSENGER_TYPE: z.string().optional(),
+});
 
 export interface Config {
   // Telegram
@@ -31,7 +125,7 @@ export interface Config {
   pipelineEnabled: boolean;
   pipelineDir: string;
   pipelinePollIntervalMs: number;
-  pipelineMaxConcurrent: number; // Max simultaneous Claude dispatches
+  pipelineMaxConcurrent: number;
 
   // Reverse pipeline (Isidore → Gregor delegation)
   reversePipelineEnabled: boolean;
@@ -44,7 +138,7 @@ export interface Config {
 
   // Branch isolation (Phase 5C)
   branchIsolationEnabled: boolean;
-  branchIsolationStaleLockMaxMs: number; // Max age before stale lock cleanup
+  branchIsolationStaleLockMaxMs: number;
 
   // Resource guard (Phase 6A)
   resourceGuardEnabled: boolean;
@@ -64,107 +158,95 @@ export interface Config {
   quickModel: string;
 
   // Limits
-  telegramMaxChunkSize: number; // Telegram API limit is 4096
+  telegramMaxChunkSize: number;
   maxClaudeTimeoutMs: number;
+
+  // Phase 1: Pipeline hardening
+  pipelineDedupEnabled: boolean;
+  agentRegistryEnabled: boolean;
+  agentRegistryDbPath: string;
+  agentRegistryHeartbeatIntervalMs: number;
+  agentRegistryStaleThresholdMs: number;
+  messengerType: string;
 }
 
 export function loadConfig(): Config {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) {
-    throw new Error("TELEGRAM_BOT_TOKEN is required");
+  const result = EnvSchema.safeParse(process.env);
+  if (!result.success) {
+    const msg = result.error.issues
+      .map((i) => `${i.path.join(".")}: ${i.message}`)
+      .join("\n  ");
+    throw new Error(`Configuration validation failed:\n  ${msg}`);
   }
 
-  const userId = process.env.TELEGRAM_ALLOWED_USER_ID;
-  if (!userId) {
-    throw new Error("TELEGRAM_ALLOWED_USER_ID is required");
-  }
+  const env = result.data;
+  const home = process.env.HOME || "/home/isidore_cloud";
 
   return {
-    telegramBotToken: token,
-    telegramAllowedUserId: parseInt(userId, 10),
+    telegramBotToken: env.TELEGRAM_BOT_TOKEN,
+    telegramAllowedUserId: env.TELEGRAM_ALLOWED_USER_ID,
 
-    emailImapHost: process.env.EMAIL_IMAP_HOST,
-    emailImapPort: process.env.EMAIL_IMAP_PORT
-      ? parseInt(process.env.EMAIL_IMAP_PORT, 10)
-      : 993,
-    emailImapUser: process.env.EMAIL_IMAP_USER,
-    emailImapPass: process.env.EMAIL_IMAP_PASS,
-    emailSmtpHost: process.env.EMAIL_SMTP_HOST,
-    emailSmtpPort: process.env.EMAIL_SMTP_PORT
-      ? parseInt(process.env.EMAIL_SMTP_PORT, 10)
-      : 587,
-    emailFromAddress: process.env.EMAIL_FROM_ADDRESS,
-    emailAllowedSenders: process.env.EMAIL_ALLOWED_SENDERS?.split(","),
+    emailImapHost: env.EMAIL_IMAP_HOST,
+    emailImapPort: env.EMAIL_IMAP_PORT,
+    emailImapUser: env.EMAIL_IMAP_USER,
+    emailImapPass: env.EMAIL_IMAP_PASS,
+    emailSmtpHost: env.EMAIL_SMTP_HOST,
+    emailSmtpPort: env.EMAIL_SMTP_PORT,
+    emailFromAddress: env.EMAIL_FROM_ADDRESS,
+    emailAllowedSenders: env.EMAIL_ALLOWED_SENDERS,
 
-    sessionIdFile:
-      process.env.SESSION_ID_FILE ||
-      `${process.env.HOME}/.claude/active-session-id`,
-    claudeBinary: process.env.CLAUDE_BINARY || "claude",
+    sessionIdFile: env.SESSION_ID_FILE || `${home}/.claude/active-session-id`,
+    claudeBinary: env.CLAUDE_BINARY || "claude",
 
     projectRegistryFile:
-      process.env.PROJECT_REGISTRY_FILE ||
-      `${process.env.HOME}/pai-knowledge/HANDOFF/projects.json`,
+      env.PROJECT_REGISTRY_FILE || `${home}/pai-knowledge/HANDOFF/projects.json`,
     handoffStateFile:
-      process.env.HANDOFF_STATE_FILE ||
-      `${process.env.HOME}/.claude/handoff-state.json`,
+      env.HANDOFF_STATE_FILE || `${home}/.claude/handoff-state.json`,
     projectSyncScript:
-      process.env.PROJECT_SYNC_SCRIPT ||
-      `${process.env.HOME}/projects/my-pai-cloud-solution/scripts/project-sync.sh`,
+      env.PROJECT_SYNC_SCRIPT ||
+      `${home}/projects/my-pai-cloud-solution/scripts/project-sync.sh`,
     knowledgeSyncScript:
-      process.env.KNOWLEDGE_SYNC_SCRIPT ||
-      `${process.env.HOME}/projects/my-pai-cloud-solution/scripts/sync-knowledge.sh`,
+      env.KNOWLEDGE_SYNC_SCRIPT ||
+      `${home}/projects/my-pai-cloud-solution/scripts/sync-knowledge.sh`,
 
-    pipelineEnabled: process.env.PIPELINE_ENABLED !== "0",
-    pipelineDir: process.env.PIPELINE_DIR || "/var/lib/pai-pipeline",
-    pipelinePollIntervalMs: process.env.PIPELINE_POLL_INTERVAL_MS
-      ? parseInt(process.env.PIPELINE_POLL_INTERVAL_MS, 10)
-      : 5_000,
-    pipelineMaxConcurrent: process.env.PIPELINE_MAX_CONCURRENT
-      ? parseInt(process.env.PIPELINE_MAX_CONCURRENT, 10)
-      : 1, // Default 1 = backwards compatible sequential
+    pipelineEnabled: env.PIPELINE_ENABLED,
+    pipelineDir: env.PIPELINE_DIR || "/var/lib/pai-pipeline",
+    pipelinePollIntervalMs: env.PIPELINE_POLL_INTERVAL_MS,
+    pipelineMaxConcurrent: env.PIPELINE_MAX_CONCURRENT,
 
-    reversePipelineEnabled: process.env.REVERSE_PIPELINE_ENABLED !== "0",
-    reversePipelinePollIntervalMs: process.env.REVERSE_PIPELINE_POLL_INTERVAL_MS
-      ? parseInt(process.env.REVERSE_PIPELINE_POLL_INTERVAL_MS, 10)
-      : 5_000,
+    reversePipelineEnabled: env.REVERSE_PIPELINE_ENABLED,
+    reversePipelinePollIntervalMs: env.REVERSE_PIPELINE_POLL_INTERVAL_MS,
 
-    orchestratorEnabled: process.env.ORCHESTRATOR_ENABLED !== "0",
-    orchestratorMaxDelegationDepth: process.env.ORCHESTRATOR_MAX_DELEGATION_DEPTH
-      ? parseInt(process.env.ORCHESTRATOR_MAX_DELEGATION_DEPTH, 10)
-      : 3,
-    orchestratorWorkflowTimeoutMs: process.env.ORCHESTRATOR_WORKFLOW_TIMEOUT_MS
-      ? parseInt(process.env.ORCHESTRATOR_WORKFLOW_TIMEOUT_MS, 10)
-      : 30 * 60 * 1000, // 30 minutes
+    orchestratorEnabled: env.ORCHESTRATOR_ENABLED,
+    orchestratorMaxDelegationDepth: env.ORCHESTRATOR_MAX_DELEGATION_DEPTH,
+    orchestratorWorkflowTimeoutMs: env.ORCHESTRATOR_WORKFLOW_TIMEOUT_MS,
 
-    branchIsolationEnabled: process.env.BRANCH_ISOLATION_ENABLED !== "0",
-    branchIsolationStaleLockMaxMs: process.env.BRANCH_ISOLATION_STALE_LOCK_MAX_MS
-      ? parseInt(process.env.BRANCH_ISOLATION_STALE_LOCK_MAX_MS, 10)
-      : 60 * 60 * 1000, // 1 hour
+    branchIsolationEnabled: env.BRANCH_ISOLATION_ENABLED,
+    branchIsolationStaleLockMaxMs: env.BRANCH_ISOLATION_STALE_LOCK_MAX_MS,
 
-    resourceGuardEnabled: process.env.RESOURCE_GUARD_ENABLED !== "0",
-    resourceGuardMemoryThresholdMb: process.env.RESOURCE_GUARD_MEMORY_THRESHOLD_MB
-      ? parseInt(process.env.RESOURCE_GUARD_MEMORY_THRESHOLD_MB, 10)
-      : 512,
+    resourceGuardEnabled: env.RESOURCE_GUARD_ENABLED,
+    resourceGuardMemoryThresholdMb: env.RESOURCE_GUARD_MEMORY_THRESHOLD_MB,
 
-    rateLimiterEnabled: process.env.RATE_LIMITER_ENABLED !== "0",
-    rateLimiterFailureThreshold: process.env.RATE_LIMITER_FAILURE_THRESHOLD
-      ? parseInt(process.env.RATE_LIMITER_FAILURE_THRESHOLD, 10)
-      : 3,
-    rateLimiterWindowMs: process.env.RATE_LIMITER_WINDOW_MS
-      ? parseInt(process.env.RATE_LIMITER_WINDOW_MS, 10)
-      : 300_000, // 5 minutes
-    rateLimiterCooldownMs: process.env.RATE_LIMITER_COOLDOWN_MS
-      ? parseInt(process.env.RATE_LIMITER_COOLDOWN_MS, 10)
-      : 3_600_000, // 60 minutes
+    rateLimiterEnabled: env.RATE_LIMITER_ENABLED,
+    rateLimiterFailureThreshold: env.RATE_LIMITER_FAILURE_THRESHOLD,
+    rateLimiterWindowMs: env.RATE_LIMITER_WINDOW_MS,
+    rateLimiterCooldownMs: env.RATE_LIMITER_COOLDOWN_MS,
 
-    verifierEnabled: process.env.VERIFIER_ENABLED !== "0",
-    verifierTimeoutMs: process.env.VERIFIER_TIMEOUT_MS
-      ? parseInt(process.env.VERIFIER_TIMEOUT_MS, 10)
-      : 30_000, // 30 seconds
+    verifierEnabled: env.VERIFIER_ENABLED,
+    verifierTimeoutMs: env.VERIFIER_TIMEOUT_MS,
 
-    quickModel: process.env.QUICK_MODEL || "haiku",
+    quickModel: env.QUICK_MODEL || "haiku",
 
-    telegramMaxChunkSize: 4000, // Leave margin below 4096 API limit
-    maxClaudeTimeoutMs: 5 * 60 * 1000, // 5 minutes max per invocation
+    telegramMaxChunkSize: 4000,
+    maxClaudeTimeoutMs: 5 * 60 * 1000,
+
+    // Phase 1: Pipeline hardening
+    pipelineDedupEnabled: env.PIPELINE_DEDUP_ENABLED,
+    agentRegistryEnabled: env.AGENT_REGISTRY_ENABLED,
+    agentRegistryDbPath:
+      env.AGENT_REGISTRY_DB_PATH || "/var/lib/pai-pipeline/agent-registry.db",
+    agentRegistryHeartbeatIntervalMs: env.AGENT_REGISTRY_HEARTBEAT_INTERVAL_MS,
+    agentRegistryStaleThresholdMs: env.AGENT_REGISTRY_STALE_THRESHOLD_MS,
+    messengerType: env.MESSENGER_TYPE || "telegram",
   };
 }

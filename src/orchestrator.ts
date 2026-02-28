@@ -12,37 +12,18 @@ import { escMd } from "./format";
 import type { BranchManager } from "./branch-manager";
 import type { RateLimiter } from "./rate-limiter";
 import type { Verifier } from "./verifier";
+import {
+  WorkflowSchema,
+  WorkflowStepSchema,
+  safeParse,
+  strictParse,
+  type WorkflowStep,
+  type Workflow,
+} from "./schemas";
+import { TraceCollector } from "./decision-trace";
 
-// --- Types ---
-
-export interface WorkflowStep {
-  id: string;                           // "step-001"
-  description: string;
-  prompt: string;
-  assignee: "isidore" | "gregor";
-  status: "pending" | "blocked" | "in_progress" | "completed" | "failed";
-  dependsOn: string[];                  // Step IDs (DAG edges)
-  project?: string;
-  result?: string;
-  error?: string;
-  taskId?: string;                      // Reverse-pipeline task ID (gregor steps)
-  startedAt?: string;
-  completedAt?: string;
-  retryCount: number;                   // Default 0, max 1
-}
-
-export interface Workflow {
-  id: string;                           // UUID
-  originTaskId: string;                 // Pipeline task that spawned this
-  originFrom: string;                   // Who submitted the original
-  description: string;
-  status: "active" | "completed" | "failed" | "cancelled";
-  steps: WorkflowStep[];
-  createdAt: string;
-  updatedAt: string;
-  completedAt?: string;
-  delegationDepth: number;              // Loop guard (max configurable)
-}
+// Re-export types for backward compatibility
+export type { WorkflowStep, Workflow };
 
 export type NotifyCallback = (message: string) => Promise<void>;
 
@@ -96,7 +77,7 @@ export class TaskOrchestrator {
         if (!file.endsWith(".json")) continue;
         try {
           const raw = await readFile(join(this.workflowsDir, file), "utf-8");
-          const wf = JSON.parse(raw) as Workflow;
+          const wf = strictParse(WorkflowSchema, raw, `orchestrator/workflow/${file}`);
           if (wf.id) {
             this.workflows.set(wf.id, wf);
             count++;
@@ -165,25 +146,31 @@ export class TaskOrchestrator {
       if (!jsonMatch) {
         return { error: "Decomposition returned no JSON array" };
       }
-      rawSteps = JSON.parse(jsonMatch[0]);
-      if (!Array.isArray(rawSteps)) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (!Array.isArray(parsed)) {
         return { error: "Decomposition result is not an array" };
       }
+      rawSteps = parsed;
     } catch (err) {
       return { error: `Failed to parse decomposition: ${err}` };
     }
 
-    // Build WorkflowStep[] from raw output
-    const steps: WorkflowStep[] = rawSteps.map((raw: any) => ({
-      id: String(raw.id || ""),
-      description: String(raw.description || ""),
-      prompt: String(raw.prompt || raw.description || ""),
-      assignee: raw.assignee === "gregor" ? ("gregor" as const) : ("isidore" as const),
-      status: "pending" as const,
-      dependsOn: Array.isArray(raw.dependsOn) ? raw.dependsOn.map(String) : [],
-      project,
-      retryCount: 0,
-    }));
+    // Build WorkflowStep[] from raw output — map through schema for validation
+    const steps: WorkflowStep[] = rawSteps.map((raw: any) => {
+      const step = {
+        id: String(raw.id || ""),
+        description: String(raw.description || ""),
+        prompt: String(raw.prompt || raw.description || ""),
+        assignee: raw.assignee === "gregor" ? ("gregor" as const) : ("isidore" as const),
+        status: "pending" as const,
+        dependsOn: Array.isArray(raw.dependsOn) ? raw.dependsOn.map(String) : [],
+        project,
+        retryCount: 0,
+      };
+      // Validate shape (non-strict — Claude may produce extra fields)
+      const result = WorkflowStepSchema.safeParse(step);
+      return result.success ? result.data : step;
+    });
 
     // Validate DAG
     const validation = this.validateDecomposition(steps);

@@ -5,7 +5,8 @@ import { loadConfig } from "./config";
 import { SessionManager } from "./session";
 import { ClaudeInvoker } from "./claude";
 import { ProjectManager } from "./projects";
-import { createTelegramBot } from "./telegram";
+import { TelegramAdapter } from "./telegram-adapter";
+import type { MessengerAdapter } from "./messenger-adapter";
 import { escMd } from "./format";
 import { PipelineWatcher } from "./pipeline";
 import { ReversePipelineWatcher } from "./reverse-pipeline";
@@ -14,6 +15,8 @@ import { BranchManager } from "./branch-manager";
 import { ResourceGuard } from "./resource-guard";
 import { RateLimiter } from "./rate-limiter";
 import { Verifier } from "./verifier";
+import { IdempotencyStore } from "./idempotency";
+import { AgentRegistry } from "./agent-registry";
 
 async function main() {
   console.log("[bridge] Starting Isidore Cloud communication bridge...");
@@ -108,8 +111,42 @@ async function main() {
     console.log("[bridge] Verifier disabled (VERIFIER_ENABLED=0)");
   }
 
-  // Start Telegram bot (pass reverse pipeline, orchestrator, and pipeline watcher)
-  const bot = createTelegramBot(config, claude, sessions, projectManager, reversePipeline, orchestrator, branchManager, rateLimiter);
+  // Phase 1: Initialize SQLite-backed agent registry
+  let agentRegistry: AgentRegistry | null = null;
+  if (config.agentRegistryEnabled) {
+    agentRegistry = new AgentRegistry(config.agentRegistryDbPath);
+    agentRegistry.register("isidore_cloud", "isidore", ["pipeline", "orchestrator", "telegram"]);
+    agentRegistry.startHeartbeat("isidore_cloud", config.agentRegistryHeartbeatIntervalMs);
+    console.log(`[bridge] Agent registry enabled (db: ${config.agentRegistryDbPath})`);
+  } else {
+    console.log("[bridge] Agent registry disabled (AGENT_REGISTRY_ENABLED=0)");
+  }
+
+  // Phase 1: Initialize idempotency store (shares DB with registry)
+  let idempotencyStore: IdempotencyStore | null = null;
+  if (config.pipelineDedupEnabled) {
+    idempotencyStore = new IdempotencyStore(config.agentRegistryDbPath);
+    console.log("[bridge] Pipeline dedup enabled");
+  } else {
+    console.log("[bridge] Pipeline dedup disabled (PIPELINE_DEDUP_ENABLED=0)");
+  }
+
+  // Phase 1: Create messenger adapter based on config
+  let messenger: MessengerAdapter;
+  if (config.messengerType === "telegram") {
+    messenger = new TelegramAdapter(
+      config,
+      claude,
+      sessions,
+      projectManager,
+      reversePipeline,
+      orchestrator,
+      branchManager,
+      rateLimiter,
+    );
+  } else {
+    throw new Error(`Unsupported messenger type: ${config.messengerType}`);
+  }
 
   // Wire reverse pipeline result callback → orchestrator routing or Telegram notification
   if (reversePipeline) {
@@ -126,7 +163,7 @@ async function main() {
         return; // Orchestrator handles its own notifications
       }
 
-      // Non-workflow results → direct Telegram notification
+      // Non-workflow results → direct messenger notification
       const status = result.status === "completed" ? "completed" : "failed";
       const summary = result.result?.slice(0, 500) || (result as unknown as Record<string, unknown>).summary as string || result.error || "no output";
       const msg =
@@ -136,9 +173,7 @@ async function main() {
         `Prompt: ${escMd(delegation.prompt)}\n\n` +
         escMd(summary);
       try {
-        await bot.api.sendMessage(config.telegramAllowedUserId, msg, {
-          parse_mode: "Markdown",
-        });
+        await messenger.sendDirectMessage(msg, { parseMode: "Markdown" });
       } catch (err) {
         console.error(`[bridge] Failed to send delegation result notification: ${err}`);
       }
@@ -151,10 +186,9 @@ async function main() {
         (d) => `- \`${d.taskId.slice(0, 8)}...\` ${escMd(d.prompt)}`,
       );
       try {
-        await bot.api.sendMessage(
-          config.telegramAllowedUserId,
+        await messenger.sendDirectMessage(
           `**Recovered ${recovered.length} in-flight delegation(s) from before restart:**\n${lines.join("\n")}`,
-          { parse_mode: "Markdown" },
+          { parseMode: "Markdown" },
         );
       } catch (err) {
         console.error(`[bridge] Failed to send recovery notification: ${err}`);
@@ -168,9 +202,7 @@ async function main() {
   if (orchestrator) {
     orchestrator.setNotifyCallback(async (message) => {
       try {
-        await bot.api.sendMessage(config.telegramAllowedUserId, message, {
-          parse_mode: "Markdown",
-        });
+        await messenger.sendDirectMessage(message, { parseMode: "Markdown" });
       } catch (err) {
         console.error(`[bridge] Orchestrator notification error: ${err}`);
       }
@@ -184,13 +216,13 @@ async function main() {
     console.log(`[bridge] Orchestrator ready (${count} workflow(s) recovered)`);
   }
 
-  // Phase 6A: Wire rate limiter events → Telegram notifications + orchestrator re-kick
+  // Phase 6A: Wire rate limiter events → messenger notifications + orchestrator re-kick
   if (rateLimiter) {
     rateLimiter.onEvent((event) => {
       const msg = event === "paused"
         ? "**Rate limiter activated** — automated dispatch paused (cooldown active)"
         : "**Rate limiter resumed** — automated dispatch active";
-      bot.api.sendMessage(config.telegramAllowedUserId, msg, { parse_mode: "Markdown" })
+      messenger.sendDirectMessage(msg, { parseMode: "Markdown" })
         .catch((err: unknown) => console.error(`[bridge] Rate limiter notification error: ${err}`));
 
       // On resume: kick orchestrator to retry deferred steps
@@ -242,6 +274,10 @@ async function main() {
     if (verifier) {
       pipeline.setVerifier(verifier);
     }
+    // Phase 1: Wire idempotency store
+    if (idempotencyStore) {
+      pipeline.setIdempotencyStore(idempotencyStore);
+    }
     pipeline.start();
   } else {
     console.log("[bridge] Pipeline watcher disabled (PIPELINE_ENABLED=0)");
@@ -253,19 +289,21 @@ async function main() {
     rateLimiter?.stop();
     reversePipeline?.stop();
     pipeline?.stop();
-    bot.stop();
+    // Phase 1: Deregister agent and close DB connections
+    if (agentRegistry) {
+      agentRegistry.deregister("isidore_cloud");
+      agentRegistry.close();
+    }
+    idempotencyStore?.close();
+    messenger.stop();
     process.exit(0);
   };
 
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  console.log("[bridge] Starting Telegram bot (long polling)...");
-  bot.start({
-    onStart: () => {
-      console.log("[bridge] Telegram bot is running");
-    },
-  });
+  console.log("[bridge] Starting messenger...");
+  await messenger.start();
 
   // Email bridge placeholder — Phase 4
   if (config.emailImapHost) {

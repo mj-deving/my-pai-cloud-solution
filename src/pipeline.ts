@@ -16,59 +16,20 @@ import type { BranchManager } from "./branch-manager";
 import type { ResourceGuard } from "./resource-guard";
 import type { RateLimiter } from "./rate-limiter";
 import type { Verifier } from "./verifier";
+import { IdempotencyStore } from "./idempotency";
+import {
+  PipelineTaskSchema,
+  ClaudeJsonOutputSchema,
+  safeParse,
+  type PipelineTask,
+  type PipelineResult,
+  type StructuredResult,
+  type DecisionTrace,
+} from "./schemas";
+import { TraceCollector } from "./decision-trace";
 
-// Inbound task from the pipeline
-export interface PipelineTask {
-  id: string;
-  from: string;
-  to: string;
-  timestamp: string;
-  type: string;
-  priority?: string;
-  mode?: string; // "async" | "sync"
-  project?: string;
-  prompt: string;
-  context?: Record<string, unknown>;
-  constraints?: Record<string, unknown>;
-  session_id?: string; // Resume a prior pipeline conversation
-  timeout_minutes?: number; // Per-task timeout (overrides global maxClaudeTimeoutMs)
-  max_turns?: number; // Pass --max-turns to Claude CLI
-  // Phase 3: Escalation metadata — why Gregor escalated this task
-  escalation?: {
-    reason: string; // Why Gregor escalated
-    criteria: string[]; // Which classifier triggers fired
-    gregor_partial_result?: string; // What Gregor accomplished before escalating
-  };
-}
-
-// Structured result for machine-parseable output (Phase 2)
-export interface StructuredResult {
-  summary: string;
-  artifacts?: Array<{ path: string; type: string; description: string }>;
-  follow_up_needed?: boolean;
-  suggested_next_prompt?: string;
-}
-
-// Outbound result written to results/
-export interface PipelineResult {
-  id: string;
-  taskId: string;
-  from: string;
-  to: string;
-  timestamp: string;
-  status: "completed" | "error";
-  result?: string;
-  usage?: { input_tokens: number; output_tokens: number };
-  error?: string;
-  warnings?: string[];
-  session_id?: string; // Session ID for follow-up tasks
-  structured?: StructuredResult; // Machine-parseable output (Phase 2)
-  // Phase 3: Escalation acknowledgment
-  escalation_handled?: boolean; // True when task had escalation context
-  recommendations_for_sender?: string; // Advice for Gregor on similar future tasks
-  // Phase 5C: Branch isolation
-  branch?: string; // Task branch name when branch isolation was active
-}
+// Re-export types for backward compatibility
+export type { PipelineTask, PipelineResult, StructuredResult };
 
 // Priority levels — higher number = processed first
 const PRIORITY_ORDER: Record<string, number> = { high: 3, normal: 2, low: 1 };
@@ -94,6 +55,8 @@ export class PipelineWatcher {
   private rateLimiter: RateLimiter | null = null;
   // Phase 6B: optional verifier for independent result verification
   private verifier: Verifier | null = null;
+  // Phase 1: optional idempotency store for dedup
+  private idempotencyStore: IdempotencyStore | null = null;
 
   constructor(private config: Config) {
     this.tasksDir = join(config.pipelineDir, "tasks");
@@ -141,6 +104,11 @@ export class PipelineWatcher {
     this.verifier = verifier;
   }
 
+  // Phase 1: Set idempotency store for duplicate detection
+  setIdempotencyStore(store: IdempotencyStore): void {
+    this.idempotencyStore = store;
+  }
+
   // Get pipeline status (for /pipeline dashboard)
   getStatus(): { active: number; max: number; inFlight: number } {
     return {
@@ -182,14 +150,19 @@ export class PipelineWatcher {
         const taskPath = join(this.tasksDir, file);
         try {
           const raw = await readFile(taskPath, "utf-8");
-          const task = JSON.parse(raw) as PipelineTask;
+          const result = safeParse(PipelineTaskSchema, raw, `pipeline/task/${file}`);
+          if (!result.success) {
+            console.warn(`[pipeline] Skipping ${file}: ${result.error}`);
+            continue;
+          }
+          const task = result.data;
           if (!task.id || !task.prompt) {
             console.warn(`[pipeline] Skipping ${file}: missing id or prompt`);
             continue;
           }
           parsed.push({ filename: file, task });
         } catch (err) {
-          // Malformed JSON or file still being written — skip, retry next cycle
+          // File still being written or unreadable — skip, retry next cycle
           console.warn(`[pipeline] Skipping ${file}: ${err}`);
           continue;
         }
@@ -244,11 +217,48 @@ export class PipelineWatcher {
   private async processTask(filename: string, task: PipelineTask): Promise<void> {
     const taskPath = join(this.tasksDir, filename);
     let taskBranch: string | null = null;
+    const traces = new TraceCollector();
 
     try {
       console.log(
         `[pipeline] Processing task ${task.id} from ${task.from} [${task.priority || "normal"}] (active: ${this.activeCount}/${this.maxConcurrent}) (${task.prompt.slice(0, 80)}...)`,
       );
+
+      // Phase 1: Idempotency check — skip if already processed
+      if (this.idempotencyStore) {
+        const opId = task.op_id || (task.auto_op_id !== false ? IdempotencyStore.generateOpId(task.prompt) : null);
+        if (opId && this.idempotencyStore.isDuplicate(opId)) {
+          traces.emit({
+            phase: "dispatch",
+            decision: `Skipped duplicate task ${task.id}`,
+            reason_code: "duplicate",
+            context: { op_id: opId },
+          });
+          console.log(`[pipeline] Skipping duplicate task ${task.id} (op_id: ${opId.slice(0, 12)}...)`);
+          // Move to ack without dispatching
+          const ackPath = join(this.ackDir, filename);
+          try { await rename(taskPath, ackPath); } catch { /* ignore */ }
+          return;
+        }
+      }
+
+      // Phase 6A: Resource guard check
+      if (this.resourceGuard && !this.resourceGuard.canDispatch()) {
+        traces.emit({
+          phase: "dispatch",
+          decision: `Deferred task ${task.id} — low memory`,
+          reason_code: "memory_low",
+        });
+      }
+
+      // Phase 6A: Rate limiter check
+      if (this.rateLimiter?.isPaused()) {
+        traces.emit({
+          phase: "dispatch",
+          decision: `Deferred task ${task.id} — rate limited`,
+          reason_code: "rate_limited",
+        });
+      }
 
       // Phase 5C: Create task-specific branch before dispatch
       if (this.branchManager && task.project) {
@@ -262,6 +272,12 @@ export class PipelineWatcher {
       }
 
       // 1. Dispatch to Claude
+      traces.emit({
+        phase: "dispatch",
+        decision: `Dispatching task ${task.id}`,
+        reason_code: "dispatched",
+        context: { project: task.project, priority: task.priority },
+      });
       const result = await this.dispatch(task);
 
       // Phase 6B: Verify completed results before writing
@@ -270,6 +286,12 @@ export class PipelineWatcher {
         const verification = await this.verifier.verify(task.prompt, result.result || "", cwd);
         if (!verification.passed) {
           console.warn(`[pipeline] Verification failed for ${task.id}: ${verification.concerns}`);
+          traces.emit({
+            phase: "verify",
+            decision: `Verification failed for ${task.id}`,
+            reason_code: "verification_failed",
+            context: { verdict: verification.verdict },
+          });
           result.status = "error";
           result.error = `Verification failed: ${verification.concerns || verification.verdict}`;
           result.warnings = [...(result.warnings || []), `Verifier: ${verification.verdict}`];
@@ -279,6 +301,12 @@ export class PipelineWatcher {
       // Phase 5C: Include branch in result
       if (taskBranch) {
         result.branch = taskBranch;
+      }
+
+      // Phase 1: Include decision traces in result
+      const collectedTraces = traces.getTraces();
+      if (collectedTraces.length > 0) {
+        result.decision_traces = collectedTraces;
       }
 
       // 2. Write result atomically (write .tmp, rename)
@@ -295,6 +323,14 @@ export class PipelineWatcher {
         console.error(`[pipeline] Failed to write result for ${task.id}: ${err}`);
         try { await unlink(resultTmpPath); } catch { /* ignore */ }
         return; // Don't ack if result write failed
+      }
+
+      // Phase 1: Record idempotency after successful result write
+      if (this.idempotencyStore) {
+        const opId = task.op_id || (task.auto_op_id !== false ? IdempotencyStore.generateOpId(task.prompt) : null);
+        if (opId) {
+          this.idempotencyStore.record(opId, task.id, result.status, resultFilename);
+        }
       }
 
       // 2b. Orchestrator hook — type:"orchestrate" tasks trigger workflow creation
@@ -462,8 +498,9 @@ export class PipelineWatcher {
       }
 
       // Parse Claude JSON output
-      try {
-        const parsed = JSON.parse(stdout);
+      const parseResult = safeParse(ClaudeJsonOutputSchema, stdout, `pipeline/claude-output/${task.id}`);
+      if (parseResult.success) {
+        const parsed = parseResult.data;
         const sessionId = parsed.session_id || undefined;
 
         // Phase 2: Record session-project affinity for future mismatch detection
@@ -488,8 +525,8 @@ export class PipelineWatcher {
         }
 
         return pipelineResult;
-      } catch {
-        // JSON parse failed — use raw stdout, no session_id available
+      } else {
+        // Parse failed — use raw stdout, no session_id available
         return this.buildResult(task, "completed", stdout.trim(), undefined, undefined, warnings);
       }
     } catch (err) {
@@ -507,6 +544,7 @@ export class PipelineWatcher {
     session_id?: string,
     structured?: StructuredResult,
     branch?: string,
+    decision_traces?: DecisionTrace[],
   ): PipelineResult {
     return {
       id: crypto.randomUUID(),
@@ -522,6 +560,7 @@ export class PipelineWatcher {
       ...(session_id && { session_id }),
       ...(structured && { structured }),
       ...(branch && { branch }),
+      ...(decision_traces && decision_traces.length > 0 && { decision_traces }),
     };
   }
 }
