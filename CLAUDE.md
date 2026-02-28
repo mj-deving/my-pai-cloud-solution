@@ -102,26 +102,44 @@ Gregor writes JSON → /var/lib/pai-pipeline/tasks/task.json
 - **Branch isolation:** Pipeline tasks run on `pipeline/<taskId>` branches to prevent contamination of main. Wrapup has a branch guard.
 - **DAG orchestrator:** Workflows decomposed via Claude, validated for cycles and referential integrity. Steps dispatched as dependencies resolve. Workflow-completion results written to `results/workflow-<taskId>.json`.
 - **Per-task timeout:** Pipeline tasks can specify `timeout_minutes` (overrides 5min default) and `max_turns` (passed to CLI). Essential for overnight PRD queue processing.
+- **Pipeline sessions:** `session_id` pass-through from task JSON, plus session-project affinity guard (in-memory Map) to prevent cross-project session contamination.
+- **Pipeline priority:** Tasks sorted by `PRIORITY_ORDER` (high=3, normal=2, low=1) within each poll batch.
+- **Quick model (Phase 6C):** `--model haiku` via `claude.quickShot()` for lightweight tasks. Feature-flagged `QUICK_MODEL`.
 - **Resource guard / rate limiter / verifier (Phase 6):** Memory-gated dispatch, failure-rate circuit breaker, result verification via separate Claude one-shot. All feature-flagged.
+- **Zod validation (Phase 1):** All cross-agent JSON boundaries validated via Zod schemas (`safeParse`/`strictParse`). Config env vars validated with range checks. Only internal trusted data (projects.ts, verifier.ts) uses raw `JSON.parse`.
+- **Decision traces (Phase 1):** Every pipeline dispatch decision (skip, dedup, gate, dispatch) recorded as structured traces in result JSON. `decision_traces` field is optional for backward compat.
+- **Idempotency (Phase 1):** SQLite-backed `processed_ops` table with sha256 op_id. Prevents duplicate task dispatch. Feature-flagged `PIPELINE_DEDUP_ENABLED`.
+- **Agent registry (Phase 1):** SQLite `agents` table with heartbeat + stale detection. Feature-flagged `AGENT_REGISTRY_ENABLED`. Shares DB file with idempotency store.
+- **MessengerAdapter (Phase 1):** Platform-agnostic interface. `bridge.ts` has zero Grammy/Telegram imports — depends only on `MessengerAdapter`. `TelegramAdapter` wraps existing `createTelegramBot()` without rewriting `telegram.ts`. Future messengers implement the same interface.
+- **Dashboard (Phase 2):** Bun.serve web UI on localhost:3456 with REST API + SSE real-time updates. Dark Kanban board, health panels, agent status, workflow progress, history search, decision trace viewer. Feature-flagged `DASHBOARD_ENABLED`. Access via SSH tunnel; nginx reverse proxy config included for future external access.
 
 ### Module Responsibilities
 
 | Module | Role |
 |--------|------|
-| `bridge.ts` | Entry point — wires everything together, graceful shutdown |
+| `bridge.ts` | Entry point — wires everything together via `MessengerAdapter`, graceful shutdown |
 | `telegram.ts` | Grammy bot: auth middleware, all `/command` handlers, message forwarding |
+| `telegram-adapter.ts` | `TelegramAdapter` — wraps `createTelegramBot()` behind `MessengerAdapter` interface |
+| `messenger-adapter.ts` | `MessengerAdapter` interface — platform-agnostic messaging contract |
 | `claude.ts` | `ClaudeInvoker` — spawns CLI, manages timeouts, handles stale session recovery |
 | `session.ts` | `SessionManager` — reads/writes/archives the active session ID file |
 | `projects.ts` | `ProjectManager` — project registry, handoff state, git sync, project creation |
-| `pipeline.ts` | `PipelineWatcher` — polls tasks/, dispatches to Claude, writes results, concurrency pool, per-task timeout/max-turns |
+| `pipeline.ts` | `PipelineWatcher` — polls tasks/, validates via Zod, dispatches with decision traces + idempotency |
 | `reverse-pipeline.ts` | `ReversePipelineWatcher` — Isidore→Gregor delegation via reverse-tasks/results dirs |
-| `orchestrator.ts` | `TaskOrchestrator` — DAG workflow decomposition, step dispatch, crash recovery, workflow-completion results |
+| `orchestrator.ts` | `TaskOrchestrator` — DAG workflow decomposition, step dispatch, crash recovery |
 | `branch-manager.ts` | `BranchManager` — task-specific branch checkout/release, lock persistence |
+| `schemas.ts` | Zod schemas for all external data types + `safeParse`/`strictParse` helpers |
+| `decision-trace.ts` | `TraceCollector` — structured decision logging at pipeline/orchestrator decision points |
+| `agent-message.ts` | `AgentMessage` envelope type + mapping functions for inter-agent transport |
+| `idempotency.ts` | `IdempotencyStore` — SQLite-backed duplicate task detection (sha256 op_id) |
+| `agent-registry.ts` | `AgentRegistry` — SQLite agent tracking with heartbeat + stale detection |
 | `resource-guard.ts` | `ResourceGuard` — memory-gated dispatch, `os.freemem()` check (Phase 6A) |
 | `rate-limiter.ts` | `RateLimiter` — sliding window failure tracking, cooldown (Phase 6A) |
 | `verifier.ts` | `Verifier` — result verification via separate Claude one-shot (Phase 6B) |
-| `config.ts` | `loadConfig()` — reads env vars with defaults, validates required fields |
+| `config.ts` | `loadConfig()` — Zod-validated env vars with range checks, feature flags |
 | `format.ts` | `compactFormat()`, `chunkMessage()`, `escMd()` — formatting + Markdown escaping |
+| `dashboard.ts` | `Dashboard` — Bun.serve HTTP server, REST API (8 endpoints), SSE real-time updates |
+| `dashboard-html.ts` | `getDashboardHtml()` — self-contained HTML/CSS/JS dark-themed dashboard page |
 | `wrapup.ts` | `lightweightWrapup()` — non-blocking git commit with branch guard |
 
 ## Cross-Instance Continuity
