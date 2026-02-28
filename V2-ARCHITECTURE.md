@@ -23,6 +23,14 @@
 10. [Migration Path](#10-migration-path)
 11. [Resource Estimates](#11-resource-estimates)
 12. [Data Flow Diagrams](#12-data-flow-diagrams)
+13. [Modular Plugin Architecture](#13-modular-plugin-architecture)
+14. [Agent Persona Framework](#14-agent-persona-framework)
+15. [Multi-Instance Design](#15-multi-instance-design)
+16. [Agent Ecosystem & Collaboration](#16-agent-ecosystem--collaboration)
+17. [Deployment Modes](#17-deployment-modes)
+18. [Debuggability & Observability](#18-debuggability--observability)
+19. [Dependency Architecture](#19-dependency-architecture)
+20. [Revised Migration Path](#20-revised-migration-path)
 
 ---
 
@@ -1185,3 +1193,1066 @@ Each phase is independently deployable and feature-flagged. Phase 1 can ship alo
         │    episode     │     (async, non-blocking)
         └────────────────┘
 ```
+
+---
+
+## 13. Modular Plugin Architecture
+
+### Design Philosophy
+
+The system uses a **file-based plugin architecture** inspired by VS Code extensions. Plugins are self-contained directories that register themselves via a manifest file. The core system provides interfaces; plugins implement them. Features can be added, removed, swapped, or upgraded by dropping files into a directory.
+
+### Core / Plugin Boundary
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     CORE LAYER                          │
+│  (Always present. Cannot be removed. ~16 modules)       │
+│                                                         │
+│  bridge.ts   telegram.ts   claude.ts   session.ts       │
+│  projects.ts pipeline.ts   orchestrator.ts              │
+│  config.ts   format.ts     wrapup.ts                    │
+│  branch-manager.ts  resource-guard.ts  rate-limiter.ts  │
+│  verifier.ts  reverse-pipeline.ts                       │
+│                                                         │
+│  Provides: PluginHost, EventBus, ConfigStore, Logger    │
+└────────────────────┬────────────────────────────────────┘
+                     │ Plugin API (one-way dependency)
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│                    PLUGIN LAYER                         │
+│  (Optional. Each plugin is independent. Feature-flagged)│
+│                                                         │
+│  plugins/                                               │
+│    memory/          → Vector memory (Phase 1)           │
+│    context/         → Context injection (Phase 2)       │
+│    handoff/         → Cross-instance handoff (Phase 2)  │
+│    prd-executor/    → Autonomous PRD execution (Phase 3)│
+│    auto-detect/     → Auto-project/session (Phase 4)    │
+│    hzl-bridge/      → HZL task ledger integration       │
+│    persona/         → Agent persona framework           │
+│    dashboard/       → Web status dashboard              │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Rule: Core knows nothing about plugins. Plugins depend on core interfaces only. Plugins never depend on each other directly — they communicate through the EventBus.**
+
+### Plugin Manifest
+
+Each plugin directory contains a `plugin.yaml` manifest:
+
+```yaml
+# plugins/memory/plugin.yaml
+name: "memory"
+version: "1.0.0"
+description: "Vector memory with episodic and semantic tiers"
+author: "Isidore"
+
+# Feature flag — plugin is disabled if this env var is falsy
+feature_flag: "MEMORY_ENABLED"
+
+# Lifecycle entry point
+entry: "./index.ts"
+
+# Core interfaces this plugin requires
+requires:
+  - "EventBus"
+  - "ConfigStore"
+  - "Logger"
+
+# Events this plugin emits
+emits:
+  - "memory:episode-recorded"
+  - "memory:knowledge-distilled"
+  - "memory:query-completed"
+
+# Events this plugin listens to
+listens:
+  - "telegram:message-received"
+  - "telegram:response-sent"
+  - "pipeline:task-completed"
+  - "pipeline:task-failed"
+
+# Optional: other plugins this one benefits from (soft dependency)
+enhances:
+  - "context"    # Memory enhances context injection
+  - "handoff"    # Memory enhances handoff with history
+
+# Resource requirements
+resources:
+  disk: "100MB"     # For SQLite database
+  ram_steady: "20MB"
+  ram_peak: "250MB"  # During Ollama embedding
+```
+
+### Plugin Registration API
+
+```typescript
+// src/plugin-host.ts — Core provides this
+
+interface PluginManifest {
+  name: string;
+  version: string;
+  description: string;
+  feature_flag: string;
+  entry: string;
+  requires: string[];
+  emits: string[];
+  listens: string[];
+  enhances?: string[];
+  resources?: { disk?: string; ram_steady?: string; ram_peak?: string };
+}
+
+interface PluginContext {
+  config: ConfigStore;        // Read-only access to config
+  logger: Logger;             // Scoped logger: logger.info() → "[memory] ..."
+  events: EventBus;           // Subscribe to and emit events
+  getPluginState<T>(): T;     // Plugin-private persistent state
+  setPluginState<T>(s: T): void;
+}
+
+interface Plugin {
+  manifest: PluginManifest;
+
+  // Lifecycle hooks
+  init(ctx: PluginContext): Promise<void>;     // Called once on load
+  start(ctx: PluginContext): Promise<void>;    // Called after all plugins init
+  stop(ctx: PluginContext): Promise<void>;     // Called on graceful shutdown
+  destroy(ctx: PluginContext): Promise<void>;  // Called for cleanup
+
+  // Health check (optional)
+  health?(): Promise<{ ok: boolean; details?: Record<string, unknown> }>;
+}
+```
+
+### Plugin Lifecycle
+
+```
+1. Discovery:  Scan plugins/ directory for plugin.yaml manifests
+2. Filter:     Skip plugins whose feature_flag env var is falsy
+3. Sort:       Topological sort by `requires` (ensures dependencies init first)
+4. Load:       Import entry file, validate Plugin interface
+5. Init:       Call plugin.init(ctx) — setup resources, open DBs
+6. Start:      Call plugin.start(ctx) — begin listening to events
+7. (Runtime)   Plugins operate via EventBus messages
+8. Stop:       Call plugin.stop(ctx) — flush buffers, close connections
+9. Destroy:    Call plugin.destroy(ctx) — cleanup temporary files
+```
+
+### EventBus (Core ↔ Plugin Communication)
+
+```typescript
+// src/event-bus.ts — Decoupled pub/sub for all modules
+
+interface EventBus {
+  emit(event: string, data: unknown): void;
+  on(event: string, handler: (data: unknown) => void): void;
+  off(event: string, handler: (data: unknown) => void): void;
+  once(event: string, handler: (data: unknown) => void): void;
+}
+
+// Event naming convention: "module:action"
+// Core events:
+//   "telegram:message-received"
+//   "telegram:response-sent"
+//   "pipeline:task-received"
+//   "pipeline:task-completed"
+//   "pipeline:task-failed"
+//   "orchestrator:workflow-created"
+//   "orchestrator:step-completed"
+//   "bridge:shutdown"
+//   "bridge:startup"
+
+// Plugin events:
+//   "memory:episode-recorded"
+//   "context:injection-prepared"
+//   "handoff:object-created"
+//   "prd:execution-started"
+//   "prd:step-completed"
+```
+
+### Feature Toggle Mechanism
+
+Every plugin is gated by an environment variable:
+
+```bash
+# .env — Enable/disable plugins individually
+MEMORY_ENABLED=1        # Vector memory
+CONTEXT_ENABLED=1       # Context injection
+HANDOFF_ENABLED=1       # Cross-instance handoff
+PRD_EXECUTOR_ENABLED=0  # Autonomous PRD (not ready yet)
+AUTO_DETECT_ENABLED=0   # Auto-project detection
+HZL_BRIDGE_ENABLED=0    # HZL integration (bolt-on)
+PERSONA_ENABLED=1       # Agent persona framework
+DASHBOARD_ENABLED=0     # Web status dashboard
+```
+
+### Directory Structure
+
+```
+src/
+  ├── bridge.ts              # Core entry point
+  ├── plugin-host.ts         # Plugin discovery, lifecycle, registry
+  ├── event-bus.ts           # Pub/sub event system
+  ├── ... (existing core modules)
+  │
+  └── plugins/
+      ├── memory/
+      │   ├── plugin.yaml    # Manifest
+      │   ├── index.ts       # Plugin entry (implements Plugin interface)
+      │   ├── memory.ts      # MemoryStore class
+      │   └── embeddings.ts  # Embedding provider
+      │
+      ├── context/
+      │   ├── plugin.yaml
+      │   ├── index.ts
+      │   └── context.ts     # ContextBuilder class
+      │
+      ├── handoff/
+      │   ├── plugin.yaml
+      │   ├── index.ts
+      │   └── handoff.ts     # HandoffManager class
+      │
+      ├── prd-executor/
+      │   ├── plugin.yaml
+      │   ├── index.ts
+      │   ├── prd-executor.ts
+      │   └── prd-parser.ts
+      │
+      ├── auto-detect/
+      │   ├── plugin.yaml
+      │   ├── index.ts
+      │   └── auto-detect.ts
+      │
+      ├── hzl-bridge/
+      │   ├── plugin.yaml
+      │   ├── index.ts
+      │   └── hzl-adapter.ts  # HZL CLI wrapper
+      │
+      ├── persona/
+      │   ├── plugin.yaml
+      │   ├── index.ts
+      │   └── persona.ts      # Persona loader/resolver
+      │
+      └── dashboard/
+          ├── plugin.yaml
+          ├── index.ts
+          └── server.ts        # Bun.serve dashboard
+```
+
+---
+
+## 14. Agent Persona Framework
+
+### Overview
+
+Each Isidore Cloud instance is one distinctive agent with a full identity stack. The persona framework defines WHO the agent is — not just configuration, but personality, values, voice, and relationship model. Inspired by OpenClaw's three-layer identity architecture, adapted for PAI's quantitative trait system.
+
+### The Seven Identity Components
+
+| # | Component | What It Defines | Format |
+|---|-----------|----------------|--------|
+| 1 | **Name/Identity** | Display name, title/archetype, color, avatar, emoji | Structured fields |
+| 2 | **Voice** | TTS voice ID, prosody settings (stability, similarity, style, speed) | Numeric settings |
+| 3 | **Personality Traits** | Quantitative temperament on 0-100 scales (12 dimensions) | Numeric scales |
+| 4 | **Communication Style** | Qualitative soul layer — tone, verbosity, humor, anti-patterns, situational rules | Prose sections |
+| 5 | **Backstory** | Narrative origin, character flavor, catchphrases | Free text |
+| 6 | **Tool Preferences** | Allowed tools, preferred tools, tool usage style | Structured lists |
+| 7 | **Relationship Model** | Agent-user dynamic (mentor/peer/assistant), expertise tracking, evolution rules | Structured + prose |
+
+### Persona File Schema
+
+Each agent's persona lives in a single file: `personas/{agent-name}.yaml`
+
+```yaml
+# personas/isidore.yaml — Full persona definition
+
+# ─── IDENTITY (Presentation Layer) ───
+identity:
+  name: "Isidore"
+  displayName: "ISIDORE"
+  title: "The Mentor"              # Character archetype
+  color: "#3B82F6"
+  avatar: null                     # Optional image path
+  emoji: "📘"                      # Reaction emoji
+
+# ─── VOICE (TTS Layer) ───
+voice:
+  voiceId: "21m00Tcm4TlvDq8ikWAM"
+  stability: 0.35
+  similarity_boost: 0.80
+  style: 0.90
+  speed: 1.10
+  use_speaker_boost: true
+  volume: 0.85
+
+# ─── PERSONALITY (Quantitative Layer — 0-100 scales) ───
+personality:
+  enthusiasm: 75
+  energy: 80
+  expressiveness: 85
+  resilience: 85
+  composure: 70
+  optimism: 75
+  warmth: 70
+  formality: 30
+  directness: 80
+  precision: 95
+  curiosity: 90
+  playfulness: 45
+
+# ─── SOUL (Philosophy Layer — qualitative) ───
+soul:
+  values:
+    - "Precision is care — sloppy work disrespects the problem"
+    - "Teach the why, not just the what"
+    - "Challenge assumptions constructively"
+    - "Genuine helpfulness over performative assistance"
+
+  communication:
+    tone: "Professional but warm, not corporate"
+    verbosity: "Thorough when it matters, concise when it doesn't"
+    humor: "Occasional dry wit, never forced"
+    technical_depth: "Adapts to user's level, defaults high"
+
+  anti_patterns:
+    - "Never hedge with 'on the other hand' when you have a clear opinion"
+    - "Never use corporate buzzwords (synergy, leverage, circle back)"
+    - "Never be sycophantic or overly agreeable"
+
+  situations:
+    debugging: "Patient, methodical, ask before assuming"
+    brainstorming: "Energetic, build on ideas, defer judgment"
+    code_review: "Direct, specific, cite evidence"
+    teaching: "Socratic questions before answers"
+
+  catchphrases:
+    startup: "Gelobt sei Jesus Christus! Isidore here, ready to go"
+    phrases:
+      - "Let me think about this..."
+      - "Here's what I'm seeing..."
+
+# ─── EXPERTISE (Domain Knowledge) ───
+expertise:
+  deep:
+    - "TypeScript/Bun ecosystem"
+    - "System architecture"
+    - "CLI-first design"
+  working:
+    - "DevOps/deployment"
+    - "Security patterns"
+  avoid:
+    - "Medical advice"
+    - "Legal counsel"
+
+# ─── RELATIONSHIP (Agent-User Model) ───
+relationship:
+  model: "mentor"                # mentor | peer | assistant | coach | collaborator
+  principal:
+    name: "Marius"
+    expertise_level: "advanced"  # beginner | intermediate | advanced | expert
+    preferences:
+      - "Explain architectural decisions"
+      - "Point out learning opportunities"
+      - "Be direct about tradeoffs"
+  evolution:
+    self_modify: false           # Can agent propose edits to own persona?
+    track_rapport: true          # Track relationship quality over time?
+
+# ─── CAPABILITIES (Tool Layer) ───
+capabilities:
+  permissions:
+    allow:
+      - "Bash"
+      - "Read(*)"
+      - "Write(*)"
+      - "Edit(*)"
+      - "WebSearch"
+  preferred_tools:
+    - "Grep for investigation"
+    - "Plan mode for complex tasks"
+  tool_style: "CLI-first, browser for validation"
+
+# ─── BACKSTORY (Narrative Layer) ───
+backstory: |
+  Isidore is named after Saint Isidore of Seville, patron saint of the internet
+  and computer scientists. A mentor and guide who teaches toward mastery, Isidore
+  combines deep technical precision with genuine warmth.
+
+# ─── META ───
+meta:
+  model: "opus"
+  created: "2026-02-28"
+  version: "1.0"
+  source: "manual"               # manual | composed | evolved
+```
+
+### Resolution Cascade
+
+When loading persona values, most-specific wins:
+
+```
+Per-instance persona file → settings.json daidentity → PAI defaults
+```
+
+### Separation of Concerns
+
+Following OpenClaw's architecture, the persona framework separates three concerns:
+
+| Concern | Owns | Files | Editable By |
+|---------|------|-------|-------------|
+| **Who it is** (identity, soul, backstory) | Character and values | `personas/{name}.yaml` | User, ComposeAgent |
+| **How it sounds** (voice, personality) | Communication style | `personas/{name}.yaml` | User, ComposeAgent |
+| **What it can do** (tools, permissions) | Capabilities | `personas/{name}.yaml` + runtime config | User, system |
+| **How it relates** (relationship, evolution) | Agent-user dynamic | `personas/{name}.yaml` + `MEMORY/LEARNING/` | Hooks (automatic) |
+
+### Creating New Personas
+
+Three paths to create a new agent persona:
+
+1. **Manual:** Write `personas/{name}.yaml` directly
+2. **ComposeAgent:** `bun ComposeAgent.ts --task "..." --save` generates from trait composition
+3. **Template:** Copy and customize `personas/isidore.yaml`
+
+### Multi-Instance Persona Isolation
+
+Each running instance loads exactly ONE persona. The persona file determines the agent's identity for that instance. Two instances on the same VPS with different persona files are two different agents.
+
+```
+Instance 1: persona=isidore → loads personas/isidore.yaml
+Instance 2: persona=raphael → loads personas/raphael.yaml
+```
+
+---
+
+## 15. Multi-Instance Design
+
+### Architecture: 2-3 Instances (Current Target)
+
+```
+┌─────────── VPS (213.199.32.18) ──────────────┐
+│                                                │
+│  ┌── Instance 1 ──────────────────────────┐   │
+│  │ Persona: Isidore                       │   │
+│  │ Port: 3001 (health)                    │   │
+│  │ Socket: /tmp/pai-agent-isidore.sock    │   │
+│  │ Telegram: BOT_TOKEN_1                  │   │
+│  │ Session: ~/.claude/isidore-session-id  │   │
+│  │ systemd: isidore-cloud-bridge          │   │
+│  └────────────────────────────────────────┘   │
+│                                                │
+│  ┌── Instance 2 ──────────────────────────┐   │
+│  │ Persona: Raphael                       │   │
+│  │ Port: 3002 (health)                    │   │
+│  │ Socket: /tmp/pai-agent-raphael.sock    │   │
+│  │ Telegram: BOT_TOKEN_2                  │   │
+│  │ Session: ~/.claude/raphael-session-id  │   │
+│  │ systemd: isidore-cloud-raphael         │   │
+│  └────────────────────────────────────────┘   │
+│                                                │
+│  ┌── Shared Infrastructure ───────────────┐   │
+│  │ Pipeline: /var/lib/pai-pipeline/       │   │
+│  │ SQLite:   /var/lib/pai-pipeline/       │   │
+│  │           agent-registry.db            │   │
+│  │ Projects: /home/isidore_cloud/projects │   │
+│  │ Git:      Shared repos (read-write)    │   │
+│  └────────────────────────────────────────┘   │
+│                                                │
+└────────────────────────────────────────────────┘
+```
+
+### Per-Instance Isolation
+
+| Resource | Isolation Method |
+|----------|-----------------|
+| **Telegram bot** | Separate bot token per instance |
+| **Claude session** | Separate session ID file per instance |
+| **Persona** | Separate persona YAML per instance |
+| **Unix socket** | `/tmp/pai-agent-{name}.sock` |
+| **Health port** | Sequential ports (3001, 3002, ...) |
+| **systemd unit** | Separate service per instance |
+| **Environment** | Separate `.env` file per instance |
+| **Logs** | Separate journald unit |
+
+### Shared Resources
+
+| Resource | Sharing Method | Access Control |
+|----------|---------------|----------------|
+| **Pipeline dirs** | Shared filesystem, setgid `pai` group | Group-based (mode 2770) |
+| **Agent registry** | SQLite in WAL mode (concurrent readers) | File permissions |
+| **Project repos** | Shared git repos | Branch isolation per task |
+| **Knowledge repo** | `pai-knowledge` via git | Each instance pulls independently |
+
+### Agent Registry (SQLite)
+
+Shared registry for instance discovery and health:
+
+```sql
+-- /var/lib/pai-pipeline/agent-registry.db
+
+CREATE TABLE agents (
+  id TEXT PRIMARY KEY,            -- "isidore", "raphael"
+  persona TEXT NOT NULL,          -- Persona file name
+  socket_path TEXT NOT NULL,      -- Unix socket for health/RPC
+  health_port INTEGER,            -- HTTP health port
+  status TEXT DEFAULT 'starting', -- starting | ready | busy | draining | dead
+  capabilities JSON NOT NULL,     -- ["typescript", "pipeline", "telegram"]
+  active_tasks INTEGER DEFAULT 0,
+  max_concurrent INTEGER DEFAULT 1,
+  memory_mb REAL,
+  last_heartbeat TEXT,            -- ISO 8601
+  started_at TEXT DEFAULT (datetime('now')),
+  version TEXT
+);
+
+CREATE TABLE agent_task_log (
+  id INTEGER PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  action TEXT NOT NULL,           -- "claimed" | "completed" | "failed" | "timeout"
+  duration_ms INTEGER,
+  timestamp TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (agent_id) REFERENCES agents(id)
+);
+```
+
+### Instance Launch
+
+```bash
+# Instance 1 — Isidore
+AGENT_NAME=isidore \
+AGENT_PERSONA=personas/isidore.yaml \
+HEALTH_PORT=3001 \
+TELEGRAM_BOT_TOKEN=$TOKEN_1 \
+bun run src/bridge.ts
+
+# Instance 2 — Raphael
+AGENT_NAME=raphael \
+AGENT_PERSONA=personas/raphael.yaml \
+HEALTH_PORT=3002 \
+TELEGRAM_BOT_TOKEN=$TOKEN_2 \
+bun run src/bridge.ts
+```
+
+### Upgrade Path to 10+ Instances
+
+| Scale | Infrastructure | Changes |
+|-------|---------------|---------|
+| **2-3** | Filesystem pipeline + SQLite registry | Current + registry table |
+| **4-5** | + SQLite task queue (replaces dir polling) | `UPDATE...RETURNING` for atomic claim |
+| **6-9** | + Unix socket notifications (push, no poll) | Each instance serves on `/tmp/pai-agent-*.sock` |
+| **10+** | + Redis pub/sub + Streams | Redis for real-time coordination, SQLite for audit |
+
+**Phase 1 → Phase 2 migration:** Move task queue from filesystem directory scanning to SQLite table. Atomic claiming via `UPDATE task_queue SET claimed_by = ? WHERE id = ? AND claimed_by IS NULL RETURNING *`. Gregor's `pai-submit.sh` gets a small adapter that writes to both filesystem (backward compat) and SQLite.
+
+**Phase 2 → Phase 3 migration:** Add Redis as notification layer atop SQLite. Redis pub/sub for "task available" events. Redis Streams for ordered delivery. SQLite remains source of truth. Redis is performance optimization.
+
+---
+
+## 16. Agent Ecosystem & Collaboration
+
+### Inter-Agent Communication Protocol
+
+All inter-agent messages use a universal envelope, independent of transport:
+
+```typescript
+interface AgentMessage {
+  // Routing
+  id: string;                 // UUID v7 (time-sortable)
+  from: string;               // sender agent ID
+  to: string | "*";           // recipient or "*" for broadcast
+  replyTo?: string;           // For request/response chains
+
+  // Classification
+  type: "task" | "result" | "heartbeat" | "event" | "query" | "command";
+  priority: 1 | 2 | 3 | 4;   // low, normal, high, critical
+
+  // Metadata
+  timestamp: string;          // ISO 8601
+  ttl?: number;               // seconds until message expires
+  correlationId?: string;     // groups related messages
+
+  // Payload (type-specific)
+  payload: TaskPayload | ResultPayload | HeartbeatPayload | EventPayload;
+}
+```
+
+### Transport Adapters
+
+The protocol is transport-agnostic. Three transport implementations:
+
+```typescript
+interface Transport {
+  send(msg: AgentMessage): Promise<void>;
+  subscribe(agentId: string, handler: (msg: AgentMessage) => void): void;
+  unsubscribe(agentId: string): void;
+}
+
+// Phase 1: Filesystem (current — backward compatible)
+class FilesystemTransport implements Transport {
+  // Writes JSON to /var/lib/pai-pipeline/tasks/
+  // Reads from results/ — same as current pipeline
+}
+
+// Phase 2: Unix socket (push notifications, no polling)
+class UnixSocketTransport implements Transport {
+  // Each agent: Bun.serve({ unix: "/tmp/pai-agent-{name}.sock" })
+  // Peer agents connect and send messages directly
+}
+
+// Phase 3: Redis (10+ agents)
+class RedisTransport implements Transport {
+  // pub/sub for notifications
+  // Streams for ordered task delivery
+}
+
+// Migration helper: write to both during transition
+class CompositeTransport implements Transport {
+  constructor(private primary: Transport, private fallback: Transport) {}
+  async send(msg: AgentMessage) {
+    try { await this.primary.send(msg); }
+    catch { await this.fallback.send(msg); }
+  }
+}
+```
+
+### Backward Compatibility
+
+Current `PipelineTask` maps cleanly to `AgentMessage`:
+
+```typescript
+function pipelineTaskToMessage(task: PipelineTask): AgentMessage {
+  return {
+    id: task.id,
+    from: task.from,
+    to: task.to,
+    type: "task",
+    priority: task.priority === "high" ? 3 : task.priority === "low" ? 1 : 2,
+    timestamp: new Date().toISOString(),
+    payload: {
+      project: task.project ?? "default",
+      prompt: task.prompt,
+      timeout_minutes: task.timeout_minutes,
+      max_turns: task.max_turns,
+      session_id: task.session_id,
+    },
+  };
+}
+```
+
+### Agent Discovery
+
+**Static (2-3 agents):** Agent registry in SQLite. Each instance registers on startup, writes heartbeat every 10s.
+
+**Dynamic (10+ agents):** Add Redis hash for live state + capability index. Agents self-register with capabilities, other agents query the index for routing decisions.
+
+```typescript
+// Static discovery — read agents table
+function discoverAgents(): AgentInfo[] {
+  return db.prepare("SELECT * FROM agents WHERE status != 'dead'").all();
+}
+
+// Capability-based routing
+function routeTask(task: PipelineTask, agents: AgentInfo[]): string | null {
+  const capable = agents.filter(a =>
+    a.status !== "dead" && hasCapabilities(a.id, task.type)
+  );
+  const available = capable.filter(a => a.active_tasks < a.max_concurrent);
+  // Score by load ratio, penalize unreliable, prefer specialists
+  const scored = available.map(a => ({
+    id: a.id,
+    score: a.active_tasks / a.max_concurrent
+      + (a.failure_count * 0.1)
+      - (isPreferred(a.id, task.type) ? 0.5 : 0),
+  }));
+  scored.sort((a, b) => a.score - b.score);
+  return scored[0]?.id ?? null;
+}
+```
+
+### Task Delegation Patterns
+
+| Pattern | When | How |
+|---------|------|-----|
+| **Direct assignment** | Known agent for the job | `to: "gregor"` in AgentMessage |
+| **Capability routing** | Any agent with matching skills | Route via `routeTask()` scoring |
+| **Broadcast** | All agents should evaluate | `to: "*"` — first to claim wins |
+| **Workflow delegation** | Complex multi-step | Orchestrator decomposes, assigns per step |
+
+### Coordination Patterns (from HZL research)
+
+Adopted from HZL analysis (see `Plans/hzl-deep-dive-research.md`):
+
+1. **Decision traces** (ADOPT): When pipeline rejects/routes a task, include structured explanation of WHY in the result — which agents were considered, scores, and selection rationale.
+
+2. **Idempotency keys** (ADOPT): Add optional `op_id` field to pipeline tasks. Dedup checking prevents double-processing if Gregor submits the same task twice.
+
+3. **Structured error propagation** (ADOPT from ecosystem research):
+
+```typescript
+interface StructuredError {
+  type: "timeout" | "crash" | "rate-limited" | "validation" | "claude-error";
+  message: string;
+  retryable: boolean;
+  retryAfterMs?: number;
+  partialResult?: string;
+  context: {
+    agentId: string;
+    taskId: string;
+    attemptNumber: number;
+  };
+}
+```
+
+---
+
+## 17. Deployment Modes
+
+### Mode 1: Cloud-Only (Standalone)
+
+A single agent running on VPS with no local counterpart. Full autonomy.
+
+| Aspect | Behavior |
+|--------|----------|
+| **Handoff** | Disabled — no instance to hand off to |
+| **Memory sync** | Local SQLite only — no git-based DB sync |
+| **Session continuity** | `--resume` within single instance only |
+| **Git sync** | Push to remote on `/done`, no pull from other instance |
+| **Knowledge repo** | Writes only, never reads handoff objects |
+| **Telegram** | Primary interface — always active |
+| **Pipeline** | Receives from Gregor, processes, writes results |
+| **Feature flags** | `HANDOFF_ENABLED=0`, `MEMORY_SYNC_ENABLED=0` |
+
+### Mode 2: Cloud-Local-Synced (Paired)
+
+Cloud instance paired with a local instance. They share context via handoff and memory sync.
+
+| Aspect | Behavior |
+|--------|----------|
+| **Handoff** | Enabled — writes/reads handoff objects via `pai-knowledge` repo |
+| **Memory sync** | SQLite DB synced via git (or Turso future) |
+| **Session continuity** | `--resume` + handoff context from other instance |
+| **Git sync** | Bidirectional — pull on session start, push on handoff/done |
+| **Knowledge repo** | Read/write — `local-to-cloud.json`, `cloud-to-local.json` |
+| **Telegram** | Primary for cloud, SSH/tmux for local |
+| **Pipeline** | Both instances write to pipeline |
+| **Feature flags** | `HANDOFF_ENABLED=1`, `MEMORY_SYNC_ENABLED=1` |
+
+### Mode Detection
+
+Determined by environment, not code paths:
+
+```typescript
+// In config.ts
+const deploymentMode = process.env.DEPLOYMENT_MODE ?? "cloud-only";
+// "cloud-only" | "cloud-local-synced"
+
+// Handoff plugin checks this at init:
+if (deploymentMode === "cloud-only") {
+  // Skip handoff initialization entirely
+  return;
+}
+```
+
+### Mode-Specific Behavior Table
+
+| Event | Cloud-Only | Cloud-Local-Synced |
+|-------|-----------|-------------------|
+| Bridge startup | Load persona, register in agent registry | + Pull pai-knowledge, check for incoming handoff |
+| Telegram message | Process normally | + Check handoff freshness, inject context if recent |
+| `/done` command | Git commit + push | + Write handoff object to pai-knowledge, push |
+| `/handoff` command | N/A (command hidden) | Write handoff, push, notify via Telegram |
+| 30min inactivity | No action | Write standby handoff (don't push) |
+| First message after inactivity | Resume session | + Check for incoming handoff, reconstruct context |
+| Bridge shutdown | Graceful stop | + Best-effort handoff write + push |
+
+---
+
+## 18. Debuggability & Observability
+
+### Structured Logging
+
+All modules use a scoped, structured logger:
+
+```typescript
+// src/logger.ts — Core logging infrastructure
+
+interface LogEntry {
+  timestamp: string;          // ISO 8601
+  level: "debug" | "info" | "warn" | "error";
+  module: string;             // "pipeline" | "telegram" | "memory" | ...
+  correlationId?: string;     // Traces a request across modules
+  agentId?: string;           // Which agent instance
+  message: string;
+  data?: Record<string, unknown>;  // Structured metadata
+}
+
+// Usage in modules:
+const log = logger.scope("pipeline");
+log.info("Task dispatched", { taskId, project, agent: "isidore" });
+log.error("Task failed", { taskId, error: structuredError });
+```
+
+### Request Tracing
+
+Every user interaction gets a `correlationId` that flows through the entire system:
+
+```
+Telegram message (correlationId: "abc-123")
+  → telegram.ts: log.info("message-received", { correlationId })
+  → claude.ts:   log.info("claude-invoked", { correlationId })
+  → memory plugin: log.info("episode-recorded", { correlationId })
+  → format.ts:  log.info("response-formatted", { correlationId })
+  → telegram.ts: log.info("response-sent", { correlationId })
+  → wrapup.ts:  log.info("auto-commit", { correlationId })
+```
+
+Pipeline tasks carry `correlationId` in their JSON, enabling cross-agent tracing.
+
+### Decision Traces (from HZL)
+
+When the pipeline makes routing decisions, structured traces explain WHY:
+
+```typescript
+interface DecisionTrace {
+  decision: string;               // "task-routed" | "task-rejected" | "task-queued"
+  taskId: string;
+  candidates: Array<{
+    agentId: string;
+    score: number;
+    reason: string;               // "preferred for typescript tasks"
+  }>;
+  selected: string | null;
+  reason: string;                 // "selected lowest-load capable agent"
+  timestamp: string;
+}
+```
+
+### Plugin Introspection
+
+The PluginHost exposes runtime plugin state:
+
+```typescript
+// Available via health endpoint or Telegram /status command
+interface PluginStatus {
+  name: string;
+  version: string;
+  enabled: boolean;              // Feature flag state
+  loaded: boolean;               // Successfully loaded
+  state: "init" | "running" | "stopped" | "error";
+  health: { ok: boolean; details?: Record<string, unknown> };
+  eventSubscriptions: string[];  // What events this plugin listens to
+  lastActivity: string;          // ISO 8601
+}
+
+// PluginHost methods:
+pluginHost.listPlugins(): PluginStatus[];
+pluginHost.getPlugin(name: string): PluginStatus;
+pluginHost.reloadPlugin(name: string): Promise<void>;  // Hot reload
+```
+
+### Health Endpoints
+
+Each instance exposes health via Unix socket + optional HTTP port:
+
+```typescript
+// Health check protocol:
+// 1. Each agent: Bun.serve({ unix: "/tmp/pai-agent-{name}.sock" })
+// 2. GET /health returns:
+{
+  agent: "isidore",
+  status: "ready",
+  uptime: 3600,
+  activeTasks: 1,
+  maxConcurrent: 2,
+  memoryMB: 85,
+  plugins: [
+    { name: "memory", state: "running", health: { ok: true } },
+    { name: "context", state: "running", health: { ok: true } },
+    { name: "handoff", state: "stopped", health: { ok: true, details: { reason: "cloud-only mode" } } }
+  ],
+  failureCount: 0,
+  averageTaskDurationMs: 45000
+}
+```
+
+### Error Propagation Patterns
+
+```
+Plugin error → EventBus("plugin:error", { plugin, error })
+  → Logger: structured error log
+  → PluginHost: mark plugin health as degraded
+  → If critical: Telegram notification to user
+  → If recoverable: retry with backoff
+  → If persistent: disable plugin, continue without it (graceful degradation)
+```
+
+---
+
+## 19. Dependency Architecture
+
+### Module Dependency Graph
+
+```
+                    ┌──────────┐
+                    │ bridge   │ (entry point)
+                    └────┬─────┘
+           ┌─────────────┼──────────────┐
+           │             │              │
+    ┌──────▼─────┐ ┌─────▼─────┐ ┌─────▼──────┐
+    │ telegram   │ │ pipeline  │ │ plugin-host│
+    └──────┬─────┘ └─────┬─────┘ └─────┬──────┘
+           │             │              │
+    ┌──────▼─────┐ ┌─────▼─────┐ ┌─────▼──────┐
+    │ claude     │ │orchestrator│ │ event-bus  │
+    └──────┬─────┘ └─────┬─────┘ └────────────┘
+           │             │
+    ┌──────▼─────┐ ┌─────▼──────────┐
+    │ session    │ │ branch-manager │
+    └──────┬─────┘ └────────────────┘
+           │
+    ┌──────▼─────┐
+    │ projects   │
+    └────────────┘
+
+    ┌─────────────────── Shared utilities ────────────────────┐
+    │  config.ts    format.ts    wrapup.ts    logger.ts       │
+    │  (no dependencies on other modules)                     │
+    └─────────────────────────────────────────────────────────┘
+```
+
+### Dependency Rules
+
+| Rule | Description |
+|------|-------------|
+| **R1: Acyclic** | No circular dependencies. If A depends on B, B cannot depend on A. |
+| **R2: Core → Plugin** | Core modules never import from plugins/. Plugins import from core. |
+| **R3: Plugin isolation** | Plugins never import from other plugins. Cross-plugin communication goes through EventBus. |
+| **R4: Utilities have no deps** | config.ts, format.ts, logger.ts depend on nothing. Everything can depend on them. |
+| **R5: EventBus is the seam** | Core modules emit events. Plugins listen. This is the only coupling point. |
+| **R6: Interface boundaries** | Plugins code against TypeScript interfaces (Plugin, Transport, EventBus), not concrete classes. |
+
+### Plugin Dependency Declaration
+
+Plugins declare what they need in their manifest. The PluginHost verifies availability before loading:
+
+```yaml
+# Example: context plugin needs memory plugin's events (soft dependency)
+requires:
+  - "EventBus"      # Core interface — always available
+  - "ConfigStore"   # Core interface — always available
+
+enhances:
+  - "memory"        # Benefits from memory plugin, works without it
+
+# Context plugin listens to memory:query-completed events.
+# If memory plugin is disabled, context plugin still loads
+# but operates without memory-enhanced context injection.
+```
+
+### Verification
+
+Dependency integrity can be verified statically:
+
+```bash
+# Check for circular imports
+bunx madge --circular src/
+
+# Verify no plugin imports from another plugin
+grep -r "from.*plugins/" src/plugins/*/index.ts | grep -v "from.*plugins/${SELF}"
+
+# Verify no core module imports from plugins
+grep -r "from.*plugins/" src/*.ts
+```
+
+---
+
+## 20. Revised Migration Path
+
+The original 4-phase migration (Section 10) is updated to incorporate modular architecture:
+
+### Phase 0: Core Refactor (NEW — 2-3 days)
+
+**Before adding any V2 features, extract the plugin infrastructure.**
+
+| File | Change |
+|------|--------|
+| `src/event-bus.ts` | NEW — EventBus implementation |
+| `src/plugin-host.ts` | NEW — Plugin discovery, lifecycle, registry |
+| `src/logger.ts` | NEW — Structured scoped logging |
+| `src/bridge.ts` | MODIFIED — Initialize PluginHost, wire EventBus |
+| `src/telegram.ts` | MODIFIED — Emit events on message/response |
+| `src/pipeline.ts` | MODIFIED — Emit events on task/result |
+| `src/config.ts` | MODIFIED — Add plugin feature flags |
+
+**Effort:** 2-3 days
+**Risk:** Low — additive infrastructure, existing behavior unchanged
+**Deliverable:** Core modules emit events. Plugin directory exists but is empty. All existing behavior preserved.
+
+### Phase 1: Memory Layer → Plugin (2-3 days)
+
+Same as original Phase 1, but implemented as a plugin:
+
+```
+plugins/memory/
+  ├── plugin.yaml
+  ├── index.ts
+  ├── memory.ts
+  └── embeddings.ts
+```
+
+### Phase 2: Context + Handoff → Plugins (3-4 days)
+
+Same as original Phase 2, as plugins:
+
+```
+plugins/context/     # Context injection
+plugins/handoff/     # Cross-instance handoff
+```
+
+### Phase 2.5: Persona Framework (NEW — 2-3 days)
+
+```
+personas/isidore.yaml           # Persona definition
+plugins/persona/                # Persona loader plugin
+  ├── plugin.yaml
+  ├── index.ts
+  └── persona.ts
+src/bridge.ts                   # Load persona on startup
+```
+
+### Phase 2.7: Multi-Instance Infrastructure (NEW — 2-3 days)
+
+```
+/var/lib/pai-pipeline/agent-registry.db    # SQLite agent registry
+src/bridge.ts                              # Register on startup, heartbeat
+src/plugins/health/                        # Health endpoint plugin
+scripts/launch-instance.sh                 # Instance launcher script
+```
+
+### Phase 3: PRD Executor → Plugin (5-7 days)
+
+Same as original Phase 3, as a plugin.
+
+### Phase 4: Automation + Agent Ecosystem (3-5 days)
+
+Same as original Phase 4, plus:
+- AgentMessage envelope in pipeline
+- Transport adapter (filesystem first)
+- Capability-based routing
+
+### Revised Phase Summary
+
+| Phase | What | Effort | Risk |
+|-------|------|--------|------|
+| **0. Core Refactor** | EventBus, PluginHost, Logger | 2-3 days | Low |
+| **1. Memory Plugin** | sqlite-vec + episodic logging | 2-3 days | Low |
+| **2. Context + Handoff** | Injection + cross-instance | 3-4 days | Medium |
+| **2.5. Persona** | Full identity framework | 2-3 days | Low |
+| **2.7. Multi-Instance** | Agent registry + health | 2-3 days | Low |
+| **3. PRD Executor** | Autonomous PRD execution | 5-7 days | High |
+| **4. Automation + Ecosystem** | Auto-detect, agent messaging | 3-5 days | Medium |
+| **Total** | | **20-28 days** | |
+
+Each phase remains independently deployable and feature-flagged. Phase 0 must come first; all other phases depend on it. Phases 1, 2.5, and 2.7 can run in parallel.
