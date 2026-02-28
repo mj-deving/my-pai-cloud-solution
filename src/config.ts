@@ -101,6 +101,32 @@ const EnvSchema = z.object({
   DASHBOARD_BIND: z.string().optional(),
   DASHBOARD_TOKEN: z.string().optional(),
   DASHBOARD_SSE_POLL_MS: optionalInt(500, 60_000, 2_000),
+
+  // Phase 3 V2-A: Memory Store
+  MEMORY_ENABLED: envBool(false),
+  MEMORY_DB_PATH: z.string().optional(),
+  MEMORY_OLLAMA_URL: z.string().optional(),
+  MEMORY_EMBEDDING_MODEL: z.string().optional(),
+  MEMORY_MAX_EPISODES: optionalInt(100, 100_000, 10_000),
+  MEMORY_DECAY_LAMBDA: z
+    .string()
+    .optional()
+    .transform((v) => (v ? parseFloat(v) : 0.023)),
+
+  // Phase 3 V2-B: Context Injection
+  CONTEXT_INJECTION_ENABLED: envBool(false),
+  CONTEXT_MAX_TOKENS: optionalInt(500, 8_000, 2_000),
+
+  // Phase 3 V2-C: Handoff
+  HANDOFF_ENABLED: envBool(false),
+  HANDOFF_DIR: z.string().optional(),
+  HANDOFF_INACTIVITY_MINUTES: optionalInt(5, 120, 30),
+
+  // Phase 3 V2-D: PRD Executor
+  PRD_EXECUTOR_ENABLED: envBool(false),
+  PRD_DETECTION_MIN_LENGTH: optionalInt(100, 5_000, 500),
+  PRD_MAX_RETRIES: optionalInt(1, 10, 3),
+  PRD_PROGRESS_INTERVAL_MS: optionalInt(5_000, 60_000, 15_000),
 });
 
 export interface Config {
@@ -182,6 +208,29 @@ export interface Config {
   dashboardBind: string;
   dashboardToken: string;
   dashboardSsePollMs: number;
+
+  // Phase 3 V2-A: Memory Store
+  memoryEnabled: boolean;
+  memoryDbPath: string;
+  memoryOllamaUrl: string;
+  memoryEmbeddingModel: string;
+  memoryMaxEpisodes: number;
+  memoryDecayLambda: number;
+
+  // Phase 3 V2-B: Context Injection
+  contextInjectionEnabled: boolean;
+  contextMaxTokens: number;
+
+  // Phase 3 V2-C: Handoff
+  handoffEnabled: boolean;
+  handoffDir: string;
+  handoffInactivityMinutes: number;
+
+  // Phase 3 V2-D: PRD Executor
+  prdExecutorEnabled: boolean;
+  prdDetectionMinLength: number;
+  prdMaxRetries: number;
+  prdProgressIntervalMs: number;
 }
 
 export function loadConfig(): Config {
@@ -269,5 +318,28 @@ export function loadConfig(): Config {
     dashboardBind: env.DASHBOARD_BIND || "127.0.0.1",
     dashboardToken: env.DASHBOARD_TOKEN || "",
     dashboardSsePollMs: env.DASHBOARD_SSE_POLL_MS,
+
+    // Phase 3 V2-A: Memory Store
+    memoryEnabled: env.MEMORY_ENABLED,
+    memoryDbPath: env.MEMORY_DB_PATH || `${home}/projects/my-pai-cloud-solution/data/memory.db`,
+    memoryOllamaUrl: env.MEMORY_OLLAMA_URL || "http://localhost:11434",
+    memoryEmbeddingModel: env.MEMORY_EMBEDDING_MODEL || "nomic-embed-text",
+    memoryMaxEpisodes: env.MEMORY_MAX_EPISODES,
+    memoryDecayLambda: env.MEMORY_DECAY_LAMBDA,
+
+    // Phase 3 V2-B: Context Injection
+    contextInjectionEnabled: env.CONTEXT_INJECTION_ENABLED,
+    contextMaxTokens: env.CONTEXT_MAX_TOKENS,
+
+    // Phase 3 V2-C: Handoff
+    handoffEnabled: env.HANDOFF_ENABLED,
+    handoffDir: env.HANDOFF_DIR || `${home}/.claude/handoff/`,
+    handoffInactivityMinutes: env.HANDOFF_INACTIVITY_MINUTES,
+
+    // Phase 3 V2-D: PRD Executor
+    prdExecutorEnabled: env.PRD_EXECUTOR_ENABLED,
+    prdDetectionMinLength: env.PRD_DETECTION_MIN_LENGTH,
+    prdMaxRetries: env.PRD_MAX_RETRIES,
+    prdProgressIntervalMs: env.PRD_PROGRESS_INTERVAL_MS,
   };
 }

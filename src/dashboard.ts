@@ -12,6 +12,9 @@ import type { RateLimiter } from "./rate-limiter";
 import type { ResourceGuard } from "./resource-guard";
 import type { AgentRegistry } from "./agent-registry";
 import type { IdempotencyStore } from "./idempotency";
+import type { MemoryStore } from "./memory";
+import type { HandoffManager } from "./handoff";
+import type { PRDExecutor } from "./prd-executor";
 import { getDashboardHtml } from "./dashboard-html";
 
 interface SSEClient {
@@ -47,6 +50,9 @@ export class Dashboard {
     private resourceGuard: ResourceGuard | null = null,
     private agentRegistry: AgentRegistry | null = null,
     private idempotencyStore: IdempotencyStore | null = null,
+    private memoryStore: MemoryStore | null = null,
+    private handoffManager: HandoffManager | null = null,
+    private prdExecutor: PRDExecutor | null = null,
   ) {
     this.pipelineDir = config.pipelineDir;
     this.resultsDir = join(config.pipelineDir, "results");
@@ -85,6 +91,8 @@ export class Dashboard {
           if (path === "/api/health") return this.jsonResponse(this.getHealthData());
           if (path === "/api/history") return this.jsonResponse(await this.getHistoryData(url.searchParams));
           if (path === "/api/task") return this.jsonResponse(await this.getTaskData(url.searchParams.get("filename")));
+          if (path === "/api/memory") return this.jsonResponse(this.getMemoryData());
+          if (path === "/api/prds") return this.jsonResponse(this.getPRDsData());
           if (path === "/events") return this.handleSSE(req);
 
           return new Response("Not Found", { status: 404 });
@@ -284,6 +292,16 @@ export class Dashboard {
         ? { pending: this.reversePipeline.getPending().length }
         : null,
     };
+  }
+
+  private getMemoryData(): Record<string, unknown> {
+    if (!this.memoryStore) return { enabled: false };
+    return { enabled: true, ...this.memoryStore.getStats() };
+  }
+
+  private getPRDsData(): Record<string, unknown> {
+    if (!this.prdExecutor) return { enabled: false, prds: [] };
+    return { enabled: true, prds: this.prdExecutor.getActivePRDs() };
   }
 
   private async getHistoryData(params: URLSearchParams): Promise<Record<string, unknown>> {

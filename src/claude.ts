@@ -22,9 +22,14 @@ function isRateLimitError(stderr: string): boolean {
   return RATE_LIMIT_PATTERNS.some((p) => stderr.includes(p));
 }
 
+export interface ContextBuilderLike {
+  buildContext(message: string, project?: string): Promise<string | null>;
+}
+
 export class ClaudeInvoker {
   private cwd?: string;
   private rateLimiter?: { recordFailure(): void };
+  private contextBuilder?: ContextBuilderLike;
 
   constructor(
     private config: Config,
@@ -34,6 +39,11 @@ export class ClaudeInvoker {
   // Phase 6A: Wire rate limiter for failure detection
   setRateLimiter(rl: { recordFailure(): void }): void {
     this.rateLimiter = rl;
+  }
+
+  // V2-B: Wire context builder for memory-augmented prompts
+  setContextBuilder(cb: ContextBuilderLike): void {
+    this.contextBuilder = cb;
   }
 
   // Set the working directory for Claude invocations (project switching)
@@ -50,6 +60,13 @@ export class ClaudeInvoker {
 
   // Send a message to the active session and get a response
   async send(message: string): Promise<ClaudeResponse> {
+    // V2-B: Prepend memory context if context builder is wired
+    let prompt = message;
+    if (this.contextBuilder) {
+      const ctx = await this.contextBuilder.buildContext(message);
+      if (ctx) prompt = `${ctx}\n\n---\n\n${message}`;
+    }
+
     const sessionId = await this.sessions.current();
 
     // Build args: use --resume only if we have a real session ID from a prior Claude response
@@ -57,7 +74,7 @@ export class ClaudeInvoker {
     if (sessionId) {
       args.push("--resume", sessionId);
     }
-    args.push("-p", message, "--output-format", "json");
+    args.push("-p", prompt, "--output-format", "json");
 
     try {
       const proc = Bun.spawn(args, {
@@ -137,10 +154,17 @@ export class ClaudeInvoker {
 
   // One-shot invocation (no session resume — for cron/automation)
   async oneShot(message: string): Promise<ClaudeResponse> {
+    // V2-B: Prepend memory context if context builder is wired
+    let prompt = message;
+    if (this.contextBuilder) {
+      const ctx = await this.contextBuilder.buildContext(message);
+      if (ctx) prompt = `${ctx}\n\n---\n\n${message}`;
+    }
+
     const args = [
       this.config.claudeBinary,
       "-p",
-      message,
+      prompt,
       "--output-format",
       "json",
     ];

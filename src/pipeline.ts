@@ -57,6 +57,8 @@ export class PipelineWatcher {
   private verifier: Verifier | null = null;
   // Phase 1: optional idempotency store for dedup
   private idempotencyStore: IdempotencyStore | null = null;
+  // Phase 3 V2-D: optional PRD executor for type:"prd" tasks
+  private prdExecutor: { execute(text: string, project?: string): Promise<unknown> } | null = null;
 
   constructor(private config: Config) {
     this.tasksDir = join(config.pipelineDir, "tasks");
@@ -107,6 +109,11 @@ export class PipelineWatcher {
   // Phase 1: Set idempotency store for duplicate detection
   setIdempotencyStore(store: IdempotencyStore): void {
     this.idempotencyStore = store;
+  }
+
+  // Phase 3 V2-D: Set PRD executor for type:"prd" task routing
+  setPRDExecutor(executor: { execute(text: string, project?: string): Promise<unknown> }): void {
+    this.prdExecutor = executor;
   }
 
   // Get pipeline status (for /pipeline dashboard)
@@ -337,6 +344,13 @@ export class PipelineWatcher {
       if (this.orchestrator && task.type === "orchestrate") {
         this.orchestrator.handleOrchestrationTask(task).catch((err) => {
           console.error(`[pipeline] Orchestrator hook error for ${task.id}: ${err}`);
+        });
+      }
+
+      // V2-D: PRD executor hook — type:"prd" tasks route to PRDExecutor
+      if (this.prdExecutor && task.type === "prd") {
+        this.prdExecutor.execute(task.prompt, task.project).catch((err) => {
+          console.error(`[pipeline] PRD executor hook error for ${task.id}: ${err}`);
         });
       }
 

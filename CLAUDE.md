@@ -112,6 +112,10 @@ Gregor writes JSON → /var/lib/pai-pipeline/tasks/task.json
 - **Agent registry (Phase 1):** SQLite `agents` table with heartbeat + stale detection. Feature-flagged `AGENT_REGISTRY_ENABLED`. Shares DB file with idempotency store.
 - **MessengerAdapter (Phase 1):** Platform-agnostic interface. `bridge.ts` has zero Grammy/Telegram imports — depends only on `MessengerAdapter`. `TelegramAdapter` wraps existing `createTelegramBot()` without rewriting `telegram.ts`. Future messengers implement the same interface.
 - **Dashboard (Phase 2):** Bun.serve web UI on localhost:3456 with REST API + SSE real-time updates. Dark Kanban board, health panels, agent status, workflow progress, history search, decision trace viewer. Feature-flagged `DASHBOARD_ENABLED`. Access via SSH tunnel; nginx reverse proxy config included for future external access.
+- **Memory Store (Phase 3 V2-A):** SQLite-backed episodic + semantic memory. FTS5 keyword search with optional sqlite-vec vector search via Ollama embeddings. Records Telegram messages, pipeline results, workflow outcomes. Feature-flagged `MEMORY_ENABLED`.
+- **Context Injection (Phase 3 V2-B):** Queries MemoryStore before each Claude invocation, prepends relevant context to prompt. Respects token budget (`CONTEXT_MAX_TOKENS`). Feature-flagged `CONTEXT_INJECTION_ENABLED`.
+- **Handoff (Phase 3 V2-C):** Structured JSON handoff objects for cross-instance state transfer. Auto-writes on shutdown, inactivity timeout. Reads incoming handoff on startup. Feature-flagged `HANDOFF_ENABLED`.
+- **PRD Executor (Phase 3 V2-D):** Autonomous PRD execution pipeline. Detects PRD-like messages by length/structure, parses via Claude one-shot, executes steps, reports progress via Telegram. Routes through orchestrator for medium+ complexity. Feature-flagged `PRD_EXECUTOR_ENABLED`.
 
 ### Module Responsibilities
 
@@ -141,6 +145,12 @@ Gregor writes JSON → /var/lib/pai-pipeline/tasks/task.json
 | `dashboard.ts` | `Dashboard` — Bun.serve HTTP server, REST API (8 endpoints), SSE real-time updates |
 | `dashboard-html.ts` | `getDashboardHtml()` — self-contained HTML/CSS/JS dark-themed dashboard page |
 | `wrapup.ts` | `lightweightWrapup()` — non-blocking git commit with branch guard |
+| `memory.ts` | `MemoryStore` — SQLite episodic + semantic memory with FTS5 + optional sqlite-vec (Phase 3 V2-A) |
+| `embeddings.ts` | `EmbeddingProvider` — Ollama embedding client + keyword-only fallback (Phase 3 V2-A) |
+| `context.ts` | `ContextBuilder` — queries memory, formats context prefix for Claude prompts (Phase 3 V2-B) |
+| `handoff.ts` | `HandoffManager` — cross-instance state transfer, inactivity auto-write (Phase 3 V2-C) |
+| `prd-executor.ts` | `PRDExecutor` — autonomous PRD detection, parsing, execution, progress reporting (Phase 3 V2-D) |
+| `prd-parser.ts` | `PRDParser` — Claude one-shot extraction of structured PRD from freeform text (Phase 3 V2-D) |
 
 ## Cross-Instance Continuity
 

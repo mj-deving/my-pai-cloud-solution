@@ -199,6 +199,110 @@ export const AgentMessageSchema = z.object({
 
 export type AgentMessage = z.infer<typeof AgentMessageSchema>;
 
+// --- V2-A: Memory (Episode + Knowledge) ---
+
+export const EpisodeSchema = z.object({
+  id: z.number().int().optional(), // auto-increment
+  timestamp: z.string(),
+  source: z.enum(["telegram", "pipeline", "orchestrator", "handoff", "prd"]),
+  project: z.string().nullable().optional(),
+  session_id: z.string().nullable().optional(),
+  role: z.enum(["user", "assistant", "system"]),
+  content: z.string(),
+  summary: z.string().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export type Episode = z.infer<typeof EpisodeSchema>;
+
+export const KnowledgeSchema = z.object({
+  id: z.number().int().optional(),
+  domain: z.string(),
+  key: z.string(),
+  content: z.string(),
+  confidence: z.number().min(0).max(1),
+  source_episode_ids: z.array(z.number()).optional(),
+  expires_at: z.string().nullable().optional(),
+});
+
+export type Knowledge = z.infer<typeof KnowledgeSchema>;
+
+export const MemoryQuerySchema = z.object({
+  query: z.string(),
+  project: z.string().optional(),
+  source: z.enum(["telegram", "pipeline", "orchestrator", "handoff", "prd"]).optional(),
+  maxResults: z.number().int().min(1).max(100).optional(),
+  maxTokens: z.number().int().min(100).max(16000).optional(),
+  recencyBias: z.number().min(0).max(1).optional(),
+});
+
+export type MemoryQuery = z.infer<typeof MemoryQuerySchema>;
+
+export const MemoryResultSchema = z.object({
+  episodes: z.array(EpisodeSchema),
+  knowledge: z.array(KnowledgeSchema),
+  totalTokens: z.number(),
+});
+
+export type MemoryResult = z.infer<typeof MemoryResultSchema>;
+
+// --- V2-C: Handoff ---
+
+export const HandoffObjectSchema = z.object({
+  version: z.literal(1),
+  timestamp: z.string(),
+  direction: z.enum(["local-to-cloud", "cloud-to-local"]),
+  activeProject: z.string().nullable(),
+  sessionId: z.string().nullable(),
+  branch: z.string(),
+  uncommittedChanges: z.boolean(),
+  activePRD: z.string().nullable(),
+  activeWorkflows: z.array(z.string()),
+  pendingTasks: z.array(z.string()),
+  recentWorkSummary: z.string(),
+  nextSteps: z.array(z.string()),
+  blockers: z.array(z.string()),
+  lastEpisodeId: z.number(),
+  memoryDbHash: z.string(),
+});
+
+export type HandoffObject = z.infer<typeof HandoffObjectSchema>;
+
+// --- V2-D: PRD Executor ---
+
+export const ParsedPRDStepSchema = z.object({
+  description: z.string(),
+  assignee: z.enum(["isidore", "gregor", "ask"]),
+  dependsOn: z.array(z.string()),
+});
+
+export const ParsedPRDSchema = z.object({
+  title: z.string(),
+  description: z.string(),
+  project: z.string().nullable(),
+  requirements: z.array(z.string()),
+  constraints: z.array(z.string()),
+  estimatedComplexity: z.enum(["simple", "medium", "complex"]),
+  suggestedSteps: z.array(ParsedPRDStepSchema),
+});
+
+export type ParsedPRD = z.infer<typeof ParsedPRDSchema>;
+
+export const PRDProgressSchema = z.object({
+  prdId: z.string(),
+  title: z.string(),
+  status: z.enum(["parsing", "setup", "executing", "verifying", "completed", "failed", "aborted"]),
+  currentStep: z.number().int(),
+  totalSteps: z.number().int(),
+  project: z.string().nullable(),
+  startedAt: z.string(),
+  updatedAt: z.string(),
+  completedAt: z.string().nullable().optional(),
+  error: z.string().nullable().optional(),
+});
+
+export type PRDProgress = z.infer<typeof PRDProgressSchema>;
+
 // --- Safe Parse Helpers ---
 
 export interface SafeParseSuccess<T> {

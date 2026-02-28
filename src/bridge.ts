@@ -18,6 +18,11 @@ import { Verifier } from "./verifier";
 import { IdempotencyStore } from "./idempotency";
 import { AgentRegistry } from "./agent-registry";
 import { Dashboard } from "./dashboard";
+import { MemoryStore } from "./memory";
+import { EmbeddingProvider } from "./embeddings";
+import { ContextBuilder } from "./context";
+import { HandoffManager } from "./handoff";
+import { PRDExecutor } from "./prd-executor";
 
 async function main() {
   console.log("[bridge] Starting Isidore Cloud communication bridge...");
@@ -130,6 +135,45 @@ async function main() {
     console.log("[bridge] Pipeline dedup enabled");
   } else {
     console.log("[bridge] Pipeline dedup disabled (PIPELINE_DEDUP_ENABLED=0)");
+  }
+
+  // Phase 3 V2-A: Memory Store
+  let memoryStore: MemoryStore | null = null;
+  let embeddingProvider: EmbeddingProvider | null = null;
+  if (config.memoryEnabled) {
+    const { mkdir: mkdirFs } = await import("node:fs/promises");
+    const { dirname } = await import("node:path");
+    await mkdirFs(dirname(config.memoryDbPath), { recursive: true });
+    memoryStore = new MemoryStore(config.memoryDbPath, config);
+    embeddingProvider = new EmbeddingProvider(config);
+    await embeddingProvider.init();
+    memoryStore.setEmbeddingProvider(embeddingProvider);
+    const stats = memoryStore.getStats();
+    console.log(`[bridge] Memory store initialized (${stats.episodeCount} episodes, vec: ${stats.hasVectorSearch})`);
+  } else {
+    console.log("[bridge] Memory store disabled (MEMORY_ENABLED=0)");
+  }
+
+  // Phase 3 V2-B: Context Injection
+  if (config.contextInjectionEnabled && memoryStore) {
+    const contextBuilder = new ContextBuilder(memoryStore, config);
+    claude.setContextBuilder(contextBuilder);
+    console.log("[bridge] Context injection enabled");
+  } else if (config.contextInjectionEnabled && !memoryStore) {
+    console.log("[bridge] Context injection requires MEMORY_ENABLED=1, skipping");
+  }
+
+  // Phase 3 V2-C: Handoff Manager
+  let handoffManager: HandoffManager | null = null;
+  if (config.handoffEnabled) {
+    handoffManager = new HandoffManager(config, sessions, projectManager, memoryStore, orchestrator);
+    const incoming = await handoffManager.readIncoming();
+    if (incoming) {
+      console.log(`[bridge] Loaded handoff from ${incoming.direction} (${incoming.timestamp})`);
+    }
+    console.log("[bridge] Handoff manager enabled");
+  } else {
+    console.log("[bridge] Handoff disabled (HANDOFF_ENABLED=0)");
   }
 
   // Phase 1: Create messenger adapter based on config
@@ -284,12 +328,26 @@ async function main() {
     console.log("[bridge] Pipeline watcher disabled (PIPELINE_ENABLED=0)");
   }
 
+  // Phase 3 V2-D: PRD Executor
+  let prdExecutor: PRDExecutor | null = null;
+  if (config.prdExecutorEnabled) {
+    prdExecutor = new PRDExecutor(config, claude, projectManager, memoryStore, orchestrator, messenger);
+    // Wire to pipeline for type:"prd" routing
+    if (pipeline) {
+      pipeline.setPRDExecutor(prdExecutor);
+    }
+    console.log("[bridge] PRD executor enabled");
+  } else {
+    console.log("[bridge] PRD executor disabled (PRD_EXECUTOR_ENABLED=0)");
+  }
+
   // Phase 2: Dashboard web server
   let dashboard: Dashboard | null = null;
   if (config.dashboardEnabled) {
     dashboard = new Dashboard(
       config, pipeline, orchestrator, reversePipeline,
       rateLimiter, resourceGuard, agentRegistry, idempotencyStore,
+      memoryStore, handoffManager, prdExecutor,
     );
     dashboard.start();
   } else {
@@ -299,6 +357,13 @@ async function main() {
   // Graceful shutdown
   const shutdown = async () => {
     console.log("[bridge] Shutting down...");
+    // V2-C: Save state before exit
+    if (handoffManager) {
+      await handoffManager.writeOutgoing();
+      handoffManager.stop();
+    }
+    // V2-D: Graceful PRD abort
+    prdExecutor?.stop();
     dashboard?.stop();
     rateLimiter?.stop();
     reversePipeline?.stop();
@@ -309,6 +374,8 @@ async function main() {
       agentRegistry.close();
     }
     idempotencyStore?.close();
+    // V2-A: Close memory store
+    memoryStore?.close();
     messenger.stop();
     process.exit(0);
   };
