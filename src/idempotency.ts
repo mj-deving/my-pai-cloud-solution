@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 
 export class IdempotencyStore {
   private db: Database;
+  private duplicateHitCount = 0;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -30,7 +31,26 @@ export class IdempotencyStore {
     const row = this.db
       .query("SELECT op_id FROM processed_ops WHERE op_id = ?")
       .get(opId);
-    return row !== null;
+    const dup = row !== null;
+    if (dup) this.duplicateHitCount++;
+    return dup;
+  }
+
+  /**
+   * Dashboard-friendly stats.
+   */
+  stats(): { totalOps: number; recentOps: number; duplicatesBlocked: number } {
+    const totalRow = this.db
+      .query("SELECT COUNT(*) as cnt FROM processed_ops")
+      .get() as { cnt: number } | null;
+    const recentRow = this.db
+      .query("SELECT COUNT(*) as cnt FROM processed_ops WHERE processed_at > ?")
+      .get(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) as { cnt: number } | null;
+    return {
+      totalOps: totalRow?.cnt ?? 0,
+      recentOps: recentRow?.cnt ?? 0,
+      duplicatesBlocked: this.duplicateHitCount,
+    };
   }
 
   /**

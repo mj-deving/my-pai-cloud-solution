@@ -110,11 +110,11 @@ export class PipelineWatcher {
   }
 
   // Get pipeline status (for /pipeline dashboard)
-  getStatus(): { active: number; max: number; inFlight: number } {
+  getStatus(): { active: number; max: number; inFlight: string[] } {
     return {
       active: this.activeCount,
       max: this.maxConcurrent,
-      inFlight: this.inFlight.size,
+      inFlight: Array.from(this.inFlight),
     };
   }
 

@@ -94,6 +94,13 @@ const EnvSchema = z.object({
   AGENT_REGISTRY_HEARTBEAT_INTERVAL_MS: optionalInt(1_000, 300_000, 10_000),
   AGENT_REGISTRY_STALE_THRESHOLD_MS: optionalInt(5_000, 600_000, 60_000),
   MESSENGER_TYPE: z.string().optional(),
+
+  // Phase 2: Dashboard
+  DASHBOARD_ENABLED: envBool(false),
+  DASHBOARD_PORT: optionalInt(1024, 65535, 3456),
+  DASHBOARD_BIND: z.string().optional(),
+  DASHBOARD_TOKEN: z.string().optional(),
+  DASHBOARD_SSE_POLL_MS: optionalInt(500, 60_000, 2_000),
 });
 
 export interface Config {
@@ -168,6 +175,13 @@ export interface Config {
   agentRegistryHeartbeatIntervalMs: number;
   agentRegistryStaleThresholdMs: number;
   messengerType: string;
+
+  // Phase 2: Dashboard
+  dashboardEnabled: boolean;
+  dashboardPort: number;
+  dashboardBind: string;
+  dashboardToken: string;
+  dashboardSsePollMs: number;
 }
 
 export function loadConfig(): Config {
@@ -248,5 +262,12 @@ export function loadConfig(): Config {
     agentRegistryHeartbeatIntervalMs: env.AGENT_REGISTRY_HEARTBEAT_INTERVAL_MS,
     agentRegistryStaleThresholdMs: env.AGENT_REGISTRY_STALE_THRESHOLD_MS,
     messengerType: env.MESSENGER_TYPE || "telegram",
+
+    // Phase 2: Dashboard
+    dashboardEnabled: env.DASHBOARD_ENABLED,
+    dashboardPort: env.DASHBOARD_PORT,
+    dashboardBind: env.DASHBOARD_BIND || "127.0.0.1",
+    dashboardToken: env.DASHBOARD_TOKEN || "",
+    dashboardSsePollMs: env.DASHBOARD_SSE_POLL_MS,
   };
 }

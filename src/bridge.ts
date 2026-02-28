@@ -17,6 +17,7 @@ import { RateLimiter } from "./rate-limiter";
 import { Verifier } from "./verifier";
 import { IdempotencyStore } from "./idempotency";
 import { AgentRegistry } from "./agent-registry";
+import { Dashboard } from "./dashboard";
 
 async function main() {
   console.log("[bridge] Starting Isidore Cloud communication bridge...");
@@ -283,9 +284,22 @@ async function main() {
     console.log("[bridge] Pipeline watcher disabled (PIPELINE_ENABLED=0)");
   }
 
+  // Phase 2: Dashboard web server
+  let dashboard: Dashboard | null = null;
+  if (config.dashboardEnabled) {
+    dashboard = new Dashboard(
+      config, pipeline, orchestrator, reversePipeline,
+      rateLimiter, resourceGuard, agentRegistry, idempotencyStore,
+    );
+    dashboard.start();
+  } else {
+    console.log("[bridge] Dashboard disabled (DASHBOARD_ENABLED=0)");
+  }
+
   // Graceful shutdown
   const shutdown = async () => {
     console.log("[bridge] Shutting down...");
+    dashboard?.stop();
     rateLimiter?.stop();
     reversePipeline?.stop();
     pipeline?.stop();
