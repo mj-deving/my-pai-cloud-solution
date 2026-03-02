@@ -130,6 +130,18 @@ const EnvSchema = z.object({
   PRD_DETECTION_MIN_LENGTH: optionalInt(100, 5_000, 500),
   PRD_MAX_RETRIES: optionalInt(1, 10, 3),
   PRD_PROGRESS_INTERVAL_MS: optionalInt(5_000, 60_000, 15_000),
+
+  // Phase 4: Injection Scanning
+  INJECTION_SCAN_ENABLED: envBool(true),
+
+  // Phase 4: Scheduler
+  SCHEDULER_ENABLED: envBool(false),
+  SCHEDULER_POLL_INTERVAL_MS: optionalInt(5_000, 300_000, 60_000),
+  SCHEDULER_DB_PATH: z.string().optional(),
+
+  // Phase 4: Policy Engine
+  POLICY_ENABLED: envBool(false),
+  POLICY_FILE: z.string().optional(),
 });
 
 export interface Config {
@@ -238,6 +250,18 @@ export interface Config {
   prdDetectionMinLength: number;
   prdMaxRetries: number;
   prdProgressIntervalMs: number;
+
+  // Phase 4: Injection Scanning
+  injectionScanEnabled: boolean;
+
+  // Phase 4: Scheduler
+  schedulerEnabled: boolean;
+  schedulerPollIntervalMs: number;
+  schedulerDbPath: string;
+
+  // Phase 4: Policy Engine
+  policyEnabled: boolean;
+  policyFile: string;
 }
 
 export function loadConfig(): Config {
@@ -350,5 +374,17 @@ export function loadConfig(): Config {
     prdDetectionMinLength: env.PRD_DETECTION_MIN_LENGTH,
     prdMaxRetries: env.PRD_MAX_RETRIES,
     prdProgressIntervalMs: env.PRD_PROGRESS_INTERVAL_MS,
+
+    // Phase 4: Injection Scanning
+    injectionScanEnabled: env.INJECTION_SCAN_ENABLED,
+
+    // Phase 4: Scheduler
+    schedulerEnabled: env.SCHEDULER_ENABLED,
+    schedulerPollIntervalMs: env.SCHEDULER_POLL_INTERVAL_MS,
+    schedulerDbPath: env.SCHEDULER_DB_PATH || env.AGENT_REGISTRY_DB_PATH || "/var/lib/pai-pipeline/agent-registry.db",
+
+    // Phase 4: Policy Engine
+    policyEnabled: env.POLICY_ENABLED,
+    policyFile: env.POLICY_FILE || `${home}/projects/my-pai-cloud-solution/policy.yaml`,
   };
 }

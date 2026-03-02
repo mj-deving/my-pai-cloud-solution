@@ -1,0 +1,82 @@
+# policy.yaml — PAI Cloud autonomous operation policy
+# Default: deny (any action without a matching rule is blocked)
+# Dispositions: allow, deny, must_ask
+
+version: 1
+default_disposition: deny
+
+rules:
+  # --- Pipeline task dispatch ---
+  - action: pipeline.dispatch
+    disposition: allow
+    description: "Allow pipeline task dispatch (tasks from Gregor)"
+
+  - action: pipeline.dispatch.scheduled
+    disposition: allow
+    description: "Allow scheduled task dispatch"
+
+  # --- Scheduler ---
+  - action: scheduler.emit
+    disposition: allow
+    description: "Allow scheduler to emit tasks to pipeline"
+
+  - action: scheduler.create
+    disposition: must_ask
+    description: "Creating new schedules requires human approval"
+
+  - action: scheduler.delete
+    disposition: must_ask
+    description: "Deleting schedules requires human approval"
+
+  # --- Orchestrator ---
+  - action: orchestrator.dispatch_step
+    disposition: allow
+    description: "Allow orchestrator to dispatch workflow steps"
+
+  - action: orchestrator.create_workflow
+    disposition: allow
+    description: "Allow workflow creation from pipeline tasks"
+
+  # --- Delegation ---
+  - action: delegate.gregor
+    disposition: allow
+    description: "Allow delegation to Gregor via reverse pipeline"
+
+  - action: delegate.external
+    disposition: deny
+    description: "No external delegation allowed"
+
+  # --- Dangerous operations ---
+  - action: git.force_push
+    disposition: deny
+    description: "Force push is never allowed autonomously"
+
+  - action: git.delete_branch
+    disposition: must_ask
+    description: "Branch deletion requires human approval"
+
+  - action: system.restart
+    disposition: must_ask
+    description: "System restart requires human approval"
+
+  - action: system.deploy
+    disposition: must_ask
+    description: "Deployment requires human approval"
+
+  # --- Memory/Knowledge ---
+  - action: memory.distill
+    disposition: allow
+    description: "Allow autonomous knowledge distillation"
+
+  - action: memory.prune
+    disposition: allow
+    description: "Allow automatic episode pruning"
+
+  # --- PRD Executor ---
+  - action: prd.execute
+    disposition: allow
+    description: "Allow PRD execution (already gated by detection heuristics)"
+
+  - action: prd.create_project
+    disposition: must_ask
+    description: "Project creation requires human approval"

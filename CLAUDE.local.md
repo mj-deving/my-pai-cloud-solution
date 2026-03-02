@@ -1,17 +1,22 @@
 # Session Continuity
 
-**Last wrapup:** 2026-03-02T14:54+01:00
-**Current focus:** All research complete (10 frameworks, 16-section synthesis report). Ready to plan and implement custom agent framework.
+**Last wrapup:** 2026-03-02T21:43:26+01:00
+**Current focus:** V2-B + dashboard V2 complete and deployed. Ready for E2E tests then agent framework.
+
+## Completed This Session
+- V2-B context injection: frozen snapshot, source filter, char budget (context.ts rewritten 66->149 LOC)
+- Dashboard V2 panels: memory stats + handoff display (dashboard.ts + dashboard-html.ts)
+- Deployed to VPS, enabled CONTEXT_INJECTION_ENABLED=1
+- Confirmed bridge running with context injection active (4 episodes, FTS5 keyword search)
 
 ## In Progress
-- Unstaged src/ changes from 2026-02-28 session (bridge.ts, config.ts, telegram*.ts — memory recording + auto-commit flag)
+- None — clean stopping point
 
 ## Next Steps
-1. Implement frozen snapshot injection in ContextBuilder (Priority 1 — ~75% cost reduction)
-2. Add project + source filters on MemoryStore.search() (Priority 2)
-3. Add character-bounded memory budget to ContextBuilder (Priority 3)
-4. Enable CONTEXT_INJECTION_ENABLED=1 on VPS with scoped queries
-5. Plan custom agent framework implementation based on research synthesis
+1. E2E cross-instance smoke tests (per functional-mapping-manatee.md plan)
+2. Enable HANDOFF_ENABLED=1 on VPS
+3. Phase A-D of Plans/agent-framework-plan.md
+4. Install Ollama on VPS for vector search (optional — FTS5 works fine for now)
 
 ## Blockers
 - C6 (email bridge) blocked on IMAP/SMTP credentials from Marius

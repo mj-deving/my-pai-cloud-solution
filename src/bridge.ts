@@ -23,6 +23,8 @@ import { EmbeddingProvider } from "./embeddings";
 import { ContextBuilder } from "./context";
 import { HandoffManager } from "./handoff";
 import { PRDExecutor } from "./prd-executor";
+import { Scheduler } from "./scheduler";
+import { PolicyEngine } from "./policy";
 
 async function main() {
   console.log("[bridge] Starting Isidore Cloud communication bridge...");
@@ -176,6 +178,37 @@ async function main() {
     console.log("[bridge] Handoff disabled (HANDOFF_ENABLED=0)");
   }
 
+  // Phase 4: Policy Engine
+  let policyEngine: PolicyEngine | null = null;
+  if (config.policyEnabled) {
+    policyEngine = new PolicyEngine(config.policyFile);
+    console.log(`[bridge] Policy engine enabled (${config.policyFile})`);
+  } else {
+    console.log("[bridge] Policy engine disabled (POLICY_ENABLED=0)");
+  }
+
+  // Phase 4: Scheduler
+  let scheduler: Scheduler | null = null;
+  if (config.schedulerEnabled) {
+    scheduler = new Scheduler(config.schedulerDbPath, config);
+    // Built-in schedules
+    scheduler.upsert("daily-synthesis", "0 2 * * *", {
+      type: "task",
+      prompt: "Run memory synthesis: review recent episodes, distill knowledge, identify patterns. Summarize findings.",
+      timeout_minutes: 10,
+      max_turns: 15,
+    });
+    scheduler.upsert("weekly-review", "0 3 * * 0", {
+      type: "task",
+      prompt: "System health review: check memory stats, pipeline throughput, error rates, disk usage. Report anomalies.",
+      timeout_minutes: 10,
+      max_turns: 15,
+    });
+    console.log(`[bridge] Scheduler enabled (db: ${config.schedulerDbPath})`);
+  } else {
+    console.log("[bridge] Scheduler disabled (SCHEDULER_ENABLED=0)");
+  }
+
   // Phase 1: Create messenger adapter based on config
   let messenger: MessengerAdapter;
   if (config.messengerType === "telegram") {
@@ -189,6 +222,7 @@ async function main() {
       branchManager,
       rateLimiter,
       memoryStore,
+      scheduler,
     );
   } else {
     throw new Error(`Unsupported messenger type: ${config.messengerType}`);
@@ -324,9 +358,18 @@ async function main() {
     if (idempotencyStore) {
       pipeline.setIdempotencyStore(idempotencyStore);
     }
+    // Phase 4: Wire policy engine to pipeline
+    if (policyEngine) {
+      pipeline.setPolicyEngine(policyEngine);
+    }
     pipeline.start();
   } else {
     console.log("[bridge] Pipeline watcher disabled (PIPELINE_ENABLED=0)");
+  }
+
+  // Phase 4: Wire policy engine to orchestrator
+  if (policyEngine && orchestrator) {
+    orchestrator.setPolicyEngine(policyEngine);
   }
 
   // Phase 3 V2-D: PRD Executor
@@ -355,6 +398,22 @@ async function main() {
     console.log("[bridge] Dashboard disabled (DASHBOARD_ENABLED=0)");
   }
 
+  // Phase 4: Wire policy escalation to messenger and start scheduler
+  if (policyEngine) {
+    policyEngine.setEscalationCallback(async (action, context) => {
+      const msg = `**Policy escalation** — action \`${action}\` requires approval\n` +
+        `Context: ${JSON.stringify(context).slice(0, 300)}`;
+      try {
+        await messenger.sendDirectMessage(msg, { parseMode: "Markdown" });
+      } catch (err) {
+        console.error(`[bridge] Policy escalation notification error: ${err}`);
+      }
+    });
+  }
+  if (scheduler) {
+    scheduler.start();
+  }
+
   // Graceful shutdown
   const shutdown = async () => {
     console.log("[bridge] Shutting down...");
@@ -363,6 +422,9 @@ async function main() {
       await handoffManager.writeOutgoing();
       handoffManager.stop();
     }
+    // Phase 4: Stop scheduler
+    scheduler?.stop();
+    scheduler?.close();
     // V2-D: Graceful PRD abort
     prdExecutor?.stop();
     dashboard?.stop();

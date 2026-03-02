@@ -36,6 +36,7 @@ export class TaskOrchestrator {
   private branchManager: BranchManager | null = null;
   private rateLimiter: RateLimiter | null = null;
   private verifier: Verifier | null = null;
+  private policyEngine: { check(action: string, context: Record<string, unknown>): Promise<{ allowed: boolean; reason: string }> } | null = null;
 
   constructor(
     private config: Config,
@@ -59,6 +60,11 @@ export class TaskOrchestrator {
   // Phase 6B: Set verifier for step result verification
   setVerifier(verifier: Verifier): void {
     this.verifier = verifier;
+  }
+
+  // Phase 4: Set policy engine for dispatch authorization
+  setPolicyEngine(engine: { check(action: string, context: Record<string, unknown>): Promise<{ allowed: boolean; reason: string }> }): void {
+    this.policyEngine = engine;
   }
 
   setNotifyCallback(cb: NotifyCallback): void {
@@ -355,6 +361,20 @@ export class TaskOrchestrator {
   // --- Step dispatch ---
 
   private async dispatchStep(wf: Workflow, step: WorkflowStep): Promise<void> {
+    // Phase 4: Policy check before dispatch
+    if (this.policyEngine) {
+      const policyResult = await this.policyEngine.check("orchestrator.dispatch_step", {
+        assignee: step.assignee,
+        project: step.project,
+        workflowId: wf.id,
+      });
+      if (!policyResult.allowed) {
+        console.warn(`[orchestrator] Policy denied step ${step.id}: ${policyResult.reason}`);
+        await this.failStep(wf.id, step.id, `Policy denied: ${policyResult.reason}`);
+        return;
+      }
+    }
+
     // Phase 6A: Defer if rate limiter is in cooldown
     if (this.rateLimiter?.isPaused()) {
       console.log(`[orchestrator] Deferring ${step.id} — rate limiter paused`);

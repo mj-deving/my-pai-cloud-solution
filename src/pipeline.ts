@@ -27,6 +27,8 @@ import {
   type DecisionTrace,
 } from "./schemas";
 import { TraceCollector } from "./decision-trace";
+import { scanForInjection } from "./injection-scan";
+import type { PolicyEngine } from "./policy";
 
 // Re-export types for backward compatibility
 export type { PipelineTask, PipelineResult, StructuredResult };
@@ -59,12 +61,17 @@ export class PipelineWatcher {
   private idempotencyStore: IdempotencyStore | null = null;
   // Phase 3 V2-D: optional PRD executor for type:"prd" tasks
   private prdExecutor: { execute(text: string, project?: string): Promise<unknown> } | null = null;
+  // Phase 4: injection scanning flag
+  private injectionScanEnabled: boolean;
+  // Phase 4: optional policy engine for dispatch authorization
+  private policyEngine: PolicyEngine | null = null;
 
   constructor(private config: Config) {
     this.tasksDir = join(config.pipelineDir, "tasks");
     this.resultsDir = join(config.pipelineDir, "results");
     this.ackDir = join(config.pipelineDir, "ack");
     this.maxConcurrent = config.pipelineMaxConcurrent;
+    this.injectionScanEnabled = config.injectionScanEnabled;
   }
 
   // Start polling for task files
@@ -114,6 +121,11 @@ export class PipelineWatcher {
   // Phase 3 V2-D: Set PRD executor for type:"prd" task routing
   setPRDExecutor(executor: { execute(text: string, project?: string): Promise<unknown> }): void {
     this.prdExecutor = executor;
+  }
+
+  // Phase 4: Set policy engine for dispatch authorization
+  setPolicyEngine(engine: PolicyEngine): void {
+    this.policyEngine = engine;
   }
 
   // Get pipeline status (for /pipeline dashboard)
@@ -245,6 +257,49 @@ export class PipelineWatcher {
           // Move to ack without dispatching
           const ackPath = join(this.ackDir, filename);
           try { await rename(taskPath, ackPath); } catch { /* ignore */ }
+          return;
+        }
+      }
+
+      // Phase 4: Injection scanning — log-only, does not block dispatch
+      if (this.injectionScanEnabled) {
+        const scan = scanForInjection(task.prompt);
+        if (scan.risk !== "none") {
+          traces.emit({
+            phase: "dispatch",
+            decision: `Injection scan: ${scan.risk} risk (${scan.matched.join(", ")})`,
+            reason_code: "injection_scan",
+            context: { risk: scan.risk, patterns: scan.matched },
+          });
+          console.warn(`[pipeline] Injection scan for ${task.id}: ${scan.risk} risk — ${scan.matched.join(", ")}`);
+        }
+      }
+
+      // Phase 4: Policy check — block dispatch if policy denies
+      if (this.policyEngine) {
+        const policyResult = await this.policyEngine.check("pipeline.dispatch", {
+          from: task.from,
+          project: task.project,
+          type: task.type,
+          priority: task.priority,
+        });
+        if (!policyResult.allowed) {
+          traces.emit({
+            phase: "dispatch",
+            decision: `Policy denied task ${task.id}: ${policyResult.reason}`,
+            reason_code: "policy_denied",
+            context: { rule: policyResult.rule, disposition: policyResult.disposition },
+          });
+          console.warn(`[pipeline] Policy denied task ${task.id}: ${policyResult.reason}`);
+          // Write error result and ack
+          const result = this.buildResult(task, "error", undefined, undefined, `Policy denied: ${policyResult.reason}`);
+          result.decision_traces = traces.getTraces();
+          const resultPath = join(this.resultsDir, filename);
+          const tmpPath = join(this.resultsDir, `${filename}.tmp`);
+          await writeFile(tmpPath, JSON.stringify(result, null, 2) + "\n", "utf-8");
+          await rename(tmpPath, resultPath);
+          const ackPath = join(this.ackDir, filename);
+          try { await rename(join(this.tasksDir, filename), ackPath); } catch { /* ignore */ }
           return;
         }
       }
