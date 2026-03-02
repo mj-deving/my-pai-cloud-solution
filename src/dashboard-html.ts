@@ -320,6 +320,20 @@ export function getDashboardHtml(): string {
   .trace-decision { flex: 1; }
   .trace-reason { color: var(--text-muted); font-style: italic; }
   .no-data { color: var(--text-muted); font-size: 13px; text-align: center; padding: 20px; }
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-item { padding: 6px 0; }
+  .stat-item .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; }
+  .stat-item .stat-value { font-size: 16px; font-weight: 600; margin-top: 2px; }
+  .stat-item .stat-value.small { font-size: 13px; }
+  .stat-badges { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .stat-badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; }
+  .stat-badge.active { background: rgba(63,185,80,0.15); color: var(--green); }
+  .stat-badge.inactive { background: rgba(139,148,158,0.15); color: var(--text-muted); }
+  .handoff-field { padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--border); }
+  .handoff-field:last-child { border-bottom: none; }
+  .handoff-label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .handoff-value { margin-top: 1px; }
+  .handoff-warn { color: var(--yellow); font-size: 11px; margin-top: 4px; }
 
   @media (max-width: 900px) {
     .kanban { grid-template-columns: repeat(2, 1fr); }
@@ -401,6 +415,22 @@ export function getDashboardHtml(): string {
     </div>
   </div>
 
+  <!-- Memory + Handoff -->
+  <div class="split-row">
+    <div class="section">
+      <div class="section-header">Memory Store</div>
+      <div class="section-body" id="memoryPanel">
+        <div class="no-data">Memory disabled</div>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-header">Last Handoff</div>
+      <div class="section-body" id="handoffPanel">
+        <div class="no-data">No handoff data</div>
+      </div>
+    </div>
+  </div>
+
   <!-- History -->
   <div class="section" style="margin-bottom:20px">
     <div class="section-header">History</div>
@@ -475,6 +505,10 @@ export function getDashboardHtml(): string {
 
     es.addEventListener('workflows', (e) => {
       renderWorkflows(JSON.parse(e.data));
+    });
+
+    es.addEventListener('memory', (e) => {
+      renderMemory(JSON.parse(e.data));
     });
 
     es.onerror = () => {
@@ -591,6 +625,54 @@ export function getDashboardHtml(): string {
     }).join('');
   }
 
+  // Memory panel
+  function renderMemory(data) {
+    const el = document.getElementById('memoryPanel');
+    if (!data || !data.enabled) {
+      el.innerHTML = '<div class="no-data">Memory disabled</div>';
+      return;
+    }
+    const sizeKb = data.storageSizeBytes ? Math.round(data.storageSizeBytes / 1024) : 0;
+    const sizeMb = sizeKb > 1024 ? (sizeKb / 1024).toFixed(1) + ' MB' : sizeKb + ' KB';
+    el.innerHTML =
+      '<div class="stat-grid">' +
+        '<div class="stat-item"><div class="stat-label">Episodes</div><div class="stat-value">' + (data.episodeCount || 0) + '</div></div>' +
+        '<div class="stat-item"><div class="stat-label">Knowledge</div><div class="stat-value">' + (data.knowledgeCount || 0) + '</div></div>' +
+        '<div class="stat-item"><div class="stat-label">Storage</div><div class="stat-value small">' + sizeMb + '</div></div>' +
+        '<div class="stat-item"><div class="stat-label">Status</div><div class="stat-value small ok">Active</div></div>' +
+      '</div>' +
+      '<div class="stat-badges">' +
+        '<span class="stat-badge ' + (data.hasVectorSearch ? 'active' : 'inactive') + '">Vector Search ' + (data.hasVectorSearch ? 'ON' : 'OFF') + '</span>' +
+        '<span class="stat-badge ' + (data.hasEmbeddings ? 'active' : 'inactive') + '">Embeddings ' + (data.hasEmbeddings ? 'ON' : 'OFF') + '</span>' +
+      '</div>';
+  }
+
+  // Handoff panel
+  function renderHandoff(data) {
+    const el = document.getElementById('handoffPanel');
+    if (!data || !data.enabled) {
+      el.innerHTML = '<div class="no-data">Handoff disabled</div>';
+      return;
+    }
+    if (!data.handoff) {
+      el.innerHTML = '<div class="no-data">No handoff data</div>';
+      return;
+    }
+    const h = data.handoff;
+    let html =
+      '<div class="handoff-field"><div class="handoff-label">Direction</div><div class="handoff-value">' + esc(h.direction || '') + '</div></div>' +
+      '<div class="handoff-field"><div class="handoff-label">Timestamp</div><div class="handoff-value">' + formatTime(h.timestamp) + '</div></div>' +
+      '<div class="handoff-field"><div class="handoff-label">Project</div><div class="handoff-value">' + esc(h.activeProject || 'none') + '</div></div>' +
+      '<div class="handoff-field"><div class="handoff-label">Branch</div><div class="handoff-value" style="font-family:monospace">' + esc(h.branch || 'main') + '</div></div>';
+    if (h.recentWorkSummary) {
+      html += '<div class="handoff-field"><div class="handoff-label">Summary</div><div class="handoff-value">' + esc(h.recentWorkSummary) + '</div></div>';
+    }
+    if (h.uncommittedChanges) {
+      html += '<div class="handoff-warn">Uncommitted changes present</div>';
+    }
+    el.innerHTML = html;
+  }
+
   // History
   function loadHistory() {
     const q = document.getElementById('searchInput').value;
@@ -696,6 +778,8 @@ export function getDashboardHtml(): string {
   fetch('/api/pipeline', { headers: headers }).then(function(r) { return r.json(); }).then(renderKanban).catch(function() {});
   fetch('/api/agents', { headers: headers }).then(function(r) { return r.json(); }).then(renderAgents).catch(function() {});
   fetch('/api/workflows', { headers: headers }).then(function(r) { return r.json(); }).then(renderWorkflows).catch(function() {});
+  fetch('/api/memory', { headers: headers }).then(function(r) { return r.json(); }).then(renderMemory).catch(function() {});
+  fetch('/api/handoff', { headers: headers }).then(function(r) { return r.json(); }).then(renderHandoff).catch(function() {});
   loadHistory();
   connectSSE();
 })();
