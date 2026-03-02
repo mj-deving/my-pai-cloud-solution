@@ -118,6 +118,7 @@ const EnvSchema = z.object({
   // Phase 3 V2-B: Context Injection
   CONTEXT_INJECTION_ENABLED: envBool(false),
   CONTEXT_MAX_TOKENS: optionalInt(500, 8_000, 2_000),
+  CONTEXT_MAX_CHARS: optionalInt(1_000, 20_000, 5_000),
 
   // Phase 3 V2-C: Handoff
   HANDOFF_ENABLED: envBool(false),
@@ -225,6 +226,7 @@ export interface Config {
   // Phase 3 V2-B: Context Injection
   contextInjectionEnabled: boolean;
   contextMaxTokens: number;
+  contextMaxChars: number;
 
   // Phase 3 V2-C: Handoff
   handoffEnabled: boolean;
@@ -336,6 +338,7 @@ export function loadConfig(): Config {
     // Phase 3 V2-B: Context Injection
     contextInjectionEnabled: env.CONTEXT_INJECTION_ENABLED,
     contextMaxTokens: env.CONTEXT_MAX_TOKENS,
+    contextMaxChars: env.CONTEXT_MAX_CHARS,
 
     // Phase 3 V2-C: Handoff
     handoffEnabled: env.HANDOFF_ENABLED,

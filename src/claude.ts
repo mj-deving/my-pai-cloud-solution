@@ -23,7 +23,8 @@ function isRateLimitError(stderr: string): boolean {
 }
 
 export interface ContextBuilderLike {
-  buildContext(message: string, project?: string): Promise<string | null>;
+  buildContext(message: string, project?: string, source?: string): Promise<string | null>;
+  invalidate?(): void;
 }
 
 export class ClaudeInvoker {
