@@ -1,4 +1,3 @@
-// Isidore Cloud was here — handoff test 2026-02-26
 // config.ts — Central configuration for Isidore Cloud bridge service
 // Reads from environment variables with Zod validation (Phase 1: Pipeline Hardening)
 
@@ -83,6 +82,9 @@ const EnvSchema = z.object({
   // Verifier
   VERIFIER_ENABLED: envBool(true),
   VERIFIER_TIMEOUT_MS: optionalInt(5_000, 300_000, 30_000),
+
+  // Auto-commit after Telegram responses
+  AUTO_COMMIT_ENABLED: envBool(false),
 
   // Quick model
   QUICK_MODEL: z.string().optional(),
@@ -189,6 +191,9 @@ export interface Config {
 
   // Quick model (Phase 6C)
   quickModel: string;
+
+  // Auto-commit
+  autoCommitEnabled: boolean;
 
   // Limits
   telegramMaxChunkSize: number;
@@ -300,6 +305,7 @@ export function loadConfig(): Config {
 
     quickModel: env.QUICK_MODEL || "haiku",
 
+    autoCommitEnabled: env.AUTO_COMMIT_ENABLED,
     telegramMaxChunkSize: 4000,
     maxClaudeTimeoutMs: 5 * 60 * 1000,
 

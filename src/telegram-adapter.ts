@@ -18,6 +18,7 @@ import type {
   MessageHandler,
 } from "./messenger-adapter";
 import { createTelegramBot } from "./telegram";
+import type { MemoryStore } from "./memory";
 
 export class TelegramAdapter implements MessengerAdapter {
   private bot: Bot;
@@ -33,6 +34,7 @@ export class TelegramAdapter implements MessengerAdapter {
     orchestrator?: TaskOrchestrator | null,
     branchManager?: BranchManager | null,
     rateLimiter?: RateLimiter | null,
+    memoryStore?: MemoryStore | null,
   ) {
     this.bot = createTelegramBot(
       config,
@@ -43,6 +45,7 @@ export class TelegramAdapter implements MessengerAdapter {
       orchestrator,
       branchManager,
       rateLimiter,
+      memoryStore,
     );
     this.userId = config.telegramAllowedUserId;
     this.maxChunkSize = config.telegramMaxChunkSize;

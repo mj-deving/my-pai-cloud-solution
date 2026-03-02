@@ -1,20 +1,17 @@
 # Session Continuity
 
-**Last wrapup:** 2026-02-27 04:10 PST
-**Current focus:** Gregor reverse-tasks loop operational. Phase 5 PRD reviewed.
+**Last wrapup:** 2026-03-02T14:54+01:00
+**Current focus:** All research complete (10 frameworks, 16-section synthesis report). Ready to plan and implement custom agent framework.
 
-## Completed This Session
-- Fixed Gregor reverse-handler schema (added id/from/to, renamed summary→result, fixed response parsing)
-- Added bridge tolerance for legacy `summary` field in reverse-pipeline results
-- Deployed both sides, end-to-end tested successfully
-- Reviewed Phase 5 Gregor-side PRD — 4 targeted fixes identified
-- Committed `050e90b`, pushed to origin
+## In Progress
+- Unstaged src/ changes from 2026-02-28 session (bridge.ts, config.ts, telegram*.ts — memory recording + auto-commit flag)
 
 ## Next Steps
-- Phase 5 PRD: other Isidore implements with 4 fixes (drop delegate type, orchestrate result gap, marker cleanup, type rename)
-- Bridge enhancement: write workflow-completion results to results/ directory
-- Email bridge (C6) when Marius provides IMAP/SMTP details
+1. Implement frozen snapshot injection in ContextBuilder (Priority 1 — ~75% cost reduction)
+2. Add project + source filters on MemoryStore.search() (Priority 2)
+3. Add character-bounded memory budget to ContextBuilder (Priority 3)
+4. Enable CONTEXT_INJECTION_ENABLED=1 on VPS with scoped queries
+5. Plan custom agent framework implementation based on research synthesis
 
 ## Blockers
 - C6 (email bridge) blocked on IMAP/SMTP credentials from Marius
-- Phase 5 implementation depends on other Isidore applying PRD fixes first

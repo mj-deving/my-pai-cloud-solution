@@ -1,9 +1,9 @@
 # Agent Context & Memory Architecture — Comprehensive Research Report
 
-**Date:** 2026-03-01 (initial), 2026-03-02 (completed)
+**Date:** 2026-03-01 (initial), 2026-03-02 (completed + extended)
 **Requested by:** Marius
 **Context:** Designing a custom agent framework that synthesizes the best of all existing frameworks, built on PAI infrastructure
-**Sources:** 15 research agents across 2 sessions, 80+ primary sources, 9 frameworks analyzed, 3 academic papers, YouTube transcript, 2 open-source codebases
+**Sources:** 17 research agents across 3 sessions, 100+ primary sources, 10 frameworks analyzed, 8+ academic papers, YouTube transcript, 3 open-source codebases
 
 ---
 
@@ -25,10 +25,11 @@
 11. [Multi-Agent Isolation Patterns](#11-multi-agent-isolation)
 12. [Context Window Optimization (Numbers)](#12-context-window-optimization)
 13. [Contrarian Analysis — The Case Against Complexity](#13-contrarian-analysis)
+14. [Hermes Agent — Persistent Personal Agent](#14-hermes-agent)
 
 **Part III — Synthesis**
-14. [PAI Framework Analysis (from Pai-Exploration)](#14-pai-framework-analysis)
-15. [Unified Synthesis & Recommendations](#15-synthesis)
+15. [PAI Framework Analysis (from Pai-Exploration)](#15-pai-framework-analysis)
+16. [Unified Synthesis & Recommendations](#16-synthesis)
 
 ---
 
@@ -218,7 +219,7 @@ The **WhiteboardProvider** fills a gap: maintain a running structured summary of
 
 ## 8. Claude Agent SDK — Compaction & File Memory
 
-**Full report:** `Plans/claude-agent-sdk-context-management-research.md`
+**Full report:** `research/agent-context-memory-architecture/agents/claude-agent-sdk.md`
 
 ### Design Philosophy
 
@@ -283,7 +284,7 @@ Compaction as an API feature is the most elegant approach — it pushes summariz
 
 ## 9. OpenCode (anomalyco/opencode) — Client-Server & Part Storage
 
-**Full report:** `Plans/opencode-architecture-research.md`
+**Full report:** `research/agent-context-memory-architecture/agents/opencode.md`
 
 ### Scale & Stack
 
@@ -338,7 +339,7 @@ Client-server separation is the winning pattern — multiple frontends become th
 
 ## 10. Context Engineering State-of-the-Art
 
-**Full report:** `Plans/context-engineering-research-2026.md`
+**Full report:** `research/agent-context-memory-architecture/agents/context-engineering-sota.md`
 
 ### The Discipline
 
@@ -409,8 +410,7 @@ Context engineering has converged: Anthropic, Manus, Google ADK, and Factory.ai 
 
 ## 11. Multi-Agent Isolation Patterns
 
-**Full report:** `~/.claude/History/research/2026-03/2026-03-02_multi-agent-context-isolation/report.md`
-**Quick reference:** `Plans/multi-agent-context-isolation-research.md`
+**Full report:** `research/agent-context-memory-architecture/agents/multi-agent-isolation.md`
 
 ### The Cardinal Rule
 
@@ -471,7 +471,7 @@ Centralized orchestration suppresses error amplification. Result passing (PAI's 
 
 ## 12. Context Window Optimization (Numbers)
 
-**Full report:** `~/.claude/History/research/2026-03/2026-03-02_context-window-optimization/report.md`
+**Full report:** `research/agent-context-memory-architecture/agents/context-window-optimization.md`
 
 ### The Performance Cliff
 
@@ -537,7 +537,7 @@ The optimal operating range for context is 60-80% utilization with compaction at
 
 ## 13. Contrarian Analysis — The Case Against Complexity
 
-**Full report:** `MEMORY/WORK/20260302-140000_contrarian-agent-memory-analysis/PRD.md`
+**Full report:** `research/agent-context-memory-architecture/agents/contrarian-analysis.md`
 
 ### Challenge 1: "More Memory = Better Agent"
 
@@ -602,9 +602,166 @@ The evidence overwhelmingly supports conservative, disciplined memory architectu
 
 ---
 
+## 14. Hermes Agent — Persistent Personal Agent
+
+**Repository:** [NousResearch/hermes-agent](https://github.com/nousresearch/hermes-agent) (1,442 stars in 5 days, MIT, Python)
+**Full report:** `research/hermes-agent/report.md`
+
+### What It Is
+
+NousResearch's complete agent product — not a framework, but a deployable persistent AI agent with CLI, multi-platform messaging gateway (Telegram, Discord, Slack, WhatsApp), memory, skills, cron scheduling, and RL training integration. Launched 2026-02-26. Alpha maturity. NousResearch is the most credible open-source model fine-tuning lab outside major corps ($50-65M Series A from Paradigm).
+
+**Architecturally the closest open-source sibling to PAI/Isidore Cloud:** persistent daemon, Telegram bridge, session memory, skills, cross-session continuity, scheduling. Parallel evolution toward the same goal from different starting points.
+
+### Core Architecture
+
+```
+hermes CLI ──┐
+             ├──→ AIAgent (run_agent.py, ~1,800 lines)
+Gateway ─────┤      ├── ToolRegistry (self-registration singleton)
+             │      ├── ContextCompressor (protect-head + protect-tail, summarize middle)
+RL Batch ────┘      ├── MemoryStore (MEMORY.md + USER.md, frozen snapshot injection)
+                    ├── SessionDB (SQLite WAL + FTS5)
+                    ├── SkillsSystem (progressive disclosure, self-authoring)
+                    └── Delegate (subagent spawning, depth-limited)
+```
+
+- **LLM interface:** OpenAI Python SDK (any OpenAI-compatible endpoint, OpenRouter default = 200+ models)
+- **Execution:** Standard ReAct loop, max 60 iterations
+- **Terminal:** 5 sandboxed backends (local, Docker, SSH, Singularity, Modal)
+- **Tools:** ~35 built-in (web, browser, file, terminal, vision, memory, skills, delegation, cron)
+
+### 14.1 Frozen Snapshot Memory Injection (Most Significant Innovation)
+
+Two file-backed memory stores in `~/.hermes/memories/`:
+- **MEMORY.md** — Agent's notes (environment facts, project conventions, lessons learned)
+- **USER.md** — User profile (name, role, preferences, style)
+
+**The key pattern:** Memory is loaded at session start, frozen as a snapshot in the system prompt, and never updated mid-session. Mid-session memory writes update only the on-disk files. The agent sees live state through tool responses, not through the system prompt.
+
+```python
+class MemoryStore:
+    def load_from_disk(self):
+        self.memory_entries = self._read_file("MEMORY.md")
+        self.user_entries = self._read_file("USER.md")
+        # Frozen snapshot for system prompt — never changes mid-session
+        self._system_prompt_snapshot = {
+            "memory": self._render_block("memory", self.memory_entries),
+            "user": self._render_block("user", self.user_entries),
+        }
+```
+
+**Why this matters for PAI:** PAI's `ContextBuilder` queries `MemoryStore` before each Claude invocation, creating a slightly different prompt prefix every turn. This invalidates Claude's prompt cache. Frozen snapshot preserves cache stability → ~75% input token cost reduction. With Claude Sonnet 4.5 showing 78.5% cost reduction from caching (DeepResearchBench), this is the single highest-ROI pattern in this entire report.
+
+### 14.2 Character-Bounded Curated Memory
+
+Memory stores use **character limits** (2,200 chars for memory, 1,375 chars for user profile) rather than token limits. This is model-independent — same memory works regardless of model.
+
+The agent must actively curate: consolidate, replace, and remove entries rather than append indefinitely. Memory tool schema description instructs proactive saving:
+
+> "WHEN TO SAVE (do this proactively, don't wait to be asked): User shares a preference... You discover something about the environment... User corrects you..."
+
+**Comparison:** Letta's self-editing memory blocks (Section 3) operate at the memory-block level. Hermes operates at the individual-entry level with substring matching for replace/remove. Both force curation; Hermes is simpler but less flexible.
+
+### 14.3 Context Compression
+
+Protect-first-N + protect-last-N, summarize everything in between using a cheap auxiliary model (Gemini Flash). Summary targets ~2,500 tokens, asks for neutral factual description of actions, results, decisions, file names.
+
+- Token tracking uses **actual API response counts** (not estimates)
+- Falls back to simple truncation if no auxiliary model available
+- Can fire multiple times per session
+- Tracked via `compression_count`
+
+**Comparison with other frameworks:**
+
+| Framework | Compaction Approach | Trigger |
+|-----------|-------------------|---------|
+| Hermes | Head+tail, summarize middle (auxiliary model) | 85% of context |
+| Claude SDK | Server-side compaction (provider generates summary) | Configurable (default 150K) |
+| OpenCode | Active model summarizes, preserves rules section | 75% hardcoded |
+| OpenClaw | Pruning → compaction → retry cascade | Progressive |
+| Letta | Recursive summary of evicted messages | FIFO overflow |
+
+### 14.4 Self-Registration Tool Pattern
+
+Each tool file is self-contained: schema, handler, availability check, and registry call all co-located.
+
+```python
+# tools/web_search.py
+from tools.registry import registry
+
+SCHEMA = {"name": "web_search", "description": "...", "parameters": {...}}
+
+def handler(args):
+    ...
+
+registry.register("web_search", "web", SCHEMA, handler)
+```
+
+Adding a new tool = 1 new file + 1 line in toolsets. No central switch statement, no parallel data structures. Clean for a growing toolset.
+
+### 14.5 Progressive Disclosure Skills + Self-Authoring
+
+Three-tier skill loading minimizes token cost:
+1. `skills_categories()` — category names (~50 tokens)
+2. `skills_list(category)` — name + description (~3K tokens)
+3. `skill_view(name)` — full content
+
+The agent can also **create and edit skills** via `skill_manage()`. System prompt nudges:
+
+> "After completing a complex task (5+ tool calls), fixing a tricky error, or discovering a non-trivial workflow, consider saving the approach as a skill."
+
+This creates a self-improvement feedback loop — closer to Letta's self-editing memory but applied to procedural knowledge rather than declarative facts.
+
+### 14.6 Context File Injection Scanning
+
+All context files (`AGENTS.md`, `.cursorrules`, `SOUL.md`) are scanned for prompt injection before entering the system prompt:
+
+```python
+_CONTEXT_THREAT_PATTERNS = [
+    (r'ignore\s+(previous|all|above|prior)\s+instructions', "prompt_injection"),
+    (r'do\s+not\s+tell\s+the\s+user', "deception_hide"),
+    (r'system\s+prompt\s+override', "sys_prompt_override"),
+    ...
+]
+```
+
+Content with invisible Unicode characters or threat patterns is blocked. Most frameworks blindly inject these files.
+
+### 14.7 Multi-Agent: Delegation Without Orchestration
+
+`delegate_task` tool spawns isolated subagents:
+- Single or batch parallel (up to 3)
+- Each child gets fresh `AIAgent` with isolated context
+- Blocked tools: `delegate_task` (no recursion), `clarify` (no user interaction), `memory` (no shared writes)
+- `MAX_DEPTH = 2` prevents recursive delegation
+- Only final summary enters parent context (intermediate tool calls excluded)
+
+**No workflow engine.** Unlike PAI's DAG orchestrator, Hermes has no dependency resolution, crash recovery, or workflow persistence. Complex tasks rely entirely on the model's implicit planning.
+
+### 14.8 RL Training Integration (Unique)
+
+The agent doubles as an RL training environment (Atropos integration):
+- Batch trajectory generation for fine-tuning datasets
+- 11 tool call parsers for different model families (Hermes, Qwen, DeepSeek, Llama, Mistral, GLM, Kimi)
+- **Toolset distributions** — probabilistic toolset sampling creates training diversity
+- Same codebase for production and training → flywheel effect
+
+### 14.9 Strengths & Weaknesses
+
+**Strengths:** Complete product (not a library), model-agnostic (200+ models via OpenRouter), well-designed memory (frozen snapshot + bounds + scanning), skills self-improvement loop, RL training pipeline (unique), clean tool registration, strong security awareness.
+
+**Weaknesses:** Python-only (slower than TS/Bun for daemon), no native Anthropic API support (must proxy), basic context compression (no semantic scoring), memory bounds too tight (2,200 chars ≈ weeks before forced curation loss), no structured workflow engine, monolithic gateway (one platform crash takes all down), 5 days old.
+
+### Key Insight
+
+Hermes Agent validates PAI's architectural direction and provides three immediately adoptable patterns: (1) frozen snapshot memory injection for prompt cache stability, (2) character-bounded curated memory to prevent context rot, (3) injection scanning for cross-user pipeline security. PAI is already ahead on structured workflows, cross-agent collaboration, and type safety.
+
+---
+
 # Part III — Synthesis
 
-## 14. PAI Framework Analysis
+## 15. PAI Framework Analysis
 
 **Source:** Comprehensive audit of `~/projects/Pai-Exploration/` (14 exploration docs, 756KB)
 
@@ -648,7 +805,7 @@ The evidence overwhelmingly supports conservative, disciplined memory architectu
 
 ---
 
-## 15. Unified Synthesis & Architecture Recommendations
+## 16. Unified Synthesis & Architecture Recommendations
 
 ### The Validated Dual-Mode Model
 
@@ -672,7 +829,7 @@ Every framework, every production system, every research paper validates this se
 - Running summary (Whiteboard pattern) for key decisions
 - Cache-friendly prompt structure (static prefix → dynamic suffix)
 
-### Consensus Architecture from 9 Frameworks
+### Consensus Architecture from 10 Frameworks
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -682,6 +839,12 @@ Every framework, every production system, every research paper validates this se
 │  │ System Instructions (10-15%)        │  (cacheable)      │
 │  │ Tool Schemas (15-20%)               │                   │
 │  │ Project Rules (compaction-immune)    │                   │
+│  └──────────────────────────────────────┘                   │
+│                                                             │
+│  ┌──────────────────────────────────────┐  SEMI-STATIC       │
+│  │ Memory Snapshot (frozen at start)   │  (session-stable)  │
+│  │   ├── Curated memory (≤5K chars)    │                   │
+│  │   └── User profile (≤2K chars)      │                   │
 │  └──────────────────────────────────────┘                   │
 │                                                             │
 │  ┌──────────────────────────────────────┐  DYNAMIC          │
@@ -747,18 +910,22 @@ Injection Rules:
 
 | Priority | Pattern | Source | Impact | Effort |
 |----------|---------|--------|--------|--------|
-| 1 | Project + source filters on MemoryStore.search() | LangGraph, all frameworks | Prevents cross-project pollution | Small |
-| 2 | Mode-aware context injection (workspace vs project) | All frameworks | Dual-mode separation | Small |
-| 3 | Observation masking (not summarization) | JetBrains NeurIPS | 52% cost reduction, better quality | Medium |
-| 4 | Cache-friendly prompt structure | Manus, Anthropic | 78-80% cost reduction on cached prefix | Small |
-| 5 | Whiteboard / running summary per project | Semantic Kernel | Better than raw episode retrieval | Medium |
-| 6 | Compaction-immune rules tagging | OpenCode | Critical rules survive compression | Small |
-| 7 | Part-based message storage | OpenCode | Unlocks streaming, filtering, forking | Large |
-| 8 | Self-editing memory blocks | Letta | Agent curates its own knowledge | Medium |
-| 9 | Client-server separation (HTTP+SSE) | OpenCode | Multiple frontends, testability | Large |
-| 10 | Artifact index (separate from compression) | Factory.ai, ADK | Solves the unsolved tracking problem | Medium |
-| 11 | Narrative casting for handoffs | Google ADK | Prevents agent identity confusion | Small |
-| 12 | Markdown agent definitions | OpenCode | Democratizes agent creation | Medium |
+| 1 | **Frozen snapshot memory injection** | Hermes Agent | ~75% input cost reduction via cache stability | Small |
+| 2 | Project + source filters on MemoryStore.search() | LangGraph, all frameworks | Prevents cross-project pollution | Small |
+| 3 | **Character-bounded curated memory** (≤5K chars) | Hermes Agent, Letta | Prevents context rot, forces curation | Small |
+| 4 | Mode-aware context injection (workspace vs project) | All frameworks | Dual-mode separation | Small |
+| 5 | Cache-friendly prompt structure | Manus, Anthropic, Hermes | 78-80% cost reduction on cached prefix | Small |
+| 6 | Observation masking (not summarization) | JetBrains NeurIPS | 52% cost reduction, better quality | Medium |
+| 7 | **Injection scanning on pipeline tasks** | Hermes Agent | Defense-in-depth for cross-user tasks | Small |
+| 8 | Whiteboard / running summary per project | Semantic Kernel | Better than raw episode retrieval | Medium |
+| 9 | Compaction-immune rules tagging | OpenCode | Critical rules survive compression | Small |
+| 10 | Self-editing memory blocks | Letta, Hermes skills | Agent curates its own knowledge | Medium |
+| 11 | Part-based message storage | OpenCode | Unlocks streaming, filtering, forking | Large |
+| 12 | Client-server separation (HTTP+SSE) | OpenCode | Multiple frontends, testability | Large |
+| 13 | Artifact index (separate from compression) | Factory.ai, ADK | Solves the unsolved tracking problem | Medium |
+| 14 | Progressive disclosure skills | Hermes Agent | Token-efficient skill loading | Medium |
+| 15 | Narrative casting for handoffs | Google ADK | Prevents agent identity confusion | Small |
+| 16 | Markdown agent definitions | OpenCode, Hermes | Democratizes agent creation | Medium |
 
 ### What NOT to Do (Evidence-Based)
 
@@ -775,29 +942,34 @@ Injection Rules:
 
 ### Recommended Implementation Path
 
-**Phase 1: Scoped Memory (enable what exists)**
-1. Add project + source filters to `MemoryStore.search()`
-2. Update `ContextBuilder` for mode-aware injection
-3. Enable `CONTEXT_INJECTION_ENABLED=1` with conservative budget (≤1,500 tokens)
-4. Add narrative casting to handoff messages
+**Phase 1: Scoped Memory + Cache Stability (enable what exists + quick wins)**
+1. **Frozen snapshot injection** — Add `freeze()` to `ContextBuilder`. Query once at session start, return frozen result on subsequent calls. Reset on new session/handoff.
+2. Add project + source filters to `MemoryStore.search()`
+3. **Character-bounded memory** — Add configurable budget (≤5K chars) to `ContextBuilder` with entry-level curation.
+4. Update `ContextBuilder` for mode-aware injection
+5. Enable `CONTEXT_INJECTION_ENABLED=1` with conservative budget (≤1,500 tokens)
+6. **Injection scanning** — Lightweight regex on pipeline task prompts (invisible Unicode + threat patterns)
+7. Add narrative casting to handoff messages
 
 **Phase 2: Context Engineering (new capabilities)**
-5. Implement observation masking for pipeline tasks
-6. Design whiteboard table structure (decisions + requirements + artifact index)
-7. Implement cache-friendly prompt ordering in `ContextBuilder`
-8. Add compaction-immune tagging for injected rules
+8. Implement observation masking for pipeline tasks
+9. Design whiteboard table structure (decisions + requirements + artifact index)
+10. Implement cache-friendly prompt ordering in `ContextBuilder`
+11. Add compaction-immune tagging for injected rules
 
 **Phase 3: Agent Framework Foundations**
-9. Prototype self-editing memory via Claude tool
-10. Design markdown agent definition format (`.pai/agents/`)
-11. Explore client-server separation (Hono HTTP layer)
-12. Close PAI's synthesis loop (schedule LearningPatternSynthesis etc.)
+12. Prototype self-editing memory via Claude tool
+13. Design markdown agent definition format (`.pai/agents/`)
+14. Implement progressive disclosure skill loading
+15. Explore client-server separation (Hono HTTP layer)
+16. Close PAI's synthesis loop (schedule LearningPatternSynthesis etc.)
 
 **Phase 4: Advanced Patterns**
-13. Part-based message storage migration
-14. Session forking capability
-15. Sleep-time memory refinement
-16. Artifact management service
+17. Part-based message storage migration
+18. Session forking capability
+19. Sleep-time memory refinement
+20. Artifact management service
+21. Self-registration tool pattern (for growing tool ecosystem)
 
 ---
 
@@ -816,22 +988,36 @@ Injection Rules:
 - **Frameworks added:** Claude Agent SDK, OpenCode
 - **New topics:** Context engineering SOTA, multi-agent isolation, context window optimization, contrarian analysis
 
+### Session 3 (2026-03-02, afternoon)
+- **Agents launched:** 2 (1 Claude, 1 Gemini)
+- **Agents returned:** 2 (all successful)
+- **Source files examined:** 22 (Hermes Agent repo via GitHub API)
+- **Framework added:** Hermes Agent (NousResearch)
+
 ### Combined Totals
-- **Total research agents:** 15 (11 returned successfully)
-- **Frameworks analyzed:** 9 (OpenClaw, MemGPT/Letta, LangGraph, CrewAI, AutoGen/AG2, Semantic Kernel, Claude Agent SDK, OpenCode, Google ADK)
+- **Total research agents:** 17 (13 returned successfully)
+- **Frameworks analyzed:** 10 (OpenClaw, MemGPT/Letta, LangGraph, CrewAI, AutoGen/AG2, Semantic Kernel, Claude Agent SDK, OpenCode, Google ADK, Hermes Agent)
 - **Academic papers cited:** 8+ (JetBrains NeurIPS, Lost in the Middle, ACON ICML, Intelligence Degradation, Context Rot, FadeMem, Codified Context, DMS)
 - **Production systems analyzed:** 5 (Manus, Factory.ai, Anthropic internal, OpenClaw, PAI)
-- **Primary sources:** 80+
-- **Total tokens synthesized from:** ~500K+ tokens of research
+- **Primary sources:** 100+
+- **Total tokens synthesized from:** ~700K+ tokens of research
 
 ### Individual Report Locations
 
+All reports live in the project repo under `research/`:
+
 | Report | Location |
 |--------|----------|
-| Main synthesis (this file) | `~/.claude/History/research/2026-03/2026-03-01_agent-context-memory-architecture/report.md` |
-| Claude Agent SDK | `Plans/claude-agent-sdk-context-management-research.md` |
-| OpenCode | `Plans/opencode-architecture-research.md` |
-| Context Engineering SOTA | `Plans/context-engineering-research-2026.md` |
-| Multi-Agent Isolation | `~/.claude/History/research/2026-03/2026-03-02_multi-agent-context-isolation/report.md` |
-| Context Window Optimization | `~/.claude/History/research/2026-03/2026-03-02_context-window-optimization/report.md` |
-| Contrarian Analysis | `MEMORY/WORK/20260302-140000_contrarian-agent-memory-analysis/PRD.md` |
+| Main synthesis (this file) | `research/agent-context-memory-architecture/report.md` |
+| Claude Agent SDK | `research/agent-context-memory-architecture/agents/claude-agent-sdk.md` |
+| OpenCode | `research/agent-context-memory-architecture/agents/opencode.md` |
+| Context Engineering SOTA | `research/agent-context-memory-architecture/agents/context-engineering-sota.md` |
+| Multi-Agent Isolation | `research/agent-context-memory-architecture/agents/multi-agent-isolation.md` |
+| Context Window Optimization | `research/agent-context-memory-architecture/agents/context-window-optimization.md` |
+| Contrarian Analysis | `research/agent-context-memory-architecture/agents/contrarian-analysis.md` |
+| Hermes Agent (Claude deep-dive) | `research/hermes-agent/agents/claude-researcher.md` |
+| Hermes Agent (Gemini ecosystem) | `research/hermes-agent/agents/gemini-researcher.md` |
+| Hermes Agent (synthesis) | `research/hermes-agent/report.md` |
+| HZL Framework | `research/hzl-framework/report.md` |
+| Persona Framework | `research/persona-framework/report.md` |
+| Multi-Agent Communication | `research/multi-agent-communication/report.md` |

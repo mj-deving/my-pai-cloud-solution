@@ -188,6 +188,7 @@ async function main() {
       orchestrator,
       branchManager,
       rateLimiter,
+      memoryStore,
     );
   } else {
     throw new Error(`Unsupported messenger type: ${config.messengerType}`);

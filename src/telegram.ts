@@ -11,6 +11,7 @@ import type { TaskOrchestrator } from "./orchestrator";
 import type { PipelineWatcher } from "./pipeline";
 import type { BranchManager } from "./branch-manager";
 import type { RateLimiter } from "./rate-limiter";
+import type { MemoryStore } from "./memory";
 import { compactFormat, chunkMessage } from "./format";
 import { lightweightWrapup } from "./wrapup";
 
@@ -23,6 +24,7 @@ export function createTelegramBot(
   orchestrator?: TaskOrchestrator | null,
   branchManager?: BranchManager | null,
   rateLimiter?: RateLimiter | null,
+  memoryStore?: MemoryStore | null,
 ): Bot {
   const bot = new Bot(config.telegramBotToken);
 
@@ -665,14 +667,40 @@ export function createTelegramBot(
       await ctx.reply(chunk);
     }
 
-    // Auto-commit tracked changes after response (non-blocking)
-    const activeProject = projects.getActiveProject();
-    if (activeProject) {
-      const projectPath = projects.getProjectPath(activeProject);
-      if (projectPath) {
-        lightweightWrapup(projectPath).catch((err) => {
-          console.warn(`[telegram] Wrapup error: ${err}`);
-        });
+    // Record conversation to memory (non-blocking)
+    if (memoryStore) {
+      const now = new Date().toISOString();
+      const project = projects.getActiveProjectName() ?? undefined;
+      const sessionId = (await sessions.current()) ?? undefined;
+      memoryStore.record({
+        timestamp: now,
+        source: "telegram",
+        project,
+        session_id: sessionId,
+        role: "user",
+        content: message,
+      }).catch(err => console.warn(`[telegram] Memory record (user) error: ${err}`));
+      memoryStore.record({
+        timestamp: now,
+        source: "telegram",
+        project,
+        session_id: sessionId,
+        role: "assistant",
+        content: response.result,
+        summary: formatted.slice(0, 200),
+      }).catch(err => console.warn(`[telegram] Memory record (assistant) error: ${err}`));
+    }
+
+    // Auto-commit tracked changes after response (non-blocking, feature-flagged)
+    if (config.autoCommitEnabled) {
+      const activeProject = projects.getActiveProject();
+      if (activeProject) {
+        const projectPath = projects.getProjectPath(activeProject);
+        if (projectPath) {
+          lightweightWrapup(projectPath).catch((err) => {
+            console.warn(`[telegram] Wrapup error: ${err}`);
+          });
+        }
       }
     }
   });
