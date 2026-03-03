@@ -129,16 +129,16 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 | `dashboard.ts` | `Dashboard` — Bun.serve HTTP server, REST API (8 endpoints), SSE real-time updates |
 | `dashboard-html.ts` | `getDashboardHtml()` — self-contained HTML/CSS/JS dark-themed dashboard page |
 | `wrapup.ts` | `lightweightWrapup()` — non-blocking git commit with branch guard |
-| `memory.ts` | `MemoryStore` — SQLite episodic + semantic memory with FTS5 + optional sqlite-vec (Phase 3 V2-A) |
+| `memory.ts` | `MemoryStore` — SQLite episodic + semantic memory with FTS5 + optional sqlite-vec + project whiteboards (Phase 3 V2-A, Phase D) |
 | `embeddings.ts` | `EmbeddingProvider` — Ollama embedding client + keyword-only fallback (Phase 3 V2-A) |
-| `context.ts` | `ContextBuilder` — queries memory, formats context prefix for Claude prompts (Phase 3 V2-B) |
+| `context.ts` | `ContextBuilder` — queries memory, formats context prefix with observation masking + whiteboard injection (Phase 3 V2-B, Phase D) |
 | `handoff.ts` | `HandoffManager` — cross-instance state transfer, inactivity auto-write (Phase 3 V2-C) |
 | `prd-executor.ts` | `PRDExecutor` — autonomous PRD detection, parsing, execution, progress reporting (Phase 3 V2-D) |
 | `prd-parser.ts` | `PRDParser` — Claude one-shot extraction of structured PRD from freeform text (Phase 3 V2-D) |
 | `injection-scan.ts` | `scanForInjection()` — regex-based prompt injection detection, 18 patterns, log-only v1 (Phase 4) |
 | `scheduler.ts` | `Scheduler` — SQLite-backed cron scheduler, 5-field cron parser, emits tasks to pipeline (Phase 4) |
 | `policy.ts` | `PolicyEngine` — YAML-based action authorization, allow/deny/must_ask dispositions (Phase 4) |
-| `synthesis.ts` | `SynthesisLoop` — periodic knowledge distillation from episodes, per-domain Claude synthesis (Phase C) |
+| `synthesis.ts` | `SynthesisLoop` — periodic knowledge distillation from episodes, per-domain Claude synthesis + project whiteboards (Phase C, Phase D) |
 | `agent-loader.ts` | `AgentLoader` — parses `.pai/agents/*.md` YAML+markdown definitions, self-registers in AgentRegistry (Phase C) |
 
 ## Cross-Instance Continuity

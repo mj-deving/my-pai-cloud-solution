@@ -13,6 +13,8 @@ export class ContextBuilder {
   private maxTokens: number;
   private maxChars: number;
   private currentProject: string | undefined;
+  private maskingEnabled: boolean;
+  private maskingWindow: number;
 
   // Frozen snapshot state
   private snapshot: string | null = null;
@@ -25,6 +27,8 @@ export class ContextBuilder {
   ) {
     this.maxTokens = config.contextMaxTokens;
     this.maxChars = config.contextMaxChars;
+    this.maskingEnabled = config.observationMaskingEnabled;
+    this.maskingWindow = config.observationMaskingWindow;
   }
 
   /** Set the active project. Invalidates snapshot if project changed. */
@@ -72,7 +76,7 @@ export class ContextBuilder {
         return null;
       }
 
-      const formatted = this.formatResult(result);
+      const formatted = this.formatResult(result, effectiveProject);
       const capped = this.enforceCharBudget(formatted);
 
       // Freeze as snapshot
@@ -99,10 +103,18 @@ export class ContextBuilder {
     this.snapshotTimestamp = Date.now();
   }
 
-  private formatResult(result: { episodes: Episode[]; knowledge: Array<{ domain: string; key: string; content: string }>; totalTokens: number }): string {
+  private formatResult(result: { episodes: Episode[]; knowledge: Array<{ domain: string; key: string; content: string }>; totalTokens: number }, project?: string): string {
     const parts: string[] = ["[Memory Context]"];
 
-    // Knowledge first (more stable, higher signal)
+    // Whiteboard first (highest signal — running project summary)
+    if (project) {
+      const whiteboard = this.memory.getWhiteboard(project);
+      if (whiteboard) {
+        parts.push(`\nProject whiteboard (${project}):\n${whiteboard}`);
+      }
+    }
+
+    // Knowledge (stable, high signal)
     if (result.knowledge.length > 0) {
       parts.push("\nRelevant knowledge:");
       for (const k of result.knowledge) {
@@ -110,15 +122,25 @@ export class ContextBuilder {
       }
     }
 
-    // Recent episodes (conversation history)
+    // Episodes with observation masking
     if (result.episodes.length > 0) {
       parts.push("\nRecent relevant episodes:");
+      let idx = 0;
       for (const ep of result.episodes) {
         const time = ep.timestamp.slice(0, 16).replace("T", " ");
         const src = ep.source;
         const proj = ep.project ? ` (${ep.project})` : "";
-        const text = ep.summary || ep.content.slice(0, 200);
-        parts.push(`- [${time} ${src}${proj}] ${text}`);
+
+        if (this.maskingEnabled && idx >= this.maskingWindow) {
+          // Beyond masking window: summary only
+          const summary = ep.summary || ep.content.slice(0, 80);
+          parts.push(`- [${time} ${src}${proj}] ${summary} [masked]`);
+        } else {
+          // Within window: full content
+          const text = ep.summary || ep.content.slice(0, 200);
+          parts.push(`- [${time} ${src}${proj}] ${text}`);
+        }
+        idx++;
       }
     }
 

@@ -30,6 +30,7 @@ export class SynthesisLoop {
   private db: Database;
   private policyEngine: PolicyEngineLike | null = null;
   private notifyCallback: ((msg: string) => Promise<void>) | null = null;
+  private whiteboardEnabled = false;
 
   constructor(
     private config: Config,
@@ -50,6 +51,11 @@ export class SynthesisLoop {
   /** Wire notification callback after construction (optional). */
   setNotifyCallback(cb: (msg: string) => Promise<void>): void {
     this.notifyCallback = cb;
+  }
+
+  /** Enable whiteboard generation during synthesis runs. */
+  setWhiteboardEnabled(enabled: boolean): void {
+    this.whiteboardEnabled = enabled;
   }
 
   private initStateTable(): void {
@@ -220,8 +226,75 @@ export class SynthesisLoop {
 
     console.log(`[synthesis] Run complete: ${result.domainsProcessed} domains, ${result.entriesDistilled} entries, ${result.errors.length} errors`);
 
-    // Step 12: Return result
+    // Step 12: Update project whiteboards
+    if (this.whiteboardEnabled) {
+      await this.updateWhiteboards(lastSynthesizedId, episodes);
+    }
+
+    // Step 13: Return result
     return result;
+  }
+
+  /** Update per-project whiteboards from recent episodes. */
+  private async updateWhiteboards(sinceId: number, episodes: Episode[]): Promise<void> {
+    // Get distinct projects from the episodes we just processed
+    const projectSet = new Set<string>();
+    for (const ep of episodes) {
+      if (ep.project) projectSet.add(ep.project);
+    }
+
+    if (projectSet.size === 0) {
+      console.log("[synthesis] No project-tagged episodes, skipping whiteboard update");
+      return;
+    }
+
+    for (const project of projectSet) {
+      try {
+        const projectEpisodes = episodes.filter(ep => ep.project === project);
+        if (projectEpisodes.length < 2) continue; // Need meaningful content
+
+        const existingWhiteboard = this.memoryStore.getWhiteboard(project);
+        const prompt = this.buildWhiteboardPrompt(project, existingWhiteboard, projectEpisodes);
+
+        console.log(`[synthesis] Updating whiteboard for "${project}" (${projectEpisodes.length} episodes)`);
+        const response = await this.claude.oneShot(prompt);
+
+        if (response.error) {
+          console.warn(`[synthesis] Whiteboard update failed for "${project}": ${response.error}`);
+          continue;
+        }
+
+        // Store the updated whiteboard
+        const content = response.result.trim();
+        if (content.length > 0) {
+          this.memoryStore.setWhiteboard(project, content);
+          console.log(`[synthesis] Whiteboard updated for "${project}" (${content.length} chars)`);
+        }
+      } catch (err) {
+        console.warn(`[synthesis] Whiteboard error for "${project}": ${err}`);
+      }
+    }
+  }
+
+  private buildWhiteboardPrompt(
+    project: string,
+    existingWhiteboard: string | null,
+    episodes: Episode[],
+  ): string {
+    return `You are maintaining a running project whiteboard — a concise summary of the current state of "${project}".
+
+${existingWhiteboard ? `CURRENT WHITEBOARD:\n${existingWhiteboard}\n` : "No existing whiteboard — create one from scratch.\n"}
+RECENT EPISODES:
+${episodes.map(ep => `[${ep.timestamp.slice(0, 16)}] (${ep.source}/${ep.role}) ${ep.content.slice(0, 300)}`).join("\n\n")}
+
+Update the whiteboard to reflect the current state. Output ONLY the updated whiteboard content in this format:
+
+**State:** What is the current state of this project (1-2 sentences)
+**Recent activity:** What happened recently (2-4 bullet points)
+**Decisions:** Key decisions made (bullet points, if any new ones)
+**Blockers:** Current blockers or issues (bullet points, or "None")
+
+Keep it concise — under 500 characters total. Preserve important decisions from the existing whiteboard. Drop stale information.`;
   }
 
   private buildPrompt(

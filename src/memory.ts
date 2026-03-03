@@ -326,6 +326,32 @@ export class MemoryStore {
     return rows.map(row => this.rowToEpisode(row));
   }
 
+  /** Get whiteboard entry for a project. Returns content or null. */
+  getWhiteboard(project: string): string | null {
+    const row = this.db
+      .query("SELECT content FROM knowledge WHERE domain = 'whiteboard' AND key = ?")
+      .get(project) as { content: string } | null;
+    return row?.content ?? null;
+  }
+
+  /** Upsert whiteboard entry for a project. */
+  setWhiteboard(project: string, content: string): void {
+    this.db
+      .query(
+        `INSERT OR REPLACE INTO knowledge (domain, key, content, confidence, source_episode_ids)
+         VALUES ('whiteboard', ?, ?, 0.9, '[]')`
+      )
+      .run(project, content);
+  }
+
+  /** Get distinct non-null project names from episodes since a given ID. */
+  getRecentProjectNames(sinceId: number): string[] {
+    const rows = this.db
+      .query("SELECT DISTINCT project FROM episodes WHERE id > ? AND project IS NOT NULL ORDER BY project")
+      .all(sinceId) as Array<{ project: string }>;
+    return rows.map(row => row.project);
+  }
+
   /** Get knowledge entries by domain (for synthesis dedup). */
   getKnowledgeByDomain(domain: string): Array<{ key: string; content: string; confidence: number }> {
     const rows = this.db

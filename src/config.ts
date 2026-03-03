@@ -150,6 +150,13 @@ const EnvSchema = z.object({
   // Phase C: Agent Definitions
   AGENT_DEFINITIONS_ENABLED: envBool(false),
   AGENT_DEFINITIONS_DIR: z.string().optional(),
+
+  // Phase D: Observation Masking
+  OBSERVATION_MASKING_ENABLED: envBool(false),
+  OBSERVATION_MASKING_WINDOW: optionalInt(1, 20, 5),
+
+  // Phase D: Project Whiteboards
+  WHITEBOARD_ENABLED: envBool(false),
 });
 
 export interface Config {
@@ -278,6 +285,13 @@ export interface Config {
   // Phase C: Agent Definitions
   agentDefinitionsEnabled: boolean;
   agentDefinitionsDir: string;
+
+  // Phase D: Observation Masking
+  observationMaskingEnabled: boolean;
+  observationMaskingWindow: number;
+
+  // Phase D: Project Whiteboards
+  whiteboardEnabled: boolean;
 }
 
 export function loadConfig(): Config {
@@ -410,5 +424,12 @@ export function loadConfig(): Config {
     // Phase C: Agent Definitions
     agentDefinitionsEnabled: env.AGENT_DEFINITIONS_ENABLED,
     agentDefinitionsDir: env.AGENT_DEFINITIONS_DIR || `${home}/projects/my-pai-cloud-solution/.pai/agents`,
+
+    // Phase D: Observation Masking
+    observationMaskingEnabled: env.OBSERVATION_MASKING_ENABLED,
+    observationMaskingWindow: env.OBSERVATION_MASKING_WINDOW,
+
+    // Phase D: Project Whiteboards
+    whiteboardEnabled: env.WHITEBOARD_ENABLED,
   };
 }

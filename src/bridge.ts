@@ -162,6 +162,10 @@ async function main() {
   if (config.contextInjectionEnabled && memoryStore) {
     const contextBuilder = new ContextBuilder(memoryStore, config);
     claude.setContextBuilder(contextBuilder);
+    // Phase D: Log observation masking status
+    if (config.observationMaskingEnabled) {
+      console.log(`[bridge] Observation masking enabled (window: ${config.observationMaskingWindow} episodes)`);
+    }
     console.log("[bridge] Context injection enabled");
   } else if (config.contextInjectionEnabled && !memoryStore) {
     console.log("[bridge] Context injection requires MEMORY_ENABLED=1, skipping");
@@ -230,6 +234,11 @@ async function main() {
     synthesisLoop = new SynthesisLoop(config, memoryStore, claude);
     if (policyEngine) {
       synthesisLoop.setPolicyEngine(policyEngine);
+    }
+    // Phase D: Wire whiteboard generation
+    if (config.whiteboardEnabled) {
+      synthesisLoop.setWhiteboardEnabled(true);
+      console.log("[bridge] Whiteboard generation enabled (during synthesis runs)");
     }
     const stats = synthesisLoop.getStats();
     console.log(`[bridge] Synthesis loop enabled (${stats.totalRuns} runs, ${stats.totalEntriesDistilled} entries distilled)`);
