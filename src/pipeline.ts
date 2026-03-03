@@ -358,7 +358,10 @@ export class PipelineWatcher {
       const result = await this.dispatch(task);
 
       // Phase 6B: Verify completed results before writing
-      if (this.verifier && result.status === "completed") {
+      // Skip verification for synthesis/prd tasks — their dispatch result is not the
+      // actual output (synthesis loop and PRD executor handle the real work separately).
+      const skipVerifyTypes = new Set(["synthesis", "prd"]);
+      if (this.verifier && result.status === "completed" && !skipVerifyTypes.has(task.type || "")) {
         const { cwd } = await this.resolveCwd(task);
         const verification = await this.verifier.verify(task.prompt, result.result || "", cwd);
         if (!verification.passed) {
@@ -373,6 +376,14 @@ export class PipelineWatcher {
           result.error = `Verification failed: ${verification.concerns || verification.verdict}`;
           result.warnings = [...(result.warnings || []), `Verifier: ${verification.verdict}`];
         }
+      } else if (this.verifier && result.status === "completed" && skipVerifyTypes.has(task.type || "")) {
+        console.log(`[pipeline] Skipping verification for ${task.type} task ${task.id}`);
+        traces.emit({
+          phase: "verify",
+          decision: `Skipped verification for ${task.type} task ${task.id}`,
+          reason_code: "verification_skipped",
+          context: { type: task.type },
+        });
       }
 
       // Phase 5C: Include branch in result

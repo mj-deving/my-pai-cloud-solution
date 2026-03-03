@@ -92,37 +92,14 @@ Gregor writes JSON → /var/lib/pai-pipeline/tasks/task.json
 
 ### Key Design Decisions
 
-- **Session sharing:** All channels (Telegram, SSH/tmux) share one session ID file (`~/.claude/active-session-id`). `claude --resume` continues the same conversation.
-- **Per-project sessions:** `ProjectManager` maps each project to its own session ID in `~/.claude/handoff-state.json`. Switching projects saves/restores the session.
+See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decisions:
+
+- **Session sharing:** All channels share one session ID file. `claude --resume` continues the same conversation. Per-project sessions via `ProjectManager`.
 - **One-shot pipeline:** Pipeline tasks from Gregor do NOT share Marius's session. Each gets a fresh Claude context.
-- **Hook suppression:** Bridge sets `SKIP_KNOWLEDGE_SYNC=1` in Claude's env to prevent hooks from firing on every `claude -p` invocation. Bridge handles sync explicitly via `/project` (pull) and `/done` (push).
-- **Auto-commit:** After each Telegram response, `lightweightWrapup()` runs `git add -u && git commit` with a 10-second timeout. Only tracked files — never `git add -A`.
-- **Atomic writes:** Pipeline results use write-to-tmp + rename pattern to prevent Gregor from reading partial files.
-- **Concurrency pool:** Pipeline processes up to `PIPELINE_MAX_CONCURRENT` tasks simultaneously with per-project locking.
-- **Branch isolation:** Pipeline tasks run on `pipeline/<taskId>` branches to prevent contamination of main. Wrapup has a branch guard.
-- **DAG orchestrator:** Workflows decomposed via Claude, validated for cycles and referential integrity. Steps dispatched as dependencies resolve. Workflow-completion results written to `results/workflow-<taskId>.json`.
-- **Per-task timeout:** Pipeline tasks can specify `timeout_minutes` (overrides 5min default) and `max_turns` (passed to CLI). Essential for overnight PRD queue processing.
-- **Pipeline sessions:** `session_id` pass-through from task JSON, plus session-project affinity guard (in-memory Map) to prevent cross-project session contamination.
-- **Pipeline priority:** Tasks sorted by `PRIORITY_ORDER` (high=3, normal=2, low=1) within each poll batch.
-- **Quick model (Phase 6C):** `--model haiku` via `claude.quickShot()` for lightweight tasks. Feature-flagged `QUICK_MODEL`.
-- **Resource guard / rate limiter / verifier (Phase 6):** Memory-gated dispatch, failure-rate circuit breaker, result verification via separate Claude one-shot. All feature-flagged.
-- **Zod validation (Phase 1):** All cross-agent JSON boundaries validated via Zod schemas (`safeParse`/`strictParse`). Config env vars validated with range checks. Only internal trusted data (projects.ts, verifier.ts) uses raw `JSON.parse`.
-- **Decision traces (Phase 1):** Every pipeline dispatch decision (skip, dedup, gate, dispatch) recorded as structured traces in result JSON. `decision_traces` field is optional for backward compat.
-- **Idempotency (Phase 1):** SQLite-backed `processed_ops` table with sha256 op_id. Prevents duplicate task dispatch. Feature-flagged `PIPELINE_DEDUP_ENABLED`.
-- **Agent registry (Phase 1):** SQLite `agents` table with heartbeat + stale detection. Feature-flagged `AGENT_REGISTRY_ENABLED`. Shares DB file with idempotency store.
-- **MessengerAdapter (Phase 1):** Platform-agnostic interface. `bridge.ts` has zero Grammy/Telegram imports — depends only on `MessengerAdapter`. `TelegramAdapter` wraps existing `createTelegramBot()` without rewriting `telegram.ts`. Future messengers implement the same interface.
-- **Dashboard (Phase 2):** Bun.serve web UI on localhost:3456 with REST API + SSE real-time updates. Dark Kanban board, health panels, agent status, workflow progress, history search, decision trace viewer. Feature-flagged `DASHBOARD_ENABLED`. Access via SSH tunnel; nginx reverse proxy config included for future external access.
-- **Memory Store (Phase 3 V2-A):** SQLite-backed episodic + semantic memory. FTS5 keyword search with optional sqlite-vec vector search via Ollama embeddings. Records Telegram messages, pipeline results, workflow outcomes. Feature-flagged `MEMORY_ENABLED`.
-- **Context Injection (Phase 3 V2-B):** Queries MemoryStore before each Claude invocation, prepends relevant context to prompt. Respects token budget (`CONTEXT_MAX_TOKENS`). Feature-flagged `CONTEXT_INJECTION_ENABLED`.
-- **Handoff (Phase 3 V2-C):** Structured JSON handoff objects for cross-instance state transfer. Auto-writes on shutdown, inactivity timeout. Reads incoming handoff on startup. Feature-flagged `HANDOFF_ENABLED`.
-- **PRD Executor (Phase 3 V2-D):** Autonomous PRD execution pipeline. Detects PRD-like messages by length/structure, parses via Claude one-shot, executes steps, reports progress via Telegram. Routes through orchestrator for medium+ complexity. Feature-flagged `PRD_EXECUTOR_ENABLED`.
-- **Injection Scanning (Phase 4):** Regex-based prompt injection detection at pipeline ingest. 18 patterns across 4 categories (system override, role switching, data exfiltration, prompt leaking). V1 is log-only (warns in decision traces, does not block). Feature-flagged `INJECTION_SCAN_ENABLED` (default: true).
-- **Scheduler (Phase 4):** SQLite-backed cron scheduler for autonomous task self-initiation. 5-field cron parser with ranges, steps, lists. Emits task JSON to pipeline tasks/ directory. Built-in schedules: daily memory synthesis (02:00 UTC), weekly health review (Sunday 03:00 UTC). Managed via `/schedule` Telegram command. Feature-flagged `SCHEDULER_ENABLED`. Shares DB file with agent registry.
-- **Policy Engine (Phase 4):** YAML-based machine-readable action authorization. Rules with allow/deny/must_ask dispositions. Default: deny (missing rule = blocked). `must_ask` triggers Telegram notification. Checked before pipeline dispatch and orchestrator step dispatch. Policy violations logged as decision traces. Feature-flagged `POLICY_ENABLED`.
-- **Synthesis Loop (Phase C):** Periodic knowledge distillation from accumulated episodes. Groups episodes by source domain, calls Claude one-shot per domain to extract reusable knowledge. Writes entries via `MemoryStore.distill()`. State persisted in `synthesis_state` SQLite table. Triggered by scheduler via `type: "synthesis"` pipeline tasks. Feature-flagged `SYNTHESIS_ENABLED`.
-- **Agent Definitions (Phase C):** Declarative `.pai/agents/*.md` files with YAML frontmatter + markdown system prompt. Fields: name, execution_tier (1-3), memory_scope, constraints, delegation_permissions, tool_restrictions, self_register. `AgentLoader` parses and caches definitions. Self-registers in `AgentRegistry`. Used by orchestrator for dynamic decomposition prompts. Feature-flagged `AGENT_DEFINITIONS_ENABLED`.
-- **Sub-delegation (Phase C):** `ClaudeInvoker.subDelegate()` dispatches tasks to registered agents with tier-based invocation: tier 1 = full oneShot, tier 2 = limited turns with algo-lite template, tier 3 = quickShot (haiku). Prompt composed from algo-lite template + system prompt + constraints + memory context + task.
-- **Algorithm Lite (Phase C):** Lightweight 3-phase protocol (CRITERIA → EXECUTE → VERIFY) for tier 2 sub-delegated agents. Template at `prompts/algo-lite.md`, injected as prompt prefix.
+- **Hook suppression:** Bridge sets `SKIP_KNOWLEDGE_SYNC=1` to prevent hooks firing on every `claude -p`. Bridge handles sync explicitly.
+- **Atomic writes:** Pipeline results use write-to-tmp + rename to prevent reading partial files.
+- **Zod validation:** All cross-agent JSON boundaries validated via Zod schemas. Config env vars validated with range checks.
+- **Feature flags:** All major subsystems gated behind env vars (default: off). Enables incremental rollout.
 
 ### Module Responsibilities
 

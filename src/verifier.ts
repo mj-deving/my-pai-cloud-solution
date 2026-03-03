@@ -123,6 +123,7 @@ INSTRUCTIONS:
 1. Does the result address the task prompt?
 2. Are there obvious errors, security issues, or missing requirements?
 3. Does the git diff (if present) align with the claimed result?
+4. If the result mentions hitting a turn limit (max_turns) or being truncated, that is ACCEPTABLE — the task ran within its allocated budget. Only flag as FAIL if the result is clearly wrong, harmful, or completely unrelated to the task.
 
 Respond with EXACTLY one line:
 - "PASS: <brief reason>" if the result looks correct

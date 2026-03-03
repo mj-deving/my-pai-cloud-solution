@@ -5,6 +5,7 @@ import type { Config } from "./config";
 
 export class EmbeddingProvider {
   private available = false;
+  private loggedUnavailable = false;
   private retryTimer: ReturnType<typeof setInterval> | null = null;
   private ollamaUrl: string;
   private model: string;
@@ -75,6 +76,7 @@ export class EmbeddingProvider {
           console.log(`[embeddings] Ollama available at ${this.ollamaUrl} (model: ${this.model})`);
         }
         this.available = true;
+        this.loggedUnavailable = false;
         // Stop retrying once available
         if (this.retryTimer) {
           clearInterval(this.retryTimer);
@@ -86,9 +88,12 @@ export class EmbeddingProvider {
     } catch {
       if (this.available) {
         console.warn("[embeddings] Ollama became unavailable, falling back to keyword search");
-      } else {
+        this.loggedUnavailable = true;
+      } else if (!this.loggedUnavailable) {
         console.log("[embeddings] Ollama not available, using keyword search fallback");
+        this.loggedUnavailable = true;
       }
+      // Subsequent retries while still unavailable produce no log output
       this.available = false;
     }
   }
