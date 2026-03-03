@@ -204,13 +204,16 @@ export type AgentMessage = z.infer<typeof AgentMessageSchema>;
 export const EpisodeSchema = z.object({
   id: z.number().int().optional(), // auto-increment
   timestamp: z.string(),
-  source: z.enum(["telegram", "pipeline", "orchestrator", "handoff", "prd", "synthesis"]),
+  source: z.enum(["telegram", "pipeline", "orchestrator", "handoff", "prd", "synthesis", "session_summary"]),
   project: z.string().nullable().optional(),
   session_id: z.string().nullable().optional(),
   role: z.enum(["user", "assistant", "system"]),
   content: z.string(),
   summary: z.string().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  importance: z.number().int().min(1).max(10).optional(),
+  access_count: z.number().int().optional(),
+  last_accessed: z.string().nullable().optional(),
 });
 
 export type Episode = z.infer<typeof EpisodeSchema>;
@@ -230,7 +233,7 @@ export type Knowledge = z.infer<typeof KnowledgeSchema>;
 export const MemoryQuerySchema = z.object({
   query: z.string(),
   project: z.string().optional(),
-  source: z.enum(["telegram", "pipeline", "orchestrator", "handoff", "prd", "synthesis"]).optional(),
+  source: z.enum(["telegram", "pipeline", "orchestrator", "handoff", "prd", "synthesis", "session_summary"]).optional(),
   maxResults: z.number().int().min(1).max(100).optional(),
   maxTokens: z.number().int().min(100).max(16000).optional(),
   recencyBias: z.number().min(0).max(1).optional(),

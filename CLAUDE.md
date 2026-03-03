@@ -128,9 +128,9 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 | `format.ts` | `compactFormat()`, `chunkMessage()`, `escMd()` — formatting + Markdown escaping |
 | `dashboard.ts` | `Dashboard` — Bun.serve HTTP server, REST API (8 endpoints), SSE real-time updates |
 | `dashboard-html.ts` | `getDashboardHtml()` — self-contained HTML/CSS/JS dark-themed dashboard page |
-| `memory.ts` | `MemoryStore` — SQLite episodic + semantic memory with FTS5 + optional sqlite-vec + project whiteboards (Phase 3 V2-A, Phase D) |
+| `memory.ts` | `MemoryStore` — SQLite episodic + semantic memory with FTS5 + optional sqlite-vec + project whiteboards + importance scoring + scored retrieval + system state + session summaries |
 | `embeddings.ts` | `EmbeddingProvider` — Ollama embedding client + keyword-only fallback (Phase 3 V2-A) |
-| `context.ts` | `ContextBuilder` — queries memory, formats context prefix with observation masking + whiteboard injection (Phase 3 V2-B, Phase D) |
+| `context.ts` | `ContextBuilder` — queries memory with scored retrieval, topic-based invalidation, budget-based injection (whiteboard/knowledge/episodes/summary), importance-based masking, session recovery |
 | `prd-executor.ts` | `PRDExecutor` — autonomous PRD detection, parsing, execution, progress reporting (Phase 3 V2-D) |
 | `prd-parser.ts` | `PRDParser` — Claude one-shot extraction of structured PRD from freeform text (Phase 3 V2-D) |
 | `injection-scan.ts` | `scanForInjection()` — regex-based prompt injection detection, 18 patterns, log-only v1 (Phase 4) |
@@ -142,7 +142,7 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 
 ## Cross-Instance Continuity
 
-Cloud Isidore uses `memory.db` (via ContextBuilder) as its sole persistence layer. There is no file-based handoff mechanism — `memory.db` stores episodic and semantic memory, and ContextBuilder injects relevant context into each Claude invocation.
+Cloud Isidore uses `memory.db` (via ContextBuilder) as its sole persistence layer. There is no file-based handoff mechanism — `memory.db` stores episodic and semantic memory, project state (active project, sessions map), and session summaries. ContextBuilder injects relevant context into each Claude invocation with importance-based scoring. Session summaries are generated on `/clear` and bridge shutdown for cross-session continuity.
 
 ## Conventions
 

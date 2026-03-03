@@ -310,8 +310,40 @@ export function createTelegramBot(
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
 
-  // /clear — Archive current session and start fresh
+  // /clear — Archive current session and start fresh (with session summary)
   bot.command("clear", async (ctx) => {
+    // Generate session summary before clearing (non-blocking on failure)
+    if (memoryStore) {
+      try {
+        await ctx.replyWithChatAction("typing");
+        const recentEpisodes = memoryStore.getEpisodesSince(
+          Math.max(0, memoryStore.getLastEpisodeId() - 20), 20
+        );
+        if (recentEpisodes.length > 0) {
+          const conversationText = recentEpisodes
+            .map(ep => `[${ep.role}] ${(ep.summary || ep.content).slice(0, 150)}`)
+            .join("\n");
+          const summaryPrompt = `Summarize this conversation in 3-5 bullets: what was discussed, what was decided, what's pending.\n\n${conversationText.slice(0, 2000)}`;
+          const summaryResponse = await claude.quickShot(summaryPrompt);
+          if (summaryResponse.result && !summaryResponse.error) {
+            const project = projects.getActiveProjectName() ?? undefined;
+            await memoryStore.record({
+              timestamp: new Date().toISOString(),
+              source: "session_summary",
+              project,
+              session_id: (await sessions.current()) ?? undefined,
+              role: "system",
+              content: summaryResponse.result.slice(0, 1000),
+              summary: "Session summary before /clear",
+              importance: 9,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn(`[telegram] Session summary generation failed: ${err}`);
+      }
+    }
+
     await sessions.clear();
     await ctx.reply(
       "Session cleared and archived. Next message starts fresh.",
@@ -742,28 +774,60 @@ export function createTelegramBot(
       await ctx.reply(chunk);
     }
 
-    // Record conversation to memory (non-blocking)
+    // Record conversation to memory (non-blocking, with importance scoring)
     if (memoryStore) {
       const now = new Date().toISOString();
       const project = projects.getActiveProjectName() ?? undefined;
       const sessionId = (await sessions.current()) ?? undefined;
+
+      // User message: record directly (importance defaults to 5)
       memoryStore.record({
         timestamp: now,
         source: "telegram",
         project,
         session_id: sessionId,
         role: "user",
-        content: message,
+        content: message.slice(0, 1000),
       }).catch(err => console.warn(`[telegram] Memory record (user) error: ${err}`));
-      memoryStore.record({
-        timestamp: now,
-        source: "telegram",
-        project,
-        session_id: sessionId,
-        role: "assistant",
-        content: response.result,
-        summary: formatted.slice(0, 200),
-      }).catch(err => console.warn(`[telegram] Memory record (assistant) error: ${err}`));
+
+      // Assistant message: generate summary + importance via haiku, strip formatting, cap content
+      (async () => {
+        try {
+          // Strip Algorithm formatting (phase headers, ━━━ lines, box chars)
+          let cleanContent = response.result
+            .replace(/━+.*?━+/g, "")
+            .replace(/[═╔╗╚╝║╠╣╦╩╬┌┐└┘├┤┬┴┼─│]/g, "")
+            .replace(/♻︎|🗒️|🔎|💪🏼|🏹|🧠|📐|🔨|⚡|✅|📚|🔄|📃|🔧|🗣️|📋/g, "")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
+          cleanContent = cleanContent.slice(0, 1000);
+
+          const { summary, importance } = await claude.rateAndSummarize(cleanContent);
+
+          await memoryStore.record({
+            timestamp: now,
+            source: "telegram",
+            project,
+            session_id: sessionId,
+            role: "assistant",
+            content: cleanContent,
+            summary,
+            importance,
+          });
+        } catch (err) {
+          // Fallback: record without rating
+          memoryStore.record({
+            timestamp: now,
+            source: "telegram",
+            project,
+            session_id: sessionId,
+            role: "assistant",
+            content: response.result.slice(0, 1000),
+            summary: formatted.slice(0, 200),
+          }).catch(e => console.warn(`[telegram] Memory record fallback error: ${e}`));
+          console.warn(`[telegram] Memory rating error: ${err}`);
+        }
+      })();
     }
 
   });

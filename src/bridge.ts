@@ -47,10 +47,9 @@ async function main() {
   // Initialize Claude invoker
   const claude = new ClaudeInvoker(config, sessions);
 
-  // Initialize project manager
+  // Initialize project manager (state loaded after memory store is ready)
   const projectManager = new ProjectManager(config, sessions);
   await projectManager.loadRegistry();
-  await projectManager.loadState();
 
   // Restore active project cwd on startup
   const activeProject = projectManager.getActiveProject();
@@ -153,9 +152,14 @@ async function main() {
     memoryStore.setEmbeddingProvider(embeddingProvider);
     const stats = memoryStore.getStats();
     console.log(`[bridge] Memory store initialized (${stats.episodeCount} episodes, vec: ${stats.hasVectorSearch})`);
+    // Wire memory store to project manager for state persistence
+    projectManager.setMemoryStore(memoryStore);
   } else {
     console.log("[bridge] Memory store disabled (MEMORY_ENABLED=0)");
   }
+
+  // Load project state (after memory store is wired, so it can use memory.db)
+  await projectManager.loadState();
 
   // Phase 3 V2-B: Context Injection
   if (config.contextInjectionEnabled && memoryStore) {
@@ -477,6 +481,39 @@ async function main() {
   // Graceful shutdown
   const shutdown = async () => {
     console.log("[bridge] Shutting down...");
+
+    // Generate session summary before shutdown (best-effort, non-blocking)
+    if (memoryStore) {
+      try {
+        const recentEpisodes = memoryStore.getEpisodesSince(
+          Math.max(0, memoryStore.getLastEpisodeId() - 20), 20
+        );
+        if (recentEpisodes.length > 0) {
+          const conversationText = recentEpisodes
+            .map(ep => `[${ep.role}] ${(ep.summary || ep.content).slice(0, 150)}`)
+            .join("\n");
+          const summaryPrompt = `Summarize this conversation in 3-5 bullets: what was discussed, what was decided, what's pending.\n\n${conversationText.slice(0, 2000)}`;
+          const summaryResponse = await claude.quickShot(summaryPrompt);
+          if (summaryResponse.result && !summaryResponse.error) {
+            const project = projectManager.getActiveProjectName() ?? undefined;
+            await memoryStore.record({
+              timestamp: new Date().toISOString(),
+              source: "session_summary",
+              project,
+              session_id: (await sessions.current()) ?? undefined,
+              role: "system",
+              content: summaryResponse.result.slice(0, 1000),
+              summary: "Session summary before shutdown",
+              importance: 9,
+            });
+            console.log("[bridge] Session summary saved to memory");
+          }
+        }
+      } catch (err) {
+        console.warn(`[bridge] Session summary generation failed (non-blocking): ${err}`);
+      }
+    }
+
     // Phase 4: Stop scheduler
     scheduler?.stop();
     scheduler?.close();

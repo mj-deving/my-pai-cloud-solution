@@ -87,6 +87,28 @@ export class MemoryStore {
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_episodes_source ON episodes(source)");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_episodes_timestamp ON episodes(timestamp)");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_knowledge_domain ON knowledge(domain)");
+
+    // Schema migration: add importance, access_count, last_accessed columns (idempotent)
+    this.migrateSchema();
+  }
+
+  private migrateSchema(): void {
+    const migrations = [
+      "ALTER TABLE episodes ADD COLUMN importance INTEGER DEFAULT 5",
+      "ALTER TABLE episodes ADD COLUMN access_count INTEGER DEFAULT 0",
+      "ALTER TABLE episodes ADD COLUMN last_accessed TEXT",
+    ];
+    for (const sql of migrations) {
+      try {
+        this.db.exec(sql);
+      } catch (err) {
+        // "duplicate column name" means migration already applied — safe to ignore
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!msg.includes("duplicate column")) {
+          console.warn(`[memory] Migration warning: ${msg}`);
+        }
+      }
+    }
   }
 
   private tryLoadVec(): void {
@@ -109,10 +131,11 @@ export class MemoryStore {
   /** Record an episode to memory. */
   async record(episode: Omit<Episode, "id">): Promise<number> {
     const metadataJson = episode.metadata ? JSON.stringify(episode.metadata) : null;
+    const importance = episode.importance ?? 5;
     const result = this.db
       .query(
-        `INSERT INTO episodes (timestamp, source, project, session_id, role, content, summary, metadata)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO episodes (timestamp, source, project, session_id, role, content, summary, metadata, importance, access_count, last_accessed)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
       )
       .run(
         episode.timestamp,
@@ -123,6 +146,8 @@ export class MemoryStore {
         episode.content,
         episode.summary ?? null,
         metadataJson,
+        importance,
+        episode.timestamp,
       );
 
     const episodeId = Number(result.lastInsertRowid);
@@ -231,7 +256,123 @@ export class MemoryStore {
       totalTokens += tokenEstimate;
     }
 
+    // Track access on returned episodes
+    this.trackAccess(episodes);
+
     return { episodes, knowledge: this.queryKnowledge(params.query), totalTokens };
+  }
+
+  /** Scored query: ranks by recency, importance, and FTS5 relevance. */
+  async scoredQuery(params: MemoryQuery): Promise<MemoryResult> {
+    const maxResults = params.maxResults ?? 10;
+    const maxTokens = params.maxTokens ?? 2000;
+
+    const ftsQuery = params.query.replace(/[^\w\s]/g, "").trim();
+    if (!ftsQuery) {
+      return { episodes: [], knowledge: [], totalTokens: 0 };
+    }
+
+    const conditions: string[] = ["episodes_fts MATCH ?"];
+    const bindings: (string | number)[] = [ftsQuery];
+
+    if (params.project) {
+      conditions.push("e.project = ?");
+      bindings.push(params.project);
+    }
+    if (params.source) {
+      conditions.push("e.source = ?");
+      bindings.push(params.source);
+    }
+
+    // Fetch more than needed so we can re-rank
+    bindings.push(maxResults * 3);
+
+    const rows = this.db
+      .query(`
+        SELECT e.*, rank
+        FROM episodes_fts
+        INNER JOIN episodes e ON e.id = episodes_fts.rowid
+        WHERE ${conditions.join(" AND ")}
+        ORDER BY rank
+        LIMIT ?
+      `)
+      .all(...bindings) as Array<Record<string, unknown>>;
+
+    // Score and sort: 0.4*recency + 0.3*importance/10 + 0.3*relevance
+    const now = Date.now();
+    const scored = rows.map(row => {
+      const ep = this.rowToEpisode(row);
+      const hoursSince = (now - new Date(ep.timestamp).getTime()) / 3_600_000;
+      const recency = Math.pow(0.995, hoursSince);
+      const importance = ((row.importance as number) ?? 5) / 10;
+      // FTS5 rank is negative (more negative = better match), normalize to 0-1
+      const rawRank = Math.abs((row.rank as number) ?? 0);
+      const relevance = rawRank > 0 ? 1 / (1 + rawRank) : 0.5;
+      const score = 0.4 * recency + 0.3 * importance + 0.3 * relevance;
+      return { ep, score, row };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+
+    const episodes: Episode[] = [];
+    let totalTokens = 0;
+    for (const { ep } of scored) {
+      const tokenEstimate = Math.ceil(ep.content.length / 4);
+      if (totalTokens + tokenEstimate > maxTokens && episodes.length > 0) break;
+      episodes.push(ep);
+      totalTokens += tokenEstimate;
+      if (episodes.length >= maxResults) break;
+    }
+
+    this.trackAccess(episodes);
+
+    return { episodes, knowledge: this.queryKnowledge(params.query), totalTokens };
+  }
+
+  /** Track access: increment access_count and update last_accessed for episodes. */
+  private trackAccess(episodes: Episode[]): void {
+    if (episodes.length === 0) return;
+    const now = new Date().toISOString();
+    const stmt = this.db.query(
+      "UPDATE episodes SET access_count = access_count + 1, last_accessed = ? WHERE id = ?"
+    );
+    for (const ep of episodes) {
+      if (ep.id) {
+        try { stmt.run(now, ep.id); } catch { /* non-critical */ }
+      }
+    }
+  }
+
+  /** Get the most recent session summary episode. */
+  getLatestSessionSummary(project?: string): Episode | null {
+    const conditions = ["source = 'session_summary'"];
+    const bindings: string[] = [];
+    if (project) {
+      conditions.push("project = ?");
+      bindings.push(project);
+    }
+    const row = this.db
+      .query(`SELECT * FROM episodes WHERE ${conditions.join(" AND ")} ORDER BY timestamp DESC LIMIT 1`)
+      .get(...bindings) as Record<string, unknown> | null;
+    return row ? this.rowToEpisode(row) : null;
+  }
+
+  /** Get system state from knowledge table. */
+  getSystemState(key: string): string | null {
+    const row = this.db
+      .query("SELECT content FROM knowledge WHERE domain = 'system' AND key = ?")
+      .get(key) as { content: string } | null;
+    return row?.content ?? null;
+  }
+
+  /** Set system state in knowledge table. */
+  setSystemState(key: string, value: string): void {
+    this.db
+      .query(
+        `INSERT OR REPLACE INTO knowledge (domain, key, content, confidence, source_episode_ids)
+         VALUES ('system', ?, ?, 1.0, '[]')`
+      )
+      .run(key, value);
   }
 
   /** Distill recent episodes into knowledge entries. */
@@ -268,14 +409,26 @@ export class MemoryStore {
     return row?.maxId ?? 0;
   }
 
-  /** Prune oldest episodes when over limit. */
+  /** Prune episodes by importance * recency score. Never prune importance >= 8. */
   private async pruneIfNeeded(): Promise<void> {
     const count = (this.db.query("SELECT COUNT(*) as cnt FROM episodes").get() as { cnt: number })?.cnt ?? 0;
     if (count <= this.maxEpisodes) return;
 
     const excess = count - this.maxEpisodes;
-    this.db.exec(`DELETE FROM episodes WHERE id IN (SELECT id FROM episodes ORDER BY timestamp ASC LIMIT ${excess})`);
-    console.log(`[memory] Pruned ${excess} old episodes (limit: ${this.maxEpisodes})`);
+    // Delete lowest-scoring episodes, but never those with importance >= 8
+    // Score = importance * recency_factor where recency_factor = 0.995^hours_since_creation
+    // SQLite doesn't have pow(), so we approximate: lower timestamp = lower score
+    // We sort by (importance * 1.0 / 10) * (julianday(timestamp) - julianday('2026-01-01')) ASC
+    // This keeps high-importance and recent episodes, prunes low-importance old ones
+    this.db.exec(`
+      DELETE FROM episodes WHERE id IN (
+        SELECT id FROM episodes
+        WHERE importance < 8 OR importance IS NULL
+        ORDER BY (COALESCE(importance, 5) * 1.0) * (julianday(timestamp) - julianday('2026-01-01')) ASC
+        LIMIT ${excess}
+      )
+    `);
+    console.log(`[memory] Pruned ${excess} low-value episodes (limit: ${this.maxEpisodes})`);
   }
 
   private queryKnowledge(query: string): Knowledge[] {
@@ -315,6 +468,9 @@ export class MemoryStore {
       content: row.content as string,
       summary: (row.summary as string) ?? undefined,
       metadata: row.metadata ? JSON.parse(row.metadata as string) : undefined,
+      importance: (row.importance as number) ?? 5,
+      access_count: (row.access_count as number) ?? 0,
+      last_accessed: (row.last_accessed as string) ?? undefined,
     };
   }
 

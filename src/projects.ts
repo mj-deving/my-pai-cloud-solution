@@ -5,6 +5,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Config } from "./config";
 import type { SessionManager } from "./session";
+import type { MemoryStore } from "./memory";
 
 // Registry schema — matches config/projects.json
 export interface ProjectEntry {
@@ -38,11 +39,17 @@ export class ProjectManager {
     lastSwitch: null,
     sessions: {},
   };
+  private memoryStore: MemoryStore | null = null;
 
   constructor(
     private config: Config,
     private sessions: SessionManager,
   ) {}
+
+  /** Wire memory store for state persistence (replaces handoff-state.json). */
+  setMemoryStore(store: MemoryStore): void {
+    this.memoryStore = store;
+  }
 
   // Load project registry from bundled config/projects.json
   async loadRegistry(): Promise<void> {
@@ -60,27 +67,65 @@ export class ProjectManager {
     }
   }
 
-  // Load handoff state from disk
+  // Load handoff state — prefer memory.db, fall back to file
   async loadState(): Promise<void> {
+    // Try memory.db first
+    if (this.memoryStore) {
+      try {
+        const activeProject = this.memoryStore.getSystemState("active_project");
+        const sessionsJson = this.memoryStore.getSystemState("project_sessions");
+        if (activeProject !== null || sessionsJson !== null) {
+          this.state.activeProject = activeProject;
+          this.state.sessions = sessionsJson ? JSON.parse(sessionsJson) : {};
+          this.state.lastSwitch = this.memoryStore.getSystemState("last_switch");
+          console.log(
+            `[projects] Loaded state from memory.db: active=${this.state.activeProject || "none"}`,
+          );
+          return;
+        }
+      } catch (err) {
+        console.warn(`[projects] Memory state read failed, falling back to file: ${err}`);
+      }
+    }
+
+    // Fall back to file
     try {
       const raw = await readFile(this.config.handoffStateFile, "utf-8");
       this.state = JSON.parse(raw) as HandoffState;
       console.log(
-        `[projects] Loaded state: active=${this.state.activeProject || "none"}`,
+        `[projects] Loaded state from file: active=${this.state.activeProject || "none"}`,
       );
+      // Migrate to memory.db if available
+      if (this.memoryStore) {
+        this.saveStateToMemory();
+        console.log("[projects] Migrated state from file to memory.db");
+      }
     } catch {
       console.log("[projects] No handoff state found, starting fresh");
     }
   }
 
-  // Save handoff state to disk
+  // Save handoff state — prefer memory.db, fall back to file
   private async saveState(): Promise<void> {
+    if (this.memoryStore) {
+      this.saveStateToMemory();
+      return;
+    }
+    // Fall back to file
     await mkdir(dirname(this.config.handoffStateFile), { recursive: true });
     await writeFile(
       this.config.handoffStateFile,
       JSON.stringify(this.state, null, 2) + "\n",
       "utf-8",
     );
+  }
+
+  // Write state to memory.db knowledge table
+  private saveStateToMemory(): void {
+    if (!this.memoryStore) return;
+    this.memoryStore.setSystemState("active_project", this.state.activeProject || "");
+    this.memoryStore.setSystemState("project_sessions", JSON.stringify(this.state.sessions));
+    this.memoryStore.setSystemState("last_switch", this.state.lastSwitch || "");
   }
 
   // Get a project by name (case-insensitive partial match)

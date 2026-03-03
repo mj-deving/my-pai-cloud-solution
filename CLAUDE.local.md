@@ -1,25 +1,27 @@
 # Session Continuity
 
-**Last wrapup:** 2026-03-03T17:50:00+01:00
-**Current focus:** Sub-delegation + live status deployed and running. Handoff simplified to /sync. Sync/persistence redesign planned but not started.
+**Last wrapup:** 2026-03-03T19:25:00+01:00
+**Current focus:** Sync/persistence cleanup complete. /pull added. Considering /sync → /push rename.
 
 ## Completed This Session
-- Deployed wire sub-delegation + live Telegram status (307e0ca) — streaming ProgressEvent, StatusMessage, orchestrator resolveAgent, all subsystem setMessenger
-- Simplified handoff: merged /done + /handoff into /sync (6b54677)
-- Removed auto-commits (wrapup.ts deleted), inactivity timer, dead code
-- Wired HandoffManager.writeOutgoing() into /sync (was disconnected)
-- Deep investigation of three overlapping sync mechanisms
-- Wrote sync/persistence redesign planning prompt (Plans/sync-and-persistence-redesign.md)
+- Deleted HandoffManager, knowledge sync, cron wrapper (~670 lines)
+- Simplified /sync to git-push-only, removed knowledge/handoff lines
+- Simplified loadRegistry/saveRegistry (no pai-knowledge fallback)
+- Removed handoff panel from dashboard
+- Fixed VPS git history divergence — added git sync to deploy.sh
+- Added /pull Telegram command
+- Deployed and verified clean startup on VPS
+- Removed knowledge sync cron from VPS
 
 ## In Progress
 - None — clean stopping point
 
 ## Next Steps
-1. Deep planning session: sync/persistence redesign (Plans/sync-and-persistence-redesign.md)
-2. Test live Telegram status streaming (send Algorithm-triggering message on Telegram)
-3. Test workflow sub-delegation (/workflow create with code-reviewer matching)
-4. Enable PRD_EXECUTOR_ENABLED on VPS
-5. Decide: remove HandoffManager entirely or repurpose during redesign
+1. Decide: rename /sync → /push (Marius considering)
+2. Test /pull and /sync on Telegram
+3. Test Gregor pipeline end-to-end (forward + reverse + workflows)
+4. Remove dead SKIP_KNOWLEDGE_SYNC env vars from claude.ts, verifier.ts, pipeline.ts
+5. Enable PRD_EXECUTOR_ENABLED on VPS
 
 ## Blockers
 - None

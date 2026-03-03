@@ -529,6 +529,40 @@ export class ClaudeInvoker {
     }
   }
 
+  // Persistence: Generate summary + importance score for an episode via haiku
+  async rateAndSummarize(content: string): Promise<{ summary: string; importance: number }> {
+    const truncated = content.slice(0, 500);
+    const prompt = `Rate this message and summarize it. Return ONLY a JSON object with two fields:
+- "summary": a concise 1-sentence summary (max 50 tokens)
+- "importance": integer 1-10 where 1=mundane scheduling/greeting, 5=normal conversation, 8=key decision/insight, 10=critical system change
+
+Message:
+${truncated}
+
+Respond with ONLY valid JSON, no markdown.`;
+
+    try {
+      const response = await this.quickShot(prompt);
+      if (response.error || !response.result) {
+        return { summary: content.slice(0, 100), importance: 5 };
+      }
+
+      // Try to parse JSON from response
+      const jsonMatch = response.result.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        const summary = typeof parsed.summary === "string" ? parsed.summary.slice(0, 200) : content.slice(0, 100);
+        const importance = typeof parsed.importance === "number"
+          ? Math.max(1, Math.min(10, Math.round(parsed.importance)))
+          : 5;
+        return { summary, importance };
+      }
+    } catch {
+      // Fallback on any error
+    }
+    return { summary: content.slice(0, 100), importance: 5 };
+  }
+
   // Phase C: Sub-delegation to a registered agent with tier-based invocation
   async subDelegate(
     agent: SubDelegateAgent,
