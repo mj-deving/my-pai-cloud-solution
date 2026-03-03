@@ -21,6 +21,7 @@ import {
   type Workflow,
 } from "./schemas";
 import { TraceCollector } from "./decision-trace";
+import type { MemoryStore } from "./memory";
 
 // Re-export types for backward compatibility
 export type { WorkflowStep, Workflow };
@@ -37,6 +38,10 @@ export class TaskOrchestrator {
   private rateLimiter: RateLimiter | null = null;
   private verifier: Verifier | null = null;
   private policyEngine: { check(action: string, context: Record<string, unknown>): Promise<{ allowed: boolean; reason: string }> } | null = null;
+  // Phase C: optional memory store for outcome recording
+  private memoryStore: MemoryStore | null = null;
+  // Phase C: optional agent loader for dynamic decomposition
+  private agentLoader: { getAllAgents(): Array<{ id: string; name: string; description: string }> } | null = null;
 
   constructor(
     private config: Config,
@@ -65,6 +70,16 @@ export class TaskOrchestrator {
   // Phase 4: Set policy engine for dispatch authorization
   setPolicyEngine(engine: { check(action: string, context: Record<string, unknown>): Promise<{ allowed: boolean; reason: string }> }): void {
     this.policyEngine = engine;
+  }
+
+  // Phase C: Set memory store for outcome recording
+  setMemoryStore(store: MemoryStore): void {
+    this.memoryStore = store;
+  }
+
+  // Phase C: Set agent loader for dynamic decomposition
+  setAgentLoader(loader: { getAllAgents(): Array<{ id: string; name: string; description: string }> }): void {
+    this.agentLoader = loader;
   }
 
   setNotifyCallback(cb: NotifyCallback): void {
@@ -570,6 +585,7 @@ export class TaskOrchestrator {
 
   private async notifyCompletion(wf: Workflow): Promise<void> {
     const completed = wf.steps.filter((s) => s.status === "completed").length;
+    const failed = wf.steps.filter((s) => s.status === "failed").length;
     const status = wf.status === "completed" ? "completed" : "failed";
 
     await this.notify(
@@ -577,6 +593,22 @@ export class TaskOrchestrator {
         `Description: ${escMd(wf.description)}\n` +
         `Steps: ${completed}/${wf.steps.length} completed`,
     );
+
+    // Phase C: Record workflow outcome episode in memory
+    if (this.memoryStore) {
+      this.memoryStore.record({
+        timestamp: new Date().toISOString(),
+        source: "orchestrator",
+        project: wf.steps[0]?.project ?? null,
+        session_id: null,
+        role: "system",
+        content: `Workflow ${status}: ${wf.description}\nSteps: ${completed}/${wf.steps.length} completed, ${failed} failed`,
+        summary: `Workflow ${wf.id.slice(0, 8)} ${status}: ${completed}/${wf.steps.length} steps`,
+        metadata: { workflowId: wf.id, status: wf.status, stepCount: wf.steps.length },
+      }).catch((err) => {
+        console.warn(`[orchestrator] Failed to record outcome episode for ${wf.id}: ${err}`);
+      });
+    }
 
     await this.writeWorkflowResult(wf);
   }
@@ -706,11 +738,22 @@ export class TaskOrchestrator {
   // --- Decomposition prompt ---
 
   private buildDecompositionPrompt(description: string, project?: string): string {
+    // Phase C: Build dynamic agent list from loaded definitions
+    let agentList = `- isidore: Complex analysis, code review, architecture, debugging, documentation, PAI skills
+- gregor: Discord/OpenClaw ops, simple file operations, status checks, log analysis, cron, monitoring`;
+
+    if (this.agentLoader) {
+      const agents = this.agentLoader.getAllAgents();
+      if (agents.length > 0) {
+        const agentLines = agents.map(a => `- ${a.id}: ${a.description || a.name}`);
+        agentList += `\n\nSPECIALIZED SUB-AGENTS (invoked by isidore via sub-delegation):\n${agentLines.join("\n")}`;
+      }
+    }
+
     return `You are a task orchestrator. Decompose this task into discrete steps.
 
 AVAILABLE AGENTS:
-- isidore: Complex analysis, code review, architecture, debugging, documentation, PAI skills
-- gregor: Discord/OpenClaw ops, simple file operations, status checks, log analysis, cron, monitoring
+${agentList}
 
 RULES:
 - Each step must have: id (step-NNN), description, prompt, assignee, dependsOn[]

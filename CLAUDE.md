@@ -119,6 +119,10 @@ Gregor writes JSON → /var/lib/pai-pipeline/tasks/task.json
 - **Injection Scanning (Phase 4):** Regex-based prompt injection detection at pipeline ingest. 18 patterns across 4 categories (system override, role switching, data exfiltration, prompt leaking). V1 is log-only (warns in decision traces, does not block). Feature-flagged `INJECTION_SCAN_ENABLED` (default: true).
 - **Scheduler (Phase 4):** SQLite-backed cron scheduler for autonomous task self-initiation. 5-field cron parser with ranges, steps, lists. Emits task JSON to pipeline tasks/ directory. Built-in schedules: daily memory synthesis (02:00 UTC), weekly health review (Sunday 03:00 UTC). Managed via `/schedule` Telegram command. Feature-flagged `SCHEDULER_ENABLED`. Shares DB file with agent registry.
 - **Policy Engine (Phase 4):** YAML-based machine-readable action authorization. Rules with allow/deny/must_ask dispositions. Default: deny (missing rule = blocked). `must_ask` triggers Telegram notification. Checked before pipeline dispatch and orchestrator step dispatch. Policy violations logged as decision traces. Feature-flagged `POLICY_ENABLED`.
+- **Synthesis Loop (Phase C):** Periodic knowledge distillation from accumulated episodes. Groups episodes by source domain, calls Claude one-shot per domain to extract reusable knowledge. Writes entries via `MemoryStore.distill()`. State persisted in `synthesis_state` SQLite table. Triggered by scheduler via `type: "synthesis"` pipeline tasks. Feature-flagged `SYNTHESIS_ENABLED`.
+- **Agent Definitions (Phase C):** Declarative `.pai/agents/*.md` files with YAML frontmatter + markdown system prompt. Fields: name, execution_tier (1-3), memory_scope, constraints, delegation_permissions, tool_restrictions, self_register. `AgentLoader` parses and caches definitions. Self-registers in `AgentRegistry`. Used by orchestrator for dynamic decomposition prompts. Feature-flagged `AGENT_DEFINITIONS_ENABLED`.
+- **Sub-delegation (Phase C):** `ClaudeInvoker.subDelegate()` dispatches tasks to registered agents with tier-based invocation: tier 1 = full oneShot, tier 2 = limited turns with algo-lite template, tier 3 = quickShot (haiku). Prompt composed from algo-lite template + system prompt + constraints + memory context + task.
+- **Algorithm Lite (Phase C):** Lightweight 3-phase protocol (CRITERIA → EXECUTE → VERIFY) for tier 2 sub-delegated agents. Template at `prompts/algo-lite.md`, injected as prompt prefix.
 
 ### Module Responsibilities
 
@@ -157,6 +161,8 @@ Gregor writes JSON → /var/lib/pai-pipeline/tasks/task.json
 | `injection-scan.ts` | `scanForInjection()` — regex-based prompt injection detection, 18 patterns, log-only v1 (Phase 4) |
 | `scheduler.ts` | `Scheduler` — SQLite-backed cron scheduler, 5-field cron parser, emits tasks to pipeline (Phase 4) |
 | `policy.ts` | `PolicyEngine` — YAML-based action authorization, allow/deny/must_ask dispositions (Phase 4) |
+| `synthesis.ts` | `SynthesisLoop` — periodic knowledge distillation from episodes, per-domain Claude synthesis (Phase C) |
+| `agent-loader.ts` | `AgentLoader` — parses `.pai/agents/*.md` YAML+markdown definitions, self-registers in AgentRegistry (Phase C) |
 
 ## Cross-Instance Continuity
 

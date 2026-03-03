@@ -431,6 +431,20 @@ export function getDashboardHtml(): string {
     </div>
   </div>
 
+  <!-- Synthesis -->
+  <div class="split-row">
+    <div class="section">
+      <div class="section-header">Synthesis Loop</div>
+      <div class="section-body" id="synthesisPanel">
+        <div class="no-data">Synthesis disabled</div>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-header">&nbsp;</div>
+      <div class="section-body"><div class="no-data">Reserved for future panels</div></div>
+    </div>
+  </div>
+
   <!-- History -->
   <div class="section" style="margin-bottom:20px">
     <div class="section-header">History</div>
@@ -509,6 +523,10 @@ export function getDashboardHtml(): string {
 
     es.addEventListener('memory', (e) => {
       renderMemory(JSON.parse(e.data));
+    });
+
+    es.addEventListener('synthesis', (e) => {
+      renderSynthesis(JSON.parse(e.data));
     });
 
     es.onerror = () => {
@@ -673,6 +691,23 @@ export function getDashboardHtml(): string {
     el.innerHTML = html;
   }
 
+  // Synthesis panel
+  function renderSynthesis(data) {
+    const el = document.getElementById('synthesisPanel');
+    if (!data || !data.enabled) {
+      el.innerHTML = '<div class="no-data">Synthesis disabled</div>';
+      return;
+    }
+    var lastRun = data.lastRun ? formatTime(data.lastRun) : 'Never';
+    el.innerHTML =
+      '<div class="stat-grid">' +
+        '<div class="stat-item"><div class="stat-label">Total Runs</div><div class="stat-value">' + (data.totalRuns || 0) + '</div></div>' +
+        '<div class="stat-item"><div class="stat-label">Entries Distilled</div><div class="stat-value">' + (data.totalEntriesDistilled || 0) + '</div></div>' +
+        '<div class="stat-item"><div class="stat-label">Last Run</div><div class="stat-value small">' + lastRun + '</div></div>' +
+        '<div class="stat-item"><div class="stat-label">Status</div><div class="stat-value small ok">Active</div></div>' +
+      '</div>';
+  }
+
   // History
   function loadHistory() {
     const q = document.getElementById('searchInput').value;
@@ -780,6 +815,7 @@ export function getDashboardHtml(): string {
   fetch('/api/workflows', { headers: headers }).then(function(r) { return r.json(); }).then(renderWorkflows).catch(function() {});
   fetch('/api/memory', { headers: headers }).then(function(r) { return r.json(); }).then(renderMemory).catch(function() {});
   fetch('/api/handoff', { headers: headers }).then(function(r) { return r.json(); }).then(renderHandoff).catch(function() {});
+  fetch('/api/synthesis', { headers: headers }).then(function(r) { return r.json(); }).then(renderSynthesis).catch(function() {});
   loadHistory();
   connectSSE();
 })();

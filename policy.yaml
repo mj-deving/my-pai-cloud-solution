@@ -80,3 +80,17 @@ rules:
   - action: prd.create_project
     disposition: must_ask
     description: "Project creation requires human approval"
+
+  # --- Synthesis ---
+  - action: synthesis.run
+    disposition: allow
+    description: "Allow autonomous synthesis loop execution"
+
+  # --- Sub-delegation ---
+  - action: subdelegation.invoke
+    disposition: allow
+    description: "Allow sub-delegation to registered agents"
+
+  - action: subdelegation.unregistered
+    disposition: deny
+    description: "Deny sub-delegation to unregistered agents"

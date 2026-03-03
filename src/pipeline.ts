@@ -29,6 +29,7 @@ import {
 import { TraceCollector } from "./decision-trace";
 import { scanForInjection } from "./injection-scan";
 import type { PolicyEngine } from "./policy";
+import type { MemoryStore } from "./memory";
 
 // Re-export types for backward compatibility
 export type { PipelineTask, PipelineResult, StructuredResult };
@@ -65,6 +66,10 @@ export class PipelineWatcher {
   private injectionScanEnabled: boolean;
   // Phase 4: optional policy engine for dispatch authorization
   private policyEngine: PolicyEngine | null = null;
+  // Phase C: optional memory store for outcome recording
+  private memoryStore: MemoryStore | null = null;
+  // Phase C: optional synthesis loop for type:"synthesis" tasks
+  private synthesisLoop: { run(): Promise<unknown> } | null = null;
 
   constructor(private config: Config) {
     this.tasksDir = join(config.pipelineDir, "tasks");
@@ -126,6 +131,16 @@ export class PipelineWatcher {
   // Phase 4: Set policy engine for dispatch authorization
   setPolicyEngine(engine: PolicyEngine): void {
     this.policyEngine = engine;
+  }
+
+  // Phase C: Set memory store for outcome recording
+  setMemoryStore(store: MemoryStore): void {
+    this.memoryStore = store;
+  }
+
+  // Phase C: Set synthesis loop for type:"synthesis" tasks
+  setSynthesisLoop(loop: { run(): Promise<unknown> }): void {
+    this.synthesisLoop = loop;
   }
 
   // Get pipeline status (for /pipeline dashboard)
@@ -406,6 +421,30 @@ export class PipelineWatcher {
       if (this.prdExecutor && task.type === "prd") {
         this.prdExecutor.execute(task.prompt, task.project).catch((err) => {
           console.error(`[pipeline] PRD executor hook error for ${task.id}: ${err}`);
+        });
+      }
+
+      // Phase C: Synthesis hook — type:"synthesis" tasks route to SynthesisLoop
+      if (this.synthesisLoop && task.type === "synthesis") {
+        this.synthesisLoop.run().catch((err) => {
+          console.error(`[pipeline] Synthesis loop hook error for ${task.id}: ${err}`);
+        });
+      }
+
+      // Phase C: Record pipeline outcome episode in memory
+      if (this.memoryStore) {
+        const summary = `Pipeline task ${task.id} ${result.status}: ${(result.result || result.error || "").slice(0, 200)}`;
+        this.memoryStore.record({
+          timestamp: new Date().toISOString(),
+          source: "pipeline",
+          project: task.project ?? null,
+          session_id: result.session_id ?? null,
+          role: "system",
+          content: `Task: ${task.prompt.slice(0, 500)}\nResult: ${(result.result || result.error || "").slice(0, 500)}`,
+          summary,
+          metadata: { taskId: task.id, status: result.status, from: task.from, priority: task.priority || "normal" },
+        }).catch((err) => {
+          console.warn(`[pipeline] Failed to record outcome episode for ${task.id}: ${err}`);
         });
       }
 

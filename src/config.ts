@@ -142,6 +142,14 @@ const EnvSchema = z.object({
   // Phase 4: Policy Engine
   POLICY_ENABLED: envBool(false),
   POLICY_FILE: z.string().optional(),
+
+  // Phase C: Synthesis Loop
+  SYNTHESIS_ENABLED: envBool(false),
+  SYNTHESIS_MIN_EPISODES: optionalInt(1, 100, 3),
+
+  // Phase C: Agent Definitions
+  AGENT_DEFINITIONS_ENABLED: envBool(false),
+  AGENT_DEFINITIONS_DIR: z.string().optional(),
 });
 
 export interface Config {
@@ -262,6 +270,14 @@ export interface Config {
   // Phase 4: Policy Engine
   policyEnabled: boolean;
   policyFile: string;
+
+  // Phase C: Synthesis Loop
+  synthesisEnabled: boolean;
+  synthesisMinEpisodes: number;
+
+  // Phase C: Agent Definitions
+  agentDefinitionsEnabled: boolean;
+  agentDefinitionsDir: string;
 }
 
 export function loadConfig(): Config {
@@ -386,5 +402,13 @@ export function loadConfig(): Config {
     // Phase 4: Policy Engine
     policyEnabled: env.POLICY_ENABLED,
     policyFile: env.POLICY_FILE || `${home}/projects/my-pai-cloud-solution/policy.yaml`,
+
+    // Phase C: Synthesis Loop
+    synthesisEnabled: env.SYNTHESIS_ENABLED,
+    synthesisMinEpisodes: env.SYNTHESIS_MIN_EPISODES,
+
+    // Phase C: Agent Definitions
+    agentDefinitionsEnabled: env.AGENT_DEFINITIONS_ENABLED,
+    agentDefinitionsDir: env.AGENT_DEFINITIONS_DIR || `${home}/projects/my-pai-cloud-solution/.pai/agents`,
   };
 }

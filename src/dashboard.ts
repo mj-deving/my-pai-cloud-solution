@@ -15,6 +15,7 @@ import type { IdempotencyStore } from "./idempotency";
 import type { MemoryStore } from "./memory";
 import type { HandoffManager } from "./handoff";
 import type { PRDExecutor } from "./prd-executor";
+import type { SynthesisLoop } from "./synthesis";
 import { getDashboardHtml } from "./dashboard-html";
 
 interface SSEClient {
@@ -53,6 +54,7 @@ export class Dashboard {
     private memoryStore: MemoryStore | null = null,
     private handoffManager: HandoffManager | null = null,
     private prdExecutor: PRDExecutor | null = null,
+    private synthesisLoop: SynthesisLoop | null = null,
   ) {
     this.pipelineDir = config.pipelineDir;
     this.resultsDir = join(config.pipelineDir, "results");
@@ -94,6 +96,7 @@ export class Dashboard {
           if (path === "/api/memory") return this.jsonResponse(this.getMemoryData());
           if (path === "/api/handoff") return this.jsonResponse(await this.getHandoffData());
           if (path === "/api/prds") return this.jsonResponse(this.getPRDsData());
+          if (path === "/api/synthesis") return this.jsonResponse(this.getSynthesisData());
           if (path === "/events") return this.handleSSE(req);
 
           return new Response("Not Found", { status: 404 });
@@ -199,6 +202,7 @@ export class Dashboard {
       ["agents", "agents", () => this.getAgentsData()],
       ["workflows", "workflows", () => this.getWorkflowsData(null)],
       ["memory", "memory", () => this.getMemoryData()],
+      ["synthesis", "synthesis", () => this.getSynthesisData()],
     ];
 
     for (const [key, event, getter] of snapshots) {
@@ -306,6 +310,11 @@ export class Dashboard {
     const incoming = await this.handoffManager.readIncoming();
     if (!incoming) return { enabled: true, handoff: null };
     return { enabled: true, handoff: incoming };
+  }
+
+  private getSynthesisData(): Record<string, unknown> {
+    if (!this.synthesisLoop) return { enabled: false };
+    return { enabled: true, ...this.synthesisLoop.getStats() };
   }
 
   private getPRDsData(): Record<string, unknown> {

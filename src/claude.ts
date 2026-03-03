@@ -3,6 +3,7 @@
 
 import type { Config } from "./config";
 import type { SessionManager } from "./session";
+import { readFile } from "node:fs/promises";
 import { ClaudeJsonOutputSchema, safeParse } from "./schemas";
 
 export interface ClaudeResponse {
@@ -27,10 +28,20 @@ export interface ContextBuilderLike {
   invalidate?(): void;
 }
 
+export interface SubDelegateAgent {
+  id: string;
+  name: string;
+  executionTier: 1 | 2 | 3;
+  memoryScope: "project" | "global" | "none";
+  constraints: string[];
+  systemPrompt: string;
+}
+
 export class ClaudeInvoker {
   private cwd?: string;
   private rateLimiter?: { recordFailure(): void };
   private contextBuilder?: ContextBuilderLike;
+  private algoLiteTemplate: string | null = null;
 
   constructor(
     private config: Config,
@@ -287,6 +298,113 @@ export class ClaudeInvoker {
         result: "",
         error: `Failed to invoke Claude: ${err}`,
       };
+    }
+  }
+
+  // Phase C: Sub-delegation to a registered agent with tier-based invocation
+  async subDelegate(
+    agent: SubDelegateAgent,
+    task: string,
+    options?: { project?: string; cwd?: string; algoLiteTemplate?: string },
+  ): Promise<ClaudeResponse> {
+    // Build composed prompt
+    const parts: string[] = [];
+
+    // 1. Algo Lite template (tier 2 only)
+    if (agent.executionTier === 2) {
+      const template = options?.algoLiteTemplate || await this.loadAlgoLiteTemplate();
+      if (template) parts.push(template);
+    }
+
+    // 2. Agent system prompt
+    if (agent.systemPrompt) {
+      parts.push(`--- Agent: ${agent.name} ---\n${agent.systemPrompt}`);
+    }
+
+    // 3. Constraints block
+    if (agent.constraints.length > 0) {
+      parts.push(`Constraints:\n${agent.constraints.map(c => `- ${c}`).join("\n")}`);
+    }
+
+    // 4. Memory context (if scope allows)
+    if (agent.memoryScope !== "none" && this.contextBuilder) {
+      const project = agent.memoryScope === "project" ? options?.project : undefined;
+      const ctx = await this.contextBuilder.buildContext(task, project);
+      if (ctx) parts.push(ctx);
+    }
+
+    // 5. Task prompt
+    parts.push(`--- Task ---\n${task}`);
+
+    const composedPrompt = parts.join("\n\n");
+
+    // Tier-based invocation
+    switch (agent.executionTier) {
+      case 3:
+        // Tier 3: Quick one-shot (haiku)
+        return this.quickShot(composedPrompt);
+
+      case 2: {
+        // Tier 2: Full model with limited turns (algo-lite)
+        const args = [
+          this.config.claudeBinary,
+          "-p", composedPrompt,
+          "--max-turns", "10",
+          "--output-format", "json",
+        ];
+
+        try {
+          const proc = Bun.spawn(args, {
+            stdout: "pipe",
+            stderr: "pipe",
+            cwd: options?.cwd || this.cwd,
+            env: {
+              ...process.env,
+              ANTHROPIC_API_KEY: undefined,
+              SKIP_KNOWLEDGE_SYNC: "1",
+            },
+          });
+
+          const timeout = setTimeout(() => proc.kill(), this.config.maxClaudeTimeoutMs);
+          const stdout = await new Response(proc.stdout).text();
+          const stderr = await new Response(proc.stderr).text();
+          const exitCode = await proc.exited;
+          clearTimeout(timeout);
+
+          if (exitCode !== 0) {
+            if (isRateLimitError(stderr)) this.rateLimiter?.recordFailure();
+            return { sessionId: "", result: "", error: `Claude exited with code ${exitCode}: ${stderr.slice(0, 500)}` };
+          }
+
+          const parsed = safeParse(ClaudeJsonOutputSchema, stdout, "claude/subDelegate");
+          if (parsed.success) {
+            return { sessionId: parsed.data.session_id || "", result: parsed.data.result || stdout, usage: parsed.data.usage };
+          }
+          return { sessionId: "", result: stdout.trim() };
+        } catch (err) {
+          return { sessionId: "", result: "", error: `Sub-delegation error: ${err}` };
+        }
+      }
+
+      case 1:
+        // Tier 1: Full model one-shot (no turn limit)
+        return this.oneShot(composedPrompt);
+
+      default:
+        return this.oneShot(composedPrompt);
+    }
+  }
+
+  private async loadAlgoLiteTemplate(): Promise<string | null> {
+    if (this.algoLiteTemplate !== null) return this.algoLiteTemplate;
+    try {
+      const templatePath = `${process.env.HOME || "/home/isidore_cloud"}/projects/my-pai-cloud-solution/prompts/algo-lite.md`;
+      this.algoLiteTemplate = await readFile(templatePath, "utf-8");
+      return this.algoLiteTemplate;
+    } catch {
+      console.warn("[claude] Could not load algo-lite template");
+      this.algoLiteTemplate = "";
+      return null;
     }
   }
 }

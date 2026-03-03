@@ -318,6 +318,26 @@ export class MemoryStore {
     };
   }
 
+  /** Get episodes since a given ID (for synthesis). */
+  getEpisodesSince(sinceId: number, limit = 100): Episode[] {
+    const rows = this.db
+      .query("SELECT * FROM episodes WHERE id > ? ORDER BY id ASC LIMIT ?")
+      .all(sinceId, limit) as Array<Record<string, unknown>>;
+    return rows.map(row => this.rowToEpisode(row));
+  }
+
+  /** Get knowledge entries by domain (for synthesis dedup). */
+  getKnowledgeByDomain(domain: string): Array<{ key: string; content: string; confidence: number }> {
+    const rows = this.db
+      .query("SELECT key, content, confidence FROM knowledge WHERE domain = ?")
+      .all(domain) as Array<Record<string, unknown>>;
+    return rows.map(row => ({
+      key: row.key as string,
+      content: row.content as string,
+      confidence: row.confidence as number,
+    }));
+  }
+
   /** Close the database connection. */
   close(): void {
     this.embeddings?.stop();

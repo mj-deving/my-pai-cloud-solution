@@ -25,6 +25,8 @@ import { HandoffManager } from "./handoff";
 import { PRDExecutor } from "./prd-executor";
 import { Scheduler } from "./scheduler";
 import { PolicyEngine } from "./policy";
+import { SynthesisLoop } from "./synthesis";
+import { AgentLoader } from "./agent-loader";
 
 async function main() {
   console.log("[bridge] Starting Isidore Cloud communication bridge...");
@@ -193,8 +195,8 @@ async function main() {
     scheduler = new Scheduler(config.schedulerDbPath, config);
     // Built-in schedules
     scheduler.upsert("daily-synthesis", "0 2 * * *", {
-      type: "task",
-      prompt: "Run memory synthesis: review recent episodes, distill knowledge, identify patterns. Summarize findings.",
+      type: "synthesis",
+      prompt: "Run memory synthesis: review recent episodes, distill knowledge, identify patterns.",
       timeout_minutes: 10,
       max_turns: 15,
     });
@@ -207,6 +209,34 @@ async function main() {
     console.log(`[bridge] Scheduler enabled (db: ${config.schedulerDbPath})`);
   } else {
     console.log("[bridge] Scheduler disabled (SCHEDULER_ENABLED=0)");
+  }
+
+  // Phase C: Agent Loader
+  let agentLoader: AgentLoader | null = null;
+  if (config.agentDefinitionsEnabled) {
+    agentLoader = new AgentLoader(config.agentDefinitionsDir);
+    const agents = await agentLoader.loadAll();
+    if (agentRegistry) {
+      agentLoader.registerAll(agentRegistry);
+    }
+    console.log(`[bridge] Agent definitions loaded (${agents.length} agents)`);
+  } else {
+    console.log("[bridge] Agent definitions disabled (AGENT_DEFINITIONS_ENABLED=0)");
+  }
+
+  // Phase C: Synthesis Loop
+  let synthesisLoop: SynthesisLoop | null = null;
+  if (config.synthesisEnabled && memoryStore) {
+    synthesisLoop = new SynthesisLoop(config, memoryStore, claude);
+    if (policyEngine) {
+      synthesisLoop.setPolicyEngine(policyEngine);
+    }
+    const stats = synthesisLoop.getStats();
+    console.log(`[bridge] Synthesis loop enabled (${stats.totalRuns} runs, ${stats.totalEntriesDistilled} entries distilled)`);
+  } else if (config.synthesisEnabled && !memoryStore) {
+    console.log("[bridge] Synthesis loop requires MEMORY_ENABLED=1, skipping");
+  } else {
+    console.log("[bridge] Synthesis loop disabled (SYNTHESIS_ENABLED=0)");
   }
 
   // Phase 1: Create messenger adapter based on config
@@ -362,6 +392,14 @@ async function main() {
     if (policyEngine) {
       pipeline.setPolicyEngine(policyEngine);
     }
+    // Phase C: Wire memory store to pipeline for outcome recording
+    if (memoryStore) {
+      pipeline.setMemoryStore(memoryStore);
+    }
+    // Phase C: Wire synthesis loop to pipeline for type:"synthesis" tasks
+    if (synthesisLoop) {
+      pipeline.setSynthesisLoop(synthesisLoop);
+    }
     pipeline.start();
   } else {
     console.log("[bridge] Pipeline watcher disabled (PIPELINE_ENABLED=0)");
@@ -370,6 +408,16 @@ async function main() {
   // Phase 4: Wire policy engine to orchestrator
   if (policyEngine && orchestrator) {
     orchestrator.setPolicyEngine(policyEngine);
+  }
+
+  // Phase C: Wire memory store and agent loader to orchestrator
+  if (orchestrator) {
+    if (memoryStore) {
+      orchestrator.setMemoryStore(memoryStore);
+    }
+    if (agentLoader) {
+      orchestrator.setAgentLoader(agentLoader);
+    }
   }
 
   // Phase 3 V2-D: PRD Executor
@@ -391,11 +439,22 @@ async function main() {
     dashboard = new Dashboard(
       config, pipeline, orchestrator, reversePipeline,
       rateLimiter, resourceGuard, agentRegistry, idempotencyStore,
-      memoryStore, handoffManager, prdExecutor,
+      memoryStore, handoffManager, prdExecutor, synthesisLoop,
     );
     dashboard.start();
   } else {
     console.log("[bridge] Dashboard disabled (DASHBOARD_ENABLED=0)");
+  }
+
+  // Phase C: Wire notify callback to synthesis loop
+  if (synthesisLoop) {
+    synthesisLoop.setNotifyCallback(async (msg) => {
+      try {
+        await messenger.sendDirectMessage(msg, { parseMode: "Markdown" });
+      } catch (err) {
+        console.error(`[bridge] Synthesis notification error: ${err}`);
+      }
+    });
   }
 
   // Phase 4: Wire policy escalation to messenger and start scheduler
@@ -437,6 +496,8 @@ async function main() {
       agentRegistry.close();
     }
     idempotencyStore?.close();
+    // Phase C: Close synthesis state DB
+    synthesisLoop?.close();
     // V2-A: Close memory store
     memoryStore?.close();
     messenger.stop();
