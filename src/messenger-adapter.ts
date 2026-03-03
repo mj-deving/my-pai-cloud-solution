@@ -6,6 +6,10 @@ export interface MessageOptions {
   parseMode?: "Markdown" | "HTML";
 }
 
+export interface StatusMessageHandle {
+  messageId: number;
+}
+
 export type CommandHandler = (args: string) => Promise<void>;
 export type MessageHandler = (text: string) => Promise<void>;
 
@@ -16,6 +20,15 @@ export type MessageHandler = (text: string) => Promise<void>;
 export interface MessengerAdapter {
   /** Send a message to the authenticated user. */
   sendDirectMessage(text: string, options?: MessageOptions): Promise<void>;
+
+  /** Send a status message (returns handle for editing/deleting). */
+  sendStatusMessage(text: string, options?: MessageOptions): Promise<StatusMessageHandle>;
+
+  /** Edit an existing message by ID. */
+  editMessage(messageId: number, text: string, options?: MessageOptions): Promise<void>;
+
+  /** Delete a message by ID. */
+  deleteMessage(messageId: number): Promise<void>;
 
   /** Show typing/processing indicator. */
   sendTypingIndicator(): Promise<void>;

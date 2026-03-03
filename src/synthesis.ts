@@ -31,6 +31,7 @@ export class SynthesisLoop {
   private policyEngine: PolicyEngineLike | null = null;
   private notifyCallback: ((msg: string) => Promise<void>) | null = null;
   private whiteboardEnabled = false;
+  private messenger: import("./messenger-adapter").MessengerAdapter | null = null;
 
   constructor(
     private config: Config,
@@ -56,6 +57,11 @@ export class SynthesisLoop {
   /** Enable whiteboard generation during synthesis runs. */
   setWhiteboardEnabled(enabled: boolean): void {
     this.whiteboardEnabled = enabled;
+  }
+
+  /** Set messenger for live Telegram status updates. */
+  setMessenger(messenger: import("./messenger-adapter").MessengerAdapter): void {
+    this.messenger = messenger;
   }
 
   private initStateTable(): void {
@@ -119,6 +125,21 @@ export class SynthesisLoop {
 
     console.log(`[synthesis] Found ${episodes.length} new episodes since ID ${lastSynthesizedId}`);
 
+    // Live status
+    let statusMsgId: number | null = null;
+    if (this.messenger) {
+      try {
+        const handle = await this.messenger.sendStatusMessage(
+          `Synthesis: ${episodes.length} episodes across domains`,
+        );
+        statusMsgId = handle.messageId;
+      } catch { /* optional */ }
+    }
+    const updateStatus = (text: string) => {
+      if (!this.messenger || !statusMsgId) return;
+      this.messenger.editMessage(statusMsgId, text).catch(() => {});
+    };
+
     // Step 4: Group episodes by source domain
     const domainMap = new Map<string, Episode[]>();
     for (const ep of episodes) {
@@ -153,6 +174,7 @@ export class SynthesisLoop {
         const prompt = this.buildPrompt(domain, existingKnowledge, domainEpisodes);
 
         // Step 6c: Call Claude one-shot
+        updateStatus(`Synthesis: processing "${domain}" (${result.domainsProcessed + 1}/${domainMap.size})`);
         console.log(`[synthesis] Synthesizing domain "${domain}" (${domainEpisodes.length} episodes)`);
         const response = await this.claude.oneShot(prompt);
 
@@ -222,6 +244,14 @@ export class SynthesisLoop {
       } catch (err) {
         console.warn(`[synthesis] Notify callback failed: ${err}`);
       }
+    }
+
+    // Final status
+    if (this.messenger && statusMsgId) {
+      this.messenger.editMessage(
+        statusMsgId,
+        `\u2713 Synthesis: ${result.domainsProcessed} domains, ${result.entriesDistilled} entries${result.errors.length > 0 ? `, ${result.errors.length} errors` : ""}`,
+      ).catch(() => {});
     }
 
     console.log(`[synthesis] Run complete: ${result.domainsProcessed} domains, ${result.entriesDistilled} entries, ${result.errors.length} errors`);

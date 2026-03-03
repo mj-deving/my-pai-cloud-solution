@@ -34,6 +34,8 @@ export class ReversePipelineWatcher {
   private pendingDelegations = new Map<string, PendingDelegation>();
   // Phase 6B: optional verifier for Gregor result verification
   private verifier: Verifier | null = null;
+  // Live status: optional messenger for Telegram status updates
+  private messenger: import("./messenger-adapter").MessengerAdapter | null = null;
 
   constructor(
     private config: Config,
@@ -52,6 +54,11 @@ export class ReversePipelineWatcher {
   // Phase 6B: Set verifier for independent result verification
   setVerifier(verifier: Verifier): void {
     this.verifier = verifier;
+  }
+
+  // Live status: Set messenger for Telegram status updates
+  setMessenger(messenger: import("./messenger-adapter").MessengerAdapter): void {
+    this.messenger = messenger;
   }
 
   // Reconstruct pending delegations from directory state after restart
@@ -159,6 +166,14 @@ export class ReversePipelineWatcher {
     await rename(tmpPath, finalPath);
 
     console.log(`[reverse-pipeline] Delegated task ${taskId.slice(0, 8)}... to gregor (${prompt.slice(0, 60)}...)`);
+
+    // Live status: notify about delegation
+    if (this.messenger) {
+      this.messenger.sendStatusMessage(
+        `\u2192 Gregor: ${prompt.slice(0, 60)}...`,
+      ).catch(() => {});
+    }
+
     return taskId;
   }
 

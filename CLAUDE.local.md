@@ -1,25 +1,26 @@
 # Session Continuity
 
-**Last wrapup:** 2026-03-03T10:40:00+01:00
-**Current focus:** All phases through C deployed and validated on VPS. Bridge running with full feature set. Clean stopping point.
+**Last wrapup:** 2026-03-03T16:30:00+01:00
+**Current focus:** All phases through D (D1+D2) deployed and running on VPS. Observation masking and project whiteboards active. Clean stopping point.
 
 ## Completed This Session
-- Phase C code committed (37ea95b) and pushed
-- Enabled SCHEDULER_ENABLED, POLICY_ENABLED, SYNTHESIS_ENABLED, AGENT_DEFINITIONS_ENABLED on VPS
-- Deployed to VPS, fixed settings.json hook paths (PAI_DIR, PAI_CONFIG_DIR, PROJECTS_DIR)
-- Validated synthesis end-to-end (status: completed, no hook errors)
-- Validated scheduler (2 schedules, triggerNow works)
-- Fixed /schedule Grammy handler ordering bug (e09ce22)
-- Validated /schedule via Telegram, confirmed policy engine (20 rules)
+- Tuned verifier to skip verification for synthesis/prd tasks (pipeline.ts skipVerifyTypes)
+- Added max_turns acceptance to verifier prompt (verifier.ts instruction #4)
+- Reduced Ollama log spam to one-time message (embeddings.ts loggedUnavailable flag)
+- Implemented Phase D D1: observation masking in ContextBuilder (configurable window, summary-only beyond)
+- Implemented Phase D D2: project whiteboards (MemoryStore CRUD, SynthesisLoop auto-generation, ContextBuilder injection)
+- Added 3 Phase D config env vars, wired in bridge.ts
+- All committed (041a791, ed9ad46), pushed, deployed, enabled on VPS
+- Verified startup logs confirm both features active
 
 ## In Progress
 - None — clean stopping point
 
 ## Next Steps
-1. Tune verifier to not flag max_turns as error for synthesis tasks
-2. Reduce Ollama "not available" log spam (every 5 min)
-3. Enable HANDOFF_ENABLED and/or PRD_EXECUTOR_ENABLED on VPS
-4. Phase D: observation masking, whiteboards, advanced delegation patterns
+1. Enable HANDOFF_ENABLED on VPS
+2. Enable PRD_EXECUTOR_ENABLED on VPS
+3. Test whiteboard generation end-to-end (next synthesis run at 2 AM)
+4. Phase D remaining: D3 (progressive skills), D5 (goal persistence), D6 (cache-friendly prompts)
 
 ## Blockers
 - None

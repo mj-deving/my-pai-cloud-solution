@@ -15,6 +15,9 @@ import type { MemoryStore } from "./memory";
 import { compactFormat, chunkMessage } from "./format";
 import { lightweightWrapup } from "./wrapup";
 import type { Scheduler } from "./scheduler";
+import { StatusMessage } from "./status-message";
+import type { ProgressEvent } from "./claude";
+import type { MessengerAdapter } from "./messenger-adapter";
 
 export function createTelegramBot(
   config: Config,
@@ -691,11 +694,54 @@ export function createTelegramBot(
   // Default: forward message to Claude in the active session
   bot.on("message:text", async (ctx) => {
     const message = ctx.message.text;
+    const chatId = ctx.chat.id;
 
     // Typing indicator
     await ctx.replyWithChatAction("typing");
 
-    const response = await claude.send(message);
+    // Create a live status message for progress tracking
+    let statusMsgId: number | null = null;
+    let currentPhase = "";
+    try {
+      const statusMsg = await ctx.api.sendMessage(chatId, "Processing...");
+      statusMsgId = statusMsg.message_id;
+    } catch { /* status message is optional */ }
+
+    let lastEditTime = 0;
+    const editInterval = config.statusEditIntervalMs;
+
+    const editStatus = (text: string) => {
+      if (!statusMsgId) return;
+      const now = Date.now();
+      if (now - lastEditTime < editInterval) return;
+      lastEditTime = now;
+      ctx.api.editMessageText(chatId, statusMsgId, text).catch(() => {});
+    };
+
+    const onProgress = (event: ProgressEvent) => {
+      switch (event.type) {
+        case "phase":
+          currentPhase = event.phase;
+          editStatus(`━━━ ${event.phase} ━━━`);
+          break;
+        case "tool_start":
+          editStatus(`━━━ ${currentPhase || "..."} ━━━ [${event.tool}]...`);
+          break;
+        case "tool_end":
+          if (currentPhase) editStatus(`━━━ ${currentPhase} ━━━`);
+          break;
+        case "isc_progress":
+          editStatus(`━━━ ${currentPhase || "..."} ━━━ ISC ${event.done}/${event.total}`);
+          break;
+      }
+    };
+
+    const response = await claude.send(message, onProgress);
+
+    // Remove the status message (replaced by actual response)
+    if (statusMsgId) {
+      ctx.api.deleteMessage(chatId, statusMsgId).catch(() => {});
+    }
 
     if (response.error) {
       await ctx.reply(`Error: ${response.error}`);

@@ -140,6 +140,7 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 | `policy.ts` | `PolicyEngine` — YAML-based action authorization, allow/deny/must_ask dispositions (Phase 4) |
 | `synthesis.ts` | `SynthesisLoop` — periodic knowledge distillation from episodes, per-domain Claude synthesis + project whiteboards (Phase C, Phase D) |
 | `agent-loader.ts` | `AgentLoader` — parses `.pai/agents/*.md` YAML+markdown definitions, self-registers in AgentRegistry (Phase C) |
+| `status-message.ts` | `StatusMessage` — rate-limited editable Telegram message manager with init/update/finish/remove lifecycle |
 
 ## Cross-Instance Continuity
 

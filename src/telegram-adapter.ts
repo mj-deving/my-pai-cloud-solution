@@ -14,6 +14,7 @@ import type { RateLimiter } from "./rate-limiter";
 import type {
   MessengerAdapter,
   MessageOptions,
+  StatusMessageHandle,
   CommandHandler,
   MessageHandler,
 } from "./messenger-adapter";
@@ -58,6 +59,33 @@ export class TelegramAdapter implements MessengerAdapter {
     await this.bot.api.sendMessage(this.userId, text, {
       parse_mode: options?.parseMode === "HTML" ? "HTML" : "Markdown",
     });
+  }
+
+  async sendStatusMessage(text: string, options?: MessageOptions): Promise<StatusMessageHandle> {
+    const msg = await this.bot.api.sendMessage(this.userId, text, {
+      parse_mode: options?.parseMode === "HTML" ? "HTML" : undefined,
+    });
+    return { messageId: msg.message_id };
+  }
+
+  async editMessage(messageId: number, text: string, options?: MessageOptions): Promise<void> {
+    try {
+      await this.bot.api.editMessageText(this.userId, messageId, text, {
+        parse_mode: options?.parseMode === "HTML" ? "HTML" : undefined,
+      });
+    } catch (err) {
+      // Telegram returns 400 if text unchanged or message deleted — absorb
+      console.warn(`[telegram-adapter] editMessage error (ignored): ${err}`);
+    }
+  }
+
+  async deleteMessage(messageId: number): Promise<void> {
+    try {
+      await this.bot.api.deleteMessage(this.userId, messageId);
+    } catch (err) {
+      // Message may already be deleted — absorb
+      console.warn(`[telegram-adapter] deleteMessage error (ignored): ${err}`);
+    }
   }
 
   async sendTypingIndicator(): Promise<void> {

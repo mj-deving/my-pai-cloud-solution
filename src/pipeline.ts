@@ -70,6 +70,8 @@ export class PipelineWatcher {
   private memoryStore: MemoryStore | null = null;
   // Phase C: optional synthesis loop for type:"synthesis" tasks
   private synthesisLoop: { run(): Promise<unknown> } | null = null;
+  // Live status: optional messenger for Telegram status updates
+  private messenger: import("./messenger-adapter").MessengerAdapter | null = null;
 
   constructor(private config: Config) {
     this.tasksDir = join(config.pipelineDir, "tasks");
@@ -141,6 +143,11 @@ export class PipelineWatcher {
   // Phase C: Set synthesis loop for type:"synthesis" tasks
   setSynthesisLoop(loop: { run(): Promise<unknown> }): void {
     this.synthesisLoop = loop;
+  }
+
+  // Live status: Set messenger for Telegram status updates
+  setMessenger(messenger: import("./messenger-adapter").MessengerAdapter): void {
+    this.messenger = messenger;
   }
 
   // Get pipeline status (for /pipeline dashboard)
@@ -252,6 +259,23 @@ export class PipelineWatcher {
     const taskPath = join(this.tasksDir, filename);
     let taskBranch: string | null = null;
     const traces = new TraceCollector();
+    let statusMsgId: number | null = null;
+    const startTime = Date.now();
+
+    // Send compact status message via Telegram
+    if (this.messenger) {
+      try {
+        const handle = await this.messenger.sendStatusMessage(
+          `Pipeline ${task.id.slice(0, 8)} [${task.type || "task"}] ${task.priority || "normal"}`,
+        );
+        statusMsgId = handle.messageId;
+      } catch { /* status is optional */ }
+    }
+
+    const updateStatus = (text: string) => {
+      if (!this.messenger || !statusMsgId) return;
+      this.messenger.editMessage(statusMsgId, text).catch(() => {});
+    };
 
     try {
       console.log(
@@ -343,12 +367,14 @@ export class PipelineWatcher {
         if (cwd) {
           taskBranch = await this.branchManager.checkout(cwd, task.id, "pipeline");
           if (taskBranch) {
+            updateStatus(`Pipeline ${task.id.slice(0, 8)} ...branch: ${taskBranch.slice(0, 20)}`);
             console.log(`[pipeline] Task ${task.id} running on branch ${taskBranch}`);
           }
         }
       }
 
       // 1. Dispatch to Claude
+      updateStatus(`Pipeline ${task.id.slice(0, 8)} ...dispatching`);
       traces.emit({
         phase: "dispatch",
         decision: `Dispatching task ${task.id}`,
@@ -362,6 +388,7 @@ export class PipelineWatcher {
       // actual output (synthesis loop and PRD executor handle the real work separately).
       const skipVerifyTypes = new Set(["synthesis", "prd"]);
       if (this.verifier && result.status === "completed" && !skipVerifyTypes.has(task.type || "")) {
+        updateStatus(`Pipeline ${task.id.slice(0, 8)} ...verifying`);
         const { cwd } = await this.resolveCwd(task);
         const verification = await this.verifier.verify(task.prompt, result.result || "", cwd);
         if (!verification.passed) {
@@ -466,6 +493,16 @@ export class PipelineWatcher {
         console.log(`[pipeline] Task ${task.id} moved to ack/`);
       } catch (err) {
         console.warn(`[pipeline] Failed to move ${filename} to ack/: ${err}`);
+      }
+
+      // Final status update
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      if (this.messenger && statusMsgId) {
+        const icon = result.status === "completed" ? "\u2713" : "\u2717";
+        this.messenger.editMessage(
+          statusMsgId,
+          `${icon} Pipeline ${task.id.slice(0, 8)}: ${result.status} (${elapsed}s)`,
+        ).catch(() => {});
       }
     } finally {
       // Phase 5C: Release branch lock and return to base branch

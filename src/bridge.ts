@@ -267,6 +267,11 @@ async function main() {
     throw new Error(`Unsupported messenger type: ${config.messengerType}`);
   }
 
+  // Wire messenger to subsystems for live Telegram status updates (pre-pipeline)
+  if (orchestrator) orchestrator.setMessenger(messenger);
+  if (synthesisLoop) synthesisLoop.setMessenger(messenger);
+  if (reversePipeline) reversePipeline.setMessenger(messenger);
+
   // Wire reverse pipeline result callback → orchestrator routing or Telegram notification
   if (reversePipeline) {
     reversePipeline.setResultCallback(async (taskId, result, delegation) => {
@@ -409,6 +414,7 @@ async function main() {
     if (synthesisLoop) {
       pipeline.setSynthesisLoop(synthesisLoop);
     }
+    pipeline.setMessenger(messenger);
     pipeline.start();
   } else {
     console.log("[bridge] Pipeline watcher disabled (PIPELINE_ENABLED=0)");

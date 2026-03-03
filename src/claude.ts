@@ -16,6 +16,13 @@ export interface ClaudeResponse {
   error?: string;
 }
 
+export type ProgressEvent =
+  | { type: "phase"; phase: string }
+  | { type: "tool_start"; tool: string }
+  | { type: "tool_end"; tool: string }
+  | { type: "text_chunk"; text: string }
+  | { type: "isc_progress"; done: number; total: number };
+
 // Rate-limit error patterns in Claude CLI stderr
 const RATE_LIMIT_PATTERNS = ["rate_limit", "429", "overloaded", "Too many requests"];
 
@@ -71,7 +78,8 @@ export class ClaudeInvoker {
   }
 
   // Send a message to the active session and get a response
-  async send(message: string): Promise<ClaudeResponse> {
+  // If onProgress is provided, uses stream-json for live status updates
+  async send(message: string, onProgress?: (event: ProgressEvent) => void): Promise<ClaudeResponse> {
     // V2-B: Prepend memory context if context builder is wired
     let prompt = message;
     if (this.contextBuilder) {
@@ -80,6 +88,11 @@ export class ClaudeInvoker {
     }
 
     const sessionId = await this.sessions.current();
+
+    // If onProgress provided, use streaming path
+    if (onProgress) {
+      return this.sendStreaming(prompt, sessionId, onProgress);
+    }
 
     // Build args: use --resume only if we have a real session ID from a prior Claude response
     const args = [this.config.claudeBinary];
@@ -161,6 +174,221 @@ export class ClaudeInvoker {
         result: "",
         error: `Failed to invoke Claude: ${err}`,
       };
+    }
+  }
+
+  // Streaming send — reads NDJSON events, emits progress, accumulates result
+  private async sendStreaming(
+    prompt: string,
+    sessionId: string | null,
+    onProgress: (event: ProgressEvent) => void,
+  ): Promise<ClaudeResponse> {
+    const args = [this.config.claudeBinary];
+    if (sessionId) {
+      args.push("--resume", sessionId);
+    }
+    args.push("-p", prompt, "--output-format", "stream-json", "--verbose");
+
+    try {
+      const proc = Bun.spawn(args, {
+        stdout: "pipe",
+        stderr: "pipe",
+        cwd: this.cwd,
+        env: {
+          ...process.env,
+          ANTHROPIC_API_KEY: undefined,
+          SKIP_KNOWLEDGE_SYNC: "1",
+        },
+      });
+
+      const timeout = setTimeout(() => {
+        proc.kill();
+      }, this.config.maxClaudeTimeoutMs);
+
+      // Read NDJSON stream line by line
+      let accumulatedText = "";
+      let extractedSessionId = "";
+      let extractedUsage: { input_tokens: number; output_tokens: number } | undefined;
+      const toolBlocks = new Map<number, string>(); // index → tool name
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      const reader = proc.stdout.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          let newlineIdx: number;
+          while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+            const line = buffer.slice(0, newlineIdx).trim();
+            buffer = buffer.slice(newlineIdx + 1);
+            if (!line) continue;
+
+            try {
+              const parsed = JSON.parse(line);
+              this.processStreamEvent(parsed, onProgress, toolBlocks, {
+                getText: () => accumulatedText,
+                appendText: (t: string) => { accumulatedText += t; },
+                setSessionId: (id: string) => { extractedSessionId = id; },
+                setUsage: (u: { input_tokens: number; output_tokens: number }) => { extractedUsage = u; },
+              });
+            } catch {
+              // Unparseable line — ignore
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      // Process any remaining buffer
+      if (buffer.trim()) {
+        try {
+          const parsed = JSON.parse(buffer.trim());
+          this.processStreamEvent(parsed, onProgress, toolBlocks, {
+            getText: () => accumulatedText,
+            appendText: (t: string) => { accumulatedText += t; },
+            setSessionId: (id: string) => { extractedSessionId = id; },
+            setUsage: (u: { input_tokens: number; output_tokens: number }) => { extractedUsage = u; },
+          });
+        } catch { /* ignore */ }
+      }
+
+      const stderr = await new Response(proc.stderr).text();
+      const exitCode = await proc.exited;
+      clearTimeout(timeout);
+
+      if (exitCode !== 0) {
+        if (isRateLimitError(stderr)) {
+          this.rateLimiter?.recordFailure();
+        }
+        if (sessionId && stderr.includes("No conversation found with session ID")) {
+          console.warn(`[claude] Stale session ${sessionId.slice(0, 8)}..., clearing and retrying fresh`);
+          await this.sessions.newSession();
+          return this.sendStreaming(prompt, null, onProgress);
+        }
+        return {
+          sessionId: sessionId || "",
+          result: "",
+          error: `Claude exited with code ${exitCode}: ${stderr.slice(0, 500)}`,
+        };
+      }
+
+      // Resolve session ID: prefer extracted, then read from session file
+      const realSessionId = extractedSessionId || (await this.sessions.current()) || sessionId || "";
+      if (realSessionId && realSessionId !== sessionId) {
+        await this.sessions.saveSession(realSessionId);
+      }
+
+      return {
+        sessionId: realSessionId,
+        result: accumulatedText || "",
+        usage: extractedUsage,
+      };
+    } catch (err) {
+      return {
+        sessionId: sessionId || "",
+        result: "",
+        error: `Failed to invoke Claude (streaming): ${err}`,
+      };
+    }
+  }
+
+  // Phase detection regex
+  private static PHASE_RE = /━━━.*?(OBSERVE|THINK|PLAN|BUILD|EXECUTE|VERIFY|LEARN).*━━━/;
+  // ISC checkbox detection
+  private static ISC_CHECKED_RE = /- \[x\]/gi;
+  private static ISC_UNCHECKED_RE = /- \[ \]/g;
+
+  private processStreamEvent(
+    parsed: unknown,
+    onProgress: (event: ProgressEvent) => void,
+    toolBlocks: Map<number, string>,
+    state: {
+      getText: () => string;
+      appendText: (t: string) => void;
+      setSessionId: (id: string) => void;
+      setUsage: (u: { input_tokens: number; output_tokens: number }) => void;
+    },
+  ): void {
+    if (typeof parsed !== "object" || parsed === null) return;
+    const obj = parsed as Record<string, unknown>;
+
+    // Handle top-level result objects (session_id, result)
+    if (typeof obj.session_id === "string" && obj.session_id) {
+      state.setSessionId(obj.session_id);
+    }
+    if (typeof obj.result === "string" && obj.result) {
+      state.appendText(obj.result);
+    }
+
+    // Handle stream_event wrapper
+    if (obj.type !== "stream_event" || typeof obj.event !== "object" || obj.event === null) return;
+    const event = obj.event as Record<string, unknown>;
+
+    switch (event.type) {
+      case "message_start": {
+        // Extract session_id from message.id if available
+        const msg = event.message as Record<string, unknown> | undefined;
+        if (msg?.id && typeof msg.id === "string") {
+          state.setSessionId(msg.id);
+        }
+        break;
+      }
+
+      case "content_block_start": {
+        const block = event.content_block as Record<string, unknown> | undefined;
+        const idx = typeof event.index === "number" ? event.index : -1;
+        if (block?.type === "tool_use" && typeof block.name === "string") {
+          toolBlocks.set(idx, block.name);
+          onProgress({ type: "tool_start", tool: block.name });
+        }
+        break;
+      }
+
+      case "content_block_delta": {
+        const delta = event.delta as Record<string, unknown> | undefined;
+        if (delta?.type === "text_delta" && typeof delta.text === "string") {
+          state.appendText(delta.text);
+          onProgress({ type: "text_chunk", text: delta.text });
+
+          // Check for Algorithm phase markers
+          const fullText = state.getText();
+          const phaseMatch = fullText.match(ClaudeInvoker.PHASE_RE);
+          if (phaseMatch) {
+            onProgress({ type: "phase", phase: phaseMatch[1]! });
+          }
+
+          // Check for ISC progress
+          const checked = (fullText.match(ClaudeInvoker.ISC_CHECKED_RE) || []).length;
+          const unchecked = (fullText.match(ClaudeInvoker.ISC_UNCHECKED_RE) || []).length;
+          if (checked + unchecked > 0) {
+            onProgress({ type: "isc_progress", done: checked, total: checked + unchecked });
+          }
+        }
+        break;
+      }
+
+      case "content_block_stop": {
+        const idx = typeof event.index === "number" ? event.index : -1;
+        const toolName = toolBlocks.get(idx);
+        if (toolName) {
+          onProgress({ type: "tool_end", tool: toolName });
+          toolBlocks.delete(idx);
+        }
+        break;
+      }
+
+      case "message_delta": {
+        const usage = event.usage as { output_tokens?: number } | undefined;
+        if (usage?.output_tokens) {
+          // Cumulative usage — we'll get final count at the end
+          state.setUsage({ input_tokens: 0, output_tokens: usage.output_tokens });
+        }
+        break;
+      }
     }
   }
 

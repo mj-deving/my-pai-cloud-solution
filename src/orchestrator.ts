@@ -40,8 +40,15 @@ export class TaskOrchestrator {
   private policyEngine: { check(action: string, context: Record<string, unknown>): Promise<{ allowed: boolean; reason: string }> } | null = null;
   // Phase C: optional memory store for outcome recording
   private memoryStore: MemoryStore | null = null;
-  // Phase C: optional agent loader for dynamic decomposition
-  private agentLoader: { getAllAgents(): Array<{ id: string; name: string; description: string }> } | null = null;
+  // Phase C: optional agent loader for dynamic decomposition + sub-delegation
+  private agentLoader: {
+    getAllAgents(): Array<{ id: string; name: string; description: string }>;
+    getAgent(id: string): import("./agent-loader").AgentDefinition | undefined;
+  } | null = null;
+  // Live status: optional messenger for Telegram status updates
+  private messenger: import("./messenger-adapter").MessengerAdapter | null = null;
+  // Live status: per-workflow status message IDs
+  private workflowStatusMsgs = new Map<string, number>();
 
   constructor(
     private config: Config,
@@ -77,9 +84,17 @@ export class TaskOrchestrator {
     this.memoryStore = store;
   }
 
-  // Phase C: Set agent loader for dynamic decomposition
-  setAgentLoader(loader: { getAllAgents(): Array<{ id: string; name: string; description: string }> }): void {
+  // Phase C: Set agent loader for dynamic decomposition + sub-delegation
+  setAgentLoader(loader: {
+    getAllAgents(): Array<{ id: string; name: string; description: string }>;
+    getAgent(id: string): import("./agent-loader").AgentDefinition | undefined;
+  }): void {
     this.agentLoader = loader;
+  }
+
+  // Live status: Set messenger for Telegram status updates
+  setMessenger(messenger: import("./messenger-adapter").MessengerAdapter): void {
+    this.messenger = messenger;
   }
 
   setNotifyCallback(cb: NotifyCallback): void {
@@ -221,6 +236,9 @@ export class TaskOrchestrator {
     this.workflows.set(workflow.id, workflow);
     await this.saveWorkflow(workflow);
     console.log(`[orchestrator] Created workflow ${workflow.id.slice(0, 8)}... (${steps.length} steps)`);
+
+    // Send initial status
+    await this.updateWorkflowStatus(workflow);
 
     // Start advancing
     await this.advanceWorkflow(workflow.id);
@@ -364,6 +382,9 @@ export class TaskOrchestrator {
     }
     await this.saveWorkflow(wf);
 
+    // Update live status
+    await this.updateWorkflowStatus(wf);
+
     // Dispatch after save — prevents double-dispatch on concurrent advanceWorkflow() calls
     for (const step of ready) {
       this.dispatchStep(wf, step).catch((err) => {
@@ -435,7 +456,18 @@ export class TaskOrchestrator {
       }
 
       try {
-        const response = await this.claude.oneShot(step.prompt);
+        // Try sub-delegation to a specialized agent
+        const agent = this.resolveAgent(step);
+        let response;
+        if (agent) {
+          console.log(`[orchestrator] Sub-delegating ${step.id} to agent "${agent.id}" (tier ${agent.executionTier})`);
+          response = await this.claude.subDelegate(agent, step.prompt, {
+            project: step.project,
+            cwd: projectDir || undefined,
+          });
+        } else {
+          response = await this.claude.oneShot(step.prompt);
+        }
         if (response.error) {
           await this.failStep(wf.id, step.id, response.error);
         } else {
@@ -478,6 +510,7 @@ export class TaskOrchestrator {
     step.result = result.slice(0, 2000); // Cap stored result size
     step.completedAt = new Date().toISOString();
     await this.saveWorkflow(wf);
+    await this.updateWorkflowStatus(wf);
 
     console.log(`[orchestrator] Step ${stepId} completed in workflow ${workflowId.slice(0, 8)}...`);
     await this.advanceWorkflow(workflowId);
@@ -510,6 +543,7 @@ export class TaskOrchestrator {
     wf.status = "failed";
     wf.completedAt = new Date().toISOString();
     await this.saveWorkflow(wf);
+    await this.updateWorkflowStatus(wf);
 
     console.error(`[orchestrator] Step ${stepId} failed in workflow ${workflowId.slice(0, 8)}...: ${error}`);
 
@@ -735,6 +769,57 @@ export class TaskOrchestrator {
     return msg;
   }
 
+  // --- Live status ---
+
+  private async updateWorkflowStatus(wf: Workflow): Promise<void> {
+    if (!this.messenger) return;
+    const completed = wf.steps.filter(s => s.status === "completed").length;
+    const lines = [`Workflow ${wf.id.slice(0, 8)} (${completed}/${wf.steps.length} steps)`];
+    const icons: Record<string, string> = {
+      completed: "\u2713", in_progress: "\u2699", pending: " ", blocked: "\u2022", failed: "\u2717",
+    };
+    for (const step of wf.steps) {
+      const icon = icons[step.status] || "?";
+      lines.push(`[${icon}] ${step.id} (${step.assignee}) ${step.description.slice(0, 40)}`);
+    }
+    const text = lines.join("\n");
+
+    const existingId = this.workflowStatusMsgs.get(wf.id);
+    if (existingId) {
+      this.messenger.editMessage(existingId, text).catch(() => {});
+    } else {
+      try {
+        const handle = await this.messenger.sendStatusMessage(text);
+        this.workflowStatusMsgs.set(wf.id, handle.messageId);
+      } catch { /* status optional */ }
+    }
+  }
+
+  // --- Sub-delegation ---
+
+  /** Resolve an agent definition for a workflow step based on description/assignee. */
+  private resolveAgent(step: WorkflowStep): import("./agent-loader").AgentDefinition | undefined {
+    if (!this.agentLoader) return undefined;
+
+    // Check if step description contains an agent ID pattern like "(code-reviewer)"
+    const agentIdMatch = step.description.match(/\(([a-z0-9-]+)\)/);
+    if (agentIdMatch) {
+      const agent = this.agentLoader.getAgent(agentIdMatch[1]!);
+      if (agent) return agent;
+    }
+
+    // Keyword fallback: match agent names/ids in the step description
+    const allAgents = this.agentLoader.getAllAgents();
+    const descLower = step.description.toLowerCase();
+    for (const a of allAgents) {
+      if (descLower.includes(a.id) || descLower.includes(a.name.toLowerCase())) {
+        return this.agentLoader.getAgent(a.id);
+      }
+    }
+
+    return undefined;
+  }
+
   // --- Decomposition prompt ---
 
   private buildDecompositionPrompt(description: string, project?: string): string {
@@ -761,6 +846,8 @@ RULES:
 - assignee must be exactly "isidore" or "gregor"
 - Maximum 10 steps per workflow
 - No circular dependencies
+- To use a sub-agent, include its ID in the step description.
+  Example: "Code review (code-reviewer): Review pipeline changes"
 
 Return ONLY a JSON array of steps. No explanation.
 

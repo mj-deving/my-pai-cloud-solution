@@ -157,6 +157,9 @@ const EnvSchema = z.object({
 
   // Phase D: Project Whiteboards
   WHITEBOARD_ENABLED: envBool(false),
+
+  // Live status messages
+  STATUS_EDIT_INTERVAL_MS: optionalInt(1000, 10_000, 2_500),
 });
 
 export interface Config {
@@ -292,6 +295,9 @@ export interface Config {
 
   // Phase D: Project Whiteboards
   whiteboardEnabled: boolean;
+
+  // Live status messages
+  statusEditIntervalMs: number;
 }
 
 export function loadConfig(): Config {
@@ -431,5 +437,8 @@ export function loadConfig(): Config {
 
     // Phase D: Project Whiteboards
     whiteboardEnabled: env.WHITEBOARD_ENABLED,
+
+    // Live status messages
+    statusEditIntervalMs: env.STATUS_EDIT_INTERVAL_MS,
   };
 }
