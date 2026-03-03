@@ -649,6 +649,45 @@ export function createTelegramBot(
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
 
+  // /schedule — Manage scheduled tasks
+  bot.command("schedule", async (ctx) => {
+    if (!scheduler) {
+      await ctx.reply("Scheduler is disabled (SCHEDULER_ENABLED=0)");
+      return;
+    }
+
+    const args = ctx.match?.trim().split(/\s+/) || [];
+    const subcommand = args[0];
+    const name = args[1];
+
+    if (subcommand === "enable" && name) {
+      const ok = scheduler.setEnabled(name, true);
+      await ctx.reply(ok ? `Schedule "${name}" enabled.` : `Schedule "${name}" not found.`);
+    } else if (subcommand === "disable" && name) {
+      const ok = scheduler.setEnabled(name, false);
+      await ctx.reply(ok ? `Schedule "${name}" disabled.` : `Schedule "${name}" not found.`);
+    } else if (subcommand === "run" && name) {
+      const ok = await scheduler.triggerNow(name);
+      await ctx.reply(ok ? `Schedule "${name}" triggered.` : `Schedule "${name}" not found.`);
+    } else {
+      // List all schedules
+      const schedules = scheduler.list();
+      if (schedules.length === 0) {
+        await ctx.reply("No schedules configured.");
+        return;
+      }
+      let msg = "**Schedules:**\n\n";
+      for (const s of schedules) {
+        const status = s.enabled ? "ON" : "OFF";
+        const lastRun = s.last_run ? s.last_run.slice(0, 16).replace("T", " ") : "never";
+        const nextRun = s.next_run ? s.next_run.slice(0, 16).replace("T", " ") : "—";
+        msg += `\`${s.name}\` [${status}]\n  Cron: \`${s.cron_expr}\`\n  Last: ${lastRun} | Next: ${nextRun}\n\n`;
+      }
+      msg += "Commands:\n`/schedule enable <name>`\n`/schedule disable <name>`\n`/schedule run <name>`";
+      await ctx.reply(msg, { parse_mode: "Markdown" });
+    }
+  });
+
   // Default: forward message to Claude in the active session
   bot.on("message:text", async (ctx) => {
     const message = ctx.message.text;
@@ -705,45 +744,6 @@ export function createTelegramBot(
           });
         }
       }
-    }
-  });
-
-  // /schedule — Manage scheduled tasks
-  bot.command("schedule", async (ctx) => {
-    if (!scheduler) {
-      await ctx.reply("Scheduler is disabled (SCHEDULER_ENABLED=0)");
-      return;
-    }
-
-    const args = ctx.match?.trim().split(/\s+/) || [];
-    const subcommand = args[0];
-    const name = args[1];
-
-    if (subcommand === "enable" && name) {
-      const ok = scheduler.setEnabled(name, true);
-      await ctx.reply(ok ? `Schedule "${name}" enabled.` : `Schedule "${name}" not found.`);
-    } else if (subcommand === "disable" && name) {
-      const ok = scheduler.setEnabled(name, false);
-      await ctx.reply(ok ? `Schedule "${name}" disabled.` : `Schedule "${name}" not found.`);
-    } else if (subcommand === "run" && name) {
-      const ok = await scheduler.triggerNow(name);
-      await ctx.reply(ok ? `Schedule "${name}" triggered.` : `Schedule "${name}" not found.`);
-    } else {
-      // List all schedules
-      const schedules = scheduler.list();
-      if (schedules.length === 0) {
-        await ctx.reply("No schedules configured.");
-        return;
-      }
-      let msg = "**Schedules:**\n\n";
-      for (const s of schedules) {
-        const status = s.enabled ? "ON" : "OFF";
-        const lastRun = s.last_run ? s.last_run.slice(0, 16).replace("T", " ") : "never";
-        const nextRun = s.next_run ? s.next_run.slice(0, 16).replace("T", " ") : "—";
-        msg += `\`${s.name}\` [${status}]\n  Cron: \`${s.cron_expr}\`\n  Last: ${lastRun} | Next: ${nextRun}\n\n`;
-      }
-      msg += "Commands:\n`/schedule enable <name>`\n`/schedule disable <name>`\n`/schedule run <name>`";
-      await ctx.reply(msg, { parse_mode: "Markdown" });
     }
   });
 
