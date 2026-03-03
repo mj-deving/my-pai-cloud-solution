@@ -262,6 +262,7 @@ async function main() {
       rateLimiter,
       memoryStore,
       scheduler,
+      handoffManager,
     );
   } else {
     throw new Error(`Unsupported messenger type: ${config.messengerType}`);
@@ -494,7 +495,6 @@ async function main() {
     // V2-C: Save state before exit
     if (handoffManager) {
       await handoffManager.writeOutgoing();
-      handoffManager.stop();
     }
     // Phase 4: Stop scheduler
     scheduler?.stop();

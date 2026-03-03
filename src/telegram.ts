@@ -13,8 +13,8 @@ import type { BranchManager } from "./branch-manager";
 import type { RateLimiter } from "./rate-limiter";
 import type { MemoryStore } from "./memory";
 import { compactFormat, chunkMessage } from "./format";
-import { lightweightWrapup } from "./wrapup";
 import type { Scheduler } from "./scheduler";
+import type { HandoffManager } from "./handoff";
 import { StatusMessage } from "./status-message";
 import type { ProgressEvent } from "./claude";
 import type { MessengerAdapter } from "./messenger-adapter";
@@ -30,6 +30,7 @@ export function createTelegramBot(
   rateLimiter?: RateLimiter | null,
   memoryStore?: MemoryStore | null,
   scheduler?: Scheduler | null,
+  handoffManager?: HandoffManager | null,
 ): Bot {
   const bot = new Bot(config.telegramBotToken);
 
@@ -59,8 +60,7 @@ export function createTelegramBot(
     msg += `\nCommands:\n`;
     msg += `/project <name> — Switch project\n`;
     msg += `/projects — List available projects\n`;
-    msg += `/done — Commit + push current project\n`;
-    msg += `/handoff — Done + status summary\n`;
+    msg += `/sync — Commit, push, knowledge sync + status\n`;
     msg += `/new — Fresh conversation\n`;
     msg += `/status — Current session info\n`;
     msg += `/clear — Archive & restart\n`;
@@ -241,8 +241,8 @@ export function createTelegramBot(
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
 
-  // /done — Commit + push current project + knowledge sync
-  bot.command("done", async (ctx) => {
+  // /sync — Commit + push + knowledge sync + handoff + status summary
+  bot.command("sync", async (ctx) => {
     const activeProject = projects.getActiveProject();
     if (!activeProject) {
       await ctx.reply("No active project. Use /project <name> first.");
@@ -255,37 +255,21 @@ export function createTelegramBot(
     const gitResult = await projects.syncPush(activeProject);
     // 2. Knowledge sync push (CLAUDE.local.md, WORK/, SESSIONS/, etc.)
     const knowledgeResult = await projects.knowledgeSyncPush();
-
-    let msg = `**${activeProject.displayName}**\n`;
-    msg += gitResult.ok ? "Git: pushed\n" : `Git: ${gitResult.output}\n`;
-    msg += knowledgeResult.ok ? "Knowledge: synced\n" : "Knowledge: sync skipped\n";
-    msg += "Ready for local pickup.";
-
-    await ctx.reply(msg, { parse_mode: "Markdown" });
-  });
-
-  // /handoff — Done + detailed status summary
-  bot.command("handoff", async (ctx) => {
-    const activeProject = projects.getActiveProject();
-    if (!activeProject) {
-      await ctx.reply("No active project. Use /project <name> first.");
-      return;
+    // 3. Write handoff object (if enabled)
+    if (handoffManager) {
+      await handoffManager.writeOutgoing().catch(err => {
+        console.warn(`[telegram] Handoff write error: ${err}`);
+      });
     }
-
-    await ctx.replyWithChatAction("typing");
-
-    // 1. Git commit + push
-    const pushResult = await projects.syncPush(activeProject);
-    // 2. Knowledge sync push
-    const knowledgeResult = await projects.knowledgeSyncPush();
 
     // Build status summary
     const session = await sessions.current();
     const path = projects.getProjectPath(activeProject);
 
-    let msg = `**Handoff: ${activeProject.displayName}**\n\n`;
-    msg += `Git: ${pushResult.ok ? "pushed" : pushResult.output}\n`;
+    let msg = `**Sync: ${activeProject.displayName}**\n\n`;
+    msg += `Git: ${gitResult.ok ? "pushed" : gitResult.output}\n`;
     msg += `Knowledge: ${knowledgeResult.ok ? "synced" : "sync skipped"}\n`;
+    msg += `Handoff: ${handoffManager ? "written" : "disabled"}\n`;
     msg += `Session: ${session ? session.slice(0, 8) + "..." : "none"}\n`;
     if (path) msg += `Path: \`${path}\`\n`;
     msg += "\n";
@@ -779,18 +763,6 @@ export function createTelegramBot(
       }).catch(err => console.warn(`[telegram] Memory record (assistant) error: ${err}`));
     }
 
-    // Auto-commit tracked changes after response (non-blocking, feature-flagged)
-    if (config.autoCommitEnabled) {
-      const activeProject = projects.getActiveProject();
-      if (activeProject) {
-        const projectPath = projects.getProjectPath(activeProject);
-        if (projectPath) {
-          lightweightWrapup(projectPath).catch((err) => {
-            console.warn(`[telegram] Wrapup error: ${err}`);
-          });
-        }
-      }
-    }
   });
 
   // Handle non-text messages

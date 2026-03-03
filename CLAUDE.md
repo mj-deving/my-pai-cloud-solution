@@ -49,7 +49,7 @@ Telegram message → Grammy bot (telegram.ts)
   → compactFormat() (format.ts) — strips PAI Algorithm verbosity
   → chunkMessage() — splits at 4000 chars for Telegram API
   → Reply to user
-  → lightweightWrapup() (wrapup.ts) — non-blocking git add -u && commit
+  → (no auto-commit — use /sync on demand)
 ```
 
 ### Cross-User Pipeline Flow (Gregor collaboration)
@@ -128,11 +128,10 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 | `format.ts` | `compactFormat()`, `chunkMessage()`, `escMd()` — formatting + Markdown escaping |
 | `dashboard.ts` | `Dashboard` — Bun.serve HTTP server, REST API (8 endpoints), SSE real-time updates |
 | `dashboard-html.ts` | `getDashboardHtml()` — self-contained HTML/CSS/JS dark-themed dashboard page |
-| `wrapup.ts` | `lightweightWrapup()` — non-blocking git commit with branch guard |
 | `memory.ts` | `MemoryStore` — SQLite episodic + semantic memory with FTS5 + optional sqlite-vec + project whiteboards (Phase 3 V2-A, Phase D) |
 | `embeddings.ts` | `EmbeddingProvider` — Ollama embedding client + keyword-only fallback (Phase 3 V2-A) |
 | `context.ts` | `ContextBuilder` — queries memory, formats context prefix with observation masking + whiteboard injection (Phase 3 V2-B, Phase D) |
-| `handoff.ts` | `HandoffManager` — cross-instance state transfer, inactivity auto-write (Phase 3 V2-C) |
+| `handoff.ts` | `HandoffManager` — cross-instance state transfer, on-demand via /sync + shutdown (Phase 3 V2-C) |
 | `prd-executor.ts` | `PRDExecutor` — autonomous PRD detection, parsing, execution, progress reporting (Phase 3 V2-D) |
 | `prd-parser.ts` | `PRDParser` — Claude one-shot extraction of structured PRD from freeform text (Phase 3 V2-D) |
 | `injection-scan.ts` | `scanForInjection()` — regex-based prompt injection detection, 18 patterns, log-only v1 (Phase 4) |

@@ -94,16 +94,12 @@ VPS (Isidore Cloud via Telegram)
 6. Work via Telegram
    Send messages normally.
    - Claude runs with cwd = project directory
-   - After EACH response: auto-commits tracked files (git add -u)
+   - NO auto-commits — your work stays in the working tree
    - NO knowledge sync per message (suppressed via SKIP_KNOWLEDGE_SYNC)
+   - Work for minutes, hours, or days — sync when YOU decide
 
-7. Done working on Cloud
-   /done                              ← commit + push + knowledge sync
-   /handoff                           ← same + detailed status summary
-
-   What happens automatically:
-   a) git add -u + commit + push
-   b) sync-knowledge.sh push (Cloud's CLAUDE.local.md → repo)
+7. Ready to sync
+   /sync                              ← commit + push + knowledge sync + handoff + status
 ```
 
 ---
@@ -116,7 +112,7 @@ LOCAL (Isidore)
 
 8. Pull Cloud's code changes
    $ cd ~/projects/my-pai-cloud-solution
-   $ git pull                           ← gets Cloud's auto-commits + /done push
+   $ git pull                           ← gets Cloud's /sync push
 
 9. Start session
    $ claude                              ← fresh (recommended after handoff)
@@ -139,12 +135,12 @@ LOCAL (Isidore)
 | Knowledge sync pull | Local session start | SessionStart hook (automatic) |
 | Knowledge sync push | Local session end/clear/wrapup | SessionEnd hook (automatic) |
 | Knowledge sync pull | Cloud `/project` switch | Bridge calls sync-knowledge.sh (automatic) |
-| Knowledge sync push | Cloud `/done` or `/handoff` | Bridge calls sync-knowledge.sh (automatic) |
+| Knowledge sync push | Cloud `/sync` | Bridge calls sync-knowledge.sh (automatic) |
 | Knowledge sync per message | Cloud Telegram messages | **Suppressed** (SKIP_KNOWLEDGE_SYNC) |
-| Auto-commit | Cloud after each response | wrapup.ts (automatic, git add -u only) |
-| Git push | Cloud | `/done` or `/handoff` only (not per-message) |
+| Git commit + push | Cloud | `/sync` only (on demand) |
 | Git pull | Local before session | **Manual** — `git pull` before `claude` |
 | Git commit + push | Local after work | **Manual** — part of your exit workflow |
+| Handoff JSON write | Cloud `/sync` or shutdown | Bridge writes structured state file |
 
 ---
 
@@ -169,8 +165,7 @@ It contains the other instance's (local/Cloud) last session state.
 |---------|-------------|
 | `/project <name>` | Switch project (auto: push old, pull new, knowledge sync) |
 | `/projects` | List available projects |
-| `/done` | Commit + push + knowledge sync (ready for local pickup) |
-| `/handoff` | Same as /done + detailed status |
+| `/sync` | Commit + push + knowledge sync + handoff + status |
 | `/new` | Fresh Claude session (no project change) |
 | `/status` | Show active project + session info |
 | `/delegate <prompt>` | Delegate a task to Gregor via reverse pipeline |

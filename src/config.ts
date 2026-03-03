@@ -83,9 +83,6 @@ const EnvSchema = z.object({
   VERIFIER_ENABLED: envBool(true),
   VERIFIER_TIMEOUT_MS: optionalInt(5_000, 300_000, 30_000),
 
-  // Auto-commit after Telegram responses
-  AUTO_COMMIT_ENABLED: envBool(false),
-
   // Quick model
   QUICK_MODEL: z.string().optional(),
 
@@ -123,7 +120,6 @@ const EnvSchema = z.object({
   // Phase 3 V2-C: Handoff
   HANDOFF_ENABLED: envBool(false),
   HANDOFF_DIR: z.string().optional(),
-  HANDOFF_INACTIVITY_MINUTES: optionalInt(5, 120, 30),
 
   // Phase 3 V2-D: PRD Executor
   PRD_EXECUTOR_ENABLED: envBool(false),
@@ -223,9 +219,6 @@ export interface Config {
   // Quick model (Phase 6C)
   quickModel: string;
 
-  // Auto-commit
-  autoCommitEnabled: boolean;
-
   // Limits
   telegramMaxChunkSize: number;
   maxClaudeTimeoutMs: number;
@@ -261,7 +254,6 @@ export interface Config {
   // Phase 3 V2-C: Handoff
   handoffEnabled: boolean;
   handoffDir: string;
-  handoffInactivityMinutes: number;
 
   // Phase 3 V2-D: PRD Executor
   prdExecutorEnabled: boolean;
@@ -367,7 +359,6 @@ export function loadConfig(): Config {
 
     quickModel: env.QUICK_MODEL || "haiku",
 
-    autoCommitEnabled: env.AUTO_COMMIT_ENABLED,
     telegramMaxChunkSize: 4000,
     maxClaudeTimeoutMs: 5 * 60 * 1000,
 
@@ -403,7 +394,6 @@ export function loadConfig(): Config {
     // Phase 3 V2-C: Handoff
     handoffEnabled: env.HANDOFF_ENABLED,
     handoffDir: env.HANDOFF_DIR || `${home}/.claude/handoff/`,
-    handoffInactivityMinutes: env.HANDOFF_INACTIVITY_MINUTES,
 
     // Phase 3 V2-D: PRD Executor
     prdExecutorEnabled: env.PRD_EXECUTOR_ENABLED,

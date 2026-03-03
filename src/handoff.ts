@@ -1,5 +1,5 @@
 // handoff.ts — V2-C: Structured handoff for cross-instance state transfer
-// Auto-writes on shutdown, /handoff command, and inactivity timeout.
+// Writes on-demand via /sync command and on graceful shutdown.
 // Reads incoming handoff on startup for context restoration.
 
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
@@ -14,9 +14,6 @@ import { safeParse, HandoffObjectSchema, type HandoffObject } from "./schemas";
 
 export class HandoffManager {
   private handoffDir: string;
-  private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastActivityTime = Date.now();
-  private inactivityMs: number;
 
   constructor(
     private config: Config,
@@ -26,16 +23,9 @@ export class HandoffManager {
     private orchestrator: TaskOrchestrator | null = null,
   ) {
     this.handoffDir = config.handoffDir;
-    this.inactivityMs = config.handoffInactivityMinutes * 60 * 1000;
-    this.startInactivityTimer();
   }
 
-  /** Record activity to reset inactivity timer. */
-  recordActivity(): void {
-    this.lastActivityTime = Date.now();
-  }
-
-  /** Write an outgoing handoff object (shutdown, /handoff, or inactivity). */
+  /** Write an outgoing handoff object (called by /sync and graceful shutdown). */
   async writeOutgoing(): Promise<string | null> {
     try {
       await mkdir(this.handoffDir, { recursive: true });
@@ -95,7 +85,7 @@ export class HandoffManager {
         sessionId: sessionId,
         branch,
         uncommittedChanges,
-        activePRD: null, // V2-D will populate this
+        activePRD: null,
         activeWorkflows,
         pendingTasks: [],
         recentWorkSummary: `Active on ${activeProject?.displayName ?? "no project"}, branch ${branch}`,
@@ -150,30 +140,6 @@ export class HandoffManager {
       console.warn(`[handoff] Failed to read incoming: ${err}`);
       return null;
     }
-  }
-
-  /** Stop the inactivity timer. */
-  stop(): void {
-    if (this.inactivityTimer) {
-      clearTimeout(this.inactivityTimer);
-      this.inactivityTimer = null;
-    }
-  }
-
-  private startInactivityTimer(): void {
-    const check = () => {
-      const idle = Date.now() - this.lastActivityTime;
-      if (idle >= this.inactivityMs) {
-        console.log(`[handoff] Inactivity timeout (${this.config.handoffInactivityMinutes}min), writing standby handoff`);
-        this.writeOutgoing().catch(err => {
-          console.error(`[handoff] Inactivity write failed: ${err}`);
-        });
-      }
-      // Reschedule
-      this.inactivityTimer = setTimeout(check, 60_000); // Check every minute
-    };
-
-    this.inactivityTimer = setTimeout(check, 60_000);
   }
 
   private async hashFile(path: string): Promise<string> {
