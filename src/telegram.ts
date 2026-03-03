@@ -59,6 +59,7 @@ export function createTelegramBot(
     msg += `/project <name> — Switch project\n`;
     msg += `/projects — List available projects\n`;
     msg += `/sync — Commit, push + status\n`;
+    msg += `/pull — Pull latest from remote\n`;
     msg += `/new — Fresh conversation\n`;
     msg += `/status — Current session info\n`;
     msg += `/clear — Archive & restart\n`;
@@ -263,6 +264,24 @@ export function createTelegramBot(
     } else {
       msg += "Cloud-only project — no local path configured.";
     }
+
+    await ctx.reply(msg, { parse_mode: "Markdown" });
+  });
+
+  // /pull — Pull latest from remote for active project
+  bot.command("pull", async (ctx) => {
+    const activeProject = projects.getActiveProject();
+    if (!activeProject) {
+      await ctx.reply("No active project. Use /project <name> first.");
+      return;
+    }
+
+    await ctx.replyWithChatAction("typing");
+
+    const pullResult = await projects.syncPull(activeProject);
+
+    let msg = `**Pull: ${activeProject.displayName}**\n\n`;
+    msg += `Git: ${pullResult.ok ? "pulled latest" : pullResult.output}`;
 
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });

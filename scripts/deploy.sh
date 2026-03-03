@@ -33,11 +33,15 @@ ssh "$VPS_HOST" "cd $PROJECT_DIR && \
         echo 'Git repo OK'; \
     fi"
 
-# 3. Install dependencies on VPS
+# 3. Sync VPS git history to match remote (rsync copies files but not .git)
+echo "Syncing VPS git history..."
+ssh "$VPS_HOST" "cd $PROJECT_DIR && git fetch origin && git reset --hard origin/main"
+
+# 4. Install dependencies on VPS
 echo "Installing dependencies on VPS..."
 ssh "$VPS_HOST" "cd $PROJECT_DIR && ~/.bun/bin/bun install"
 
-# 4. Deploy PAI installation (skills, config, memory structure)
+# 5. Deploy PAI installation (skills, config, memory structure)
 echo "Deploying PAI installation..."
 rsync -avz \
     --exclude='debug/' \
@@ -49,7 +53,7 @@ rsync -avz \
     --exclude='MEMORY/STATE/' \
     ~/.claude/ "$VPS_HOST:~/.claude/"
 
-# 5. Create config directory and copy env template
+# 6. Create config directory and copy env template
 echo "Setting up config..."
 ssh "$VPS_HOST" "mkdir -p ~/.config/isidore_cloud"
 
@@ -57,20 +61,20 @@ ssh "$VPS_HOST" "mkdir -p ~/.config/isidore_cloud"
 ssh "$VPS_HOST" "test -f ~/.config/isidore_cloud/bridge.env || \
     cp $PROJECT_DIR/bridge.env.example ~/.config/isidore_cloud/bridge.env"
 
-# 6. Install systemd services
+# 7. Install systemd services
 echo "Installing systemd services..."
 ssh "$VPS_HOST" "sudo cp $PROJECT_DIR/systemd/isidore-cloud-bridge.service /etc/systemd/system/ && \
     sudo cp $PROJECT_DIR/systemd/isidore-cloud-tmux.service /etc/systemd/system/ && \
     sudo systemctl daemon-reload"
 
-# 7. Make scripts executable
+# 8. Make scripts executable
 ssh "$VPS_HOST" "chmod +x $PROJECT_DIR/scripts/*.sh"
 
-# 8. Set up cron for auth health check
+# 9. Set up cron for auth health check
 echo "Setting up auth health check cron..."
 ssh "$VPS_HOST" '(crontab -l 2>/dev/null | grep -v auth-health-check; echo "0 */4 * * * /home/isidore_cloud/projects/my-pai-cloud-solution/scripts/auth-health-check.sh") | crontab -'
 
-# 9. Install isidore-cloud-session as a global command
+# 10. Install isidore-cloud-session as a global command
 echo "Installing isidore-cloud-session CLI..."
 ssh "$VPS_HOST" "mkdir -p ~/bin && \
     cat > ~/bin/isidore-cloud-session << 'SCRIPT'
