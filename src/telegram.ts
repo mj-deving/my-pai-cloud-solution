@@ -14,7 +14,6 @@ import type { RateLimiter } from "./rate-limiter";
 import type { MemoryStore } from "./memory";
 import { compactFormat, chunkMessage } from "./format";
 import type { Scheduler } from "./scheduler";
-import type { HandoffManager } from "./handoff";
 import { StatusMessage } from "./status-message";
 import type { ProgressEvent } from "./claude";
 import type { MessengerAdapter } from "./messenger-adapter";
@@ -30,7 +29,6 @@ export function createTelegramBot(
   rateLimiter?: RateLimiter | null,
   memoryStore?: MemoryStore | null,
   scheduler?: Scheduler | null,
-  handoffManager?: HandoffManager | null,
 ): Bot {
   const bot = new Bot(config.telegramBotToken);
 
@@ -60,7 +58,7 @@ export function createTelegramBot(
     msg += `\nCommands:\n`;
     msg += `/project <name> — Switch project\n`;
     msg += `/projects — List available projects\n`;
-    msg += `/sync — Commit, push, knowledge sync + status\n`;
+    msg += `/sync — Commit, push + status\n`;
     msg += `/new — Fresh conversation\n`;
     msg += `/status — Current session info\n`;
     msg += `/clear — Archive & restart\n`;
@@ -146,10 +144,7 @@ export function createTelegramBot(
     // 4. Pull latest code
     const pullResult = await projects.syncPull(target);
 
-    // 5. Pull latest knowledge (CLAUDE.local.md → CLAUDE.handoff.md, etc.)
-    const knowledgeResult = await projects.knowledgeSyncPull();
-
-    // 6. Switch project + session + cwd
+    // 5. Switch project + session + cwd
     const result = await projects.setActiveProject(target.name);
     if (!result) {
       await ctx.reply("Failed to switch project.");
@@ -167,8 +162,7 @@ export function createTelegramBot(
     } else {
       msg += "Path: not configured for this instance\n";
     }
-    msg += pullResult.ok ? "Git: pulled latest\n" : `Git: ${pullResult.output}\n`;
-    msg += knowledgeResult.ok ? "Knowledge: synced" : "Knowledge: sync skipped";
+    msg += pullResult.ok ? "Git: pulled latest" : `Git: ${pullResult.output}`;
 
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
@@ -241,7 +235,7 @@ export function createTelegramBot(
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
 
-  // /sync — Commit + push + knowledge sync + handoff + status summary
+  // /sync — Commit + push + status
   bot.command("sync", async (ctx) => {
     const activeProject = projects.getActiveProject();
     if (!activeProject) {
@@ -253,14 +247,6 @@ export function createTelegramBot(
 
     // 1. Git commit + push
     const gitResult = await projects.syncPush(activeProject);
-    // 2. Knowledge sync push (CLAUDE.local.md, WORK/, SESSIONS/, etc.)
-    const knowledgeResult = await projects.knowledgeSyncPush();
-    // 3. Write handoff object (if enabled)
-    if (handoffManager) {
-      await handoffManager.writeOutgoing().catch(err => {
-        console.warn(`[telegram] Handoff write error: ${err}`);
-      });
-    }
 
     // Build status summary
     const session = await sessions.current();
@@ -268,8 +254,6 @@ export function createTelegramBot(
 
     let msg = `**Sync: ${activeProject.displayName}**\n\n`;
     msg += `Git: ${gitResult.ok ? "pushed" : gitResult.output}\n`;
-    msg += `Knowledge: ${knowledgeResult.ok ? "synced" : "sync skipped"}\n`;
-    msg += `Handoff: ${handoffManager ? "written" : "disabled"}\n`;
     msg += `Session: ${session ? session.slice(0, 8) + "..." : "none"}\n`;
     if (path) msg += `Path: \`${path}\`\n`;
     msg += "\n";

@@ -45,10 +45,8 @@ const EnvSchema = z.object({
   CLAUDE_BINARY: z.string().optional(),
 
   // Project handoff
-  PROJECT_REGISTRY_FILE: z.string().optional(),
   HANDOFF_STATE_FILE: z.string().optional(),
   PROJECT_SYNC_SCRIPT: z.string().optional(),
-  KNOWLEDGE_SYNC_SCRIPT: z.string().optional(),
 
   // Pipeline
   PIPELINE_ENABLED: envBool(true),
@@ -117,10 +115,6 @@ const EnvSchema = z.object({
   CONTEXT_MAX_TOKENS: optionalInt(500, 8_000, 2_000),
   CONTEXT_MAX_CHARS: optionalInt(1_000, 20_000, 5_000),
 
-  // Phase 3 V2-C: Handoff
-  HANDOFF_ENABLED: envBool(false),
-  HANDOFF_DIR: z.string().optional(),
-
   // Phase 3 V2-D: PRD Executor
   PRD_EXECUTOR_ENABLED: envBool(false),
   PRD_DETECTION_MIN_LENGTH: optionalInt(100, 5_000, 500),
@@ -178,10 +172,8 @@ export interface Config {
   claudeBinary: string;
 
   // Project handoff
-  projectRegistryFile: string;
   handoffStateFile: string;
   projectSyncScript: string;
-  knowledgeSyncScript: string;
 
   // Pipeline (cross-user task queue)
   pipelineEnabled: boolean;
@@ -251,10 +243,6 @@ export interface Config {
   contextMaxTokens: number;
   contextMaxChars: number;
 
-  // Phase 3 V2-C: Handoff
-  handoffEnabled: boolean;
-  handoffDir: string;
-
   // Phase 3 V2-D: PRD Executor
   prdExecutorEnabled: boolean;
   prdDetectionMinLength: number;
@@ -320,16 +308,11 @@ export function loadConfig(): Config {
     sessionIdFile: env.SESSION_ID_FILE || `${home}/.claude/active-session-id`,
     claudeBinary: env.CLAUDE_BINARY || "claude",
 
-    projectRegistryFile:
-      env.PROJECT_REGISTRY_FILE || `${home}/pai-knowledge/HANDOFF/projects.json`,
     handoffStateFile:
       env.HANDOFF_STATE_FILE || `${home}/.claude/handoff-state.json`,
     projectSyncScript:
       env.PROJECT_SYNC_SCRIPT ||
       `${home}/projects/my-pai-cloud-solution/scripts/project-sync.sh`,
-    knowledgeSyncScript:
-      env.KNOWLEDGE_SYNC_SCRIPT ||
-      `${home}/projects/my-pai-cloud-solution/scripts/sync-knowledge.sh`,
 
     pipelineEnabled: env.PIPELINE_ENABLED,
     pipelineDir: env.PIPELINE_DIR || "/var/lib/pai-pipeline",
@@ -390,10 +373,6 @@ export function loadConfig(): Config {
     contextInjectionEnabled: env.CONTEXT_INJECTION_ENABLED,
     contextMaxTokens: env.CONTEXT_MAX_TOKENS,
     contextMaxChars: env.CONTEXT_MAX_CHARS,
-
-    // Phase 3 V2-C: Handoff
-    handoffEnabled: env.HANDOFF_ENABLED,
-    handoffDir: env.HANDOFF_DIR || `${home}/.claude/handoff/`,
 
     // Phase 3 V2-D: PRD Executor
     prdExecutorEnabled: env.PRD_EXECUTOR_ENABLED,

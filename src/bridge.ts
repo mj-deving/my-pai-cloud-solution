@@ -21,7 +21,6 @@ import { Dashboard } from "./dashboard";
 import { MemoryStore } from "./memory";
 import { EmbeddingProvider } from "./embeddings";
 import { ContextBuilder } from "./context";
-import { HandoffManager } from "./handoff";
 import { PRDExecutor } from "./prd-executor";
 import { Scheduler } from "./scheduler";
 import { PolicyEngine } from "./policy";
@@ -171,19 +170,6 @@ async function main() {
     console.log("[bridge] Context injection requires MEMORY_ENABLED=1, skipping");
   }
 
-  // Phase 3 V2-C: Handoff Manager
-  let handoffManager: HandoffManager | null = null;
-  if (config.handoffEnabled) {
-    handoffManager = new HandoffManager(config, sessions, projectManager, memoryStore, orchestrator);
-    const incoming = await handoffManager.readIncoming();
-    if (incoming) {
-      console.log(`[bridge] Loaded handoff from ${incoming.direction} (${incoming.timestamp})`);
-    }
-    console.log("[bridge] Handoff manager enabled");
-  } else {
-    console.log("[bridge] Handoff disabled (HANDOFF_ENABLED=0)");
-  }
-
   // Phase 4: Policy Engine
   let policyEngine: PolicyEngine | null = null;
   if (config.policyEnabled) {
@@ -262,7 +248,6 @@ async function main() {
       rateLimiter,
       memoryStore,
       scheduler,
-      handoffManager,
     );
   } else {
     throw new Error(`Unsupported messenger type: ${config.messengerType}`);
@@ -455,7 +440,7 @@ async function main() {
     dashboard = new Dashboard(
       config, pipeline, orchestrator, reversePipeline,
       rateLimiter, resourceGuard, agentRegistry, idempotencyStore,
-      memoryStore, handoffManager, prdExecutor, synthesisLoop,
+      memoryStore, prdExecutor, synthesisLoop,
     );
     dashboard.start();
   } else {
@@ -492,10 +477,6 @@ async function main() {
   // Graceful shutdown
   const shutdown = async () => {
     console.log("[bridge] Shutting down...");
-    // V2-C: Save state before exit
-    if (handoffManager) {
-      await handoffManager.writeOutgoing();
-    }
     // Phase 4: Stop scheduler
     scheduler?.stop();
     scheduler?.close();

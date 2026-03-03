@@ -13,7 +13,6 @@ import type { ResourceGuard } from "./resource-guard";
 import type { AgentRegistry } from "./agent-registry";
 import type { IdempotencyStore } from "./idempotency";
 import type { MemoryStore } from "./memory";
-import type { HandoffManager } from "./handoff";
 import type { PRDExecutor } from "./prd-executor";
 import type { SynthesisLoop } from "./synthesis";
 import { getDashboardHtml } from "./dashboard-html";
@@ -52,7 +51,6 @@ export class Dashboard {
     private agentRegistry: AgentRegistry | null = null,
     private idempotencyStore: IdempotencyStore | null = null,
     private memoryStore: MemoryStore | null = null,
-    private handoffManager: HandoffManager | null = null,
     private prdExecutor: PRDExecutor | null = null,
     private synthesisLoop: SynthesisLoop | null = null,
   ) {
@@ -94,7 +92,6 @@ export class Dashboard {
           if (path === "/api/history") return this.jsonResponse(await this.getHistoryData(url.searchParams));
           if (path === "/api/task") return this.jsonResponse(await this.getTaskData(url.searchParams.get("filename")));
           if (path === "/api/memory") return this.jsonResponse(this.getMemoryData());
-          if (path === "/api/handoff") return this.jsonResponse(await this.getHandoffData());
           if (path === "/api/prds") return this.jsonResponse(this.getPRDsData());
           if (path === "/api/synthesis") return this.jsonResponse(this.getSynthesisData());
           if (path === "/events") return this.handleSSE(req);
@@ -303,13 +300,6 @@ export class Dashboard {
   private getMemoryData(): Record<string, unknown> {
     if (!this.memoryStore) return { enabled: false };
     return { enabled: true, ...this.memoryStore.getStats() };
-  }
-
-  private async getHandoffData(): Promise<Record<string, unknown>> {
-    if (!this.handoffManager) return { enabled: false };
-    const incoming = await this.handoffManager.readIncoming();
-    if (!incoming) return { enabled: true, handoff: null };
-    return { enabled: true, handoff: incoming };
   }
 
   private getSynthesisData(): Record<string, unknown> {

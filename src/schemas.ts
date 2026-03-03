@@ -246,28 +246,6 @@ export const MemoryResultSchema = z.object({
 
 export type MemoryResult = z.infer<typeof MemoryResultSchema>;
 
-// --- V2-C: Handoff ---
-
-export const HandoffObjectSchema = z.object({
-  version: z.literal(1),
-  timestamp: z.string(),
-  direction: z.enum(["local-to-cloud", "cloud-to-local"]),
-  activeProject: z.string().nullable(),
-  sessionId: z.string().nullable(),
-  branch: z.string(),
-  uncommittedChanges: z.boolean(),
-  activePRD: z.string().nullable(),
-  activeWorkflows: z.array(z.string()),
-  pendingTasks: z.array(z.string()),
-  recentWorkSummary: z.string(),
-  nextSteps: z.array(z.string()),
-  blockers: z.array(z.string()),
-  lastEpisodeId: z.number(),
-  memoryDbHash: z.string(),
-});
-
-export type HandoffObject = z.infer<typeof HandoffObjectSchema>;
-
 // --- V2-D: PRD Executor ---
 
 export const ParsedPRDStepSchema = z.object({

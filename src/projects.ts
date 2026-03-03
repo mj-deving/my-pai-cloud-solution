@@ -44,28 +44,19 @@ export class ProjectManager {
     private sessions: SessionManager,
   ) {}
 
-  // Load project registry from disk
+  // Load project registry from bundled config/projects.json
   async loadRegistry(): Promise<void> {
     try {
-      const raw = await readFile(this.config.projectRegistryFile, "utf-8");
+      const bundledPath = new URL("../config/projects.json", import.meta.url)
+        .pathname;
+      const raw = await readFile(bundledPath, "utf-8");
       this.registry = JSON.parse(raw) as ProjectRegistry;
       console.log(
         `[projects] Loaded registry: ${this.registry.projects.length} project(s)`,
       );
-    } catch (err) {
-      // Fall back to bundled config if pai-knowledge copy doesn't exist
-      try {
-        const bundledPath = new URL("../config/projects.json", import.meta.url)
-          .pathname;
-        const raw = await readFile(bundledPath, "utf-8");
-        this.registry = JSON.parse(raw) as ProjectRegistry;
-        console.log(
-          `[projects] Loaded bundled registry: ${this.registry.projects.length} project(s)`,
-        );
-      } catch {
-        console.warn(`[projects] No registry found, starting empty`);
-        this.registry = { version: 1, projects: [] };
-      }
+    } catch {
+      console.warn(`[projects] No registry found, starting empty`);
+      this.registry = { version: 1, projects: [] };
     }
   }
 
@@ -308,11 +299,6 @@ ${displayName}
 - Code comments: thorough — document interfaces and logic
 - File naming: kebab-case
 
-## Cross-Instance Continuity
-
-If \`CLAUDE.handoff.md\` exists in this directory, read it on session start.
-It contains the other instance's (local/Cloud) last session state.
-
 ## Current State
 
 **Status:** New project, just created
@@ -400,26 +386,16 @@ It contains the other instance's (local/Cloud) last session state.
     return { project: removed };
   }
 
-  // Save registry to both bundled config and pai-knowledge copy
+  // Save registry to bundled config/projects.json
   private async saveRegistry(): Promise<void> {
     if (!this.registry) return;
 
     const json = JSON.stringify(this.registry, null, 2) + "\n";
-
-    // Save to bundled config/projects.json
     const bundledPath = new URL("../config/projects.json", import.meta.url).pathname;
     try {
       await writeFile(bundledPath, json, "utf-8");
     } catch (err) {
-      console.warn(`[projects] Failed to save bundled registry: ${err}`);
-    }
-
-    // Save to pai-knowledge registry (primary source)
-    try {
-      await mkdir(dirname(this.config.projectRegistryFile), { recursive: true });
-      await writeFile(this.config.projectRegistryFile, json, "utf-8");
-    } catch (err) {
-      console.warn(`[projects] Failed to save pai-knowledge registry: ${err}`);
+      console.warn(`[projects] Failed to save registry: ${err}`);
     }
   }
 
@@ -445,50 +421,6 @@ It contains the other instance's (local/Cloud) last session state.
       return { ok: exitCode === 0, output: (stdout + stderr).trim() };
     } catch (err) {
       return { ok: false, output: `Command error: ${err}` };
-    }
-  }
-
-  // --- Knowledge sync (push/pull via sync-knowledge.sh) ---
-  // Called explicitly by /project (pull) and /done (push).
-  // NOT called per-message — bridge sets SKIP_KNOWLEDGE_SYNC to suppress hooks.
-
-  async knowledgeSyncPull(): Promise<{ ok: boolean; output: string }> {
-    return this.runKnowledgeSync("pull");
-  }
-
-  async knowledgeSyncPush(): Promise<{ ok: boolean; output: string }> {
-    return this.runKnowledgeSync("push");
-  }
-
-  private async runKnowledgeSync(
-    action: "push" | "pull",
-  ): Promise<{ ok: boolean; output: string }> {
-    try {
-      const proc = Bun.spawn(
-        ["bash", this.config.knowledgeSyncScript, action],
-        {
-          stdout: "pipe",
-          stderr: "pipe",
-          env: process.env,
-        },
-      );
-
-      const timeout = setTimeout(() => proc.kill(), 30_000); // 30s timeout
-      const stdout = await new Response(proc.stdout).text();
-      const stderr = await new Response(proc.stderr).text();
-      const exitCode = await proc.exited;
-      clearTimeout(timeout);
-
-      const output = (stdout + stderr).trim();
-      if (exitCode === 0) {
-        console.log(`[projects] Knowledge sync ${action} complete`);
-      } else {
-        console.warn(`[projects] Knowledge sync ${action} failed: ${output}`);
-      }
-      return { ok: exitCode === 0, output };
-    } catch (err) {
-      console.warn(`[projects] Knowledge sync ${action} error: ${err}`);
-      return { ok: false, output: `Knowledge sync error: ${err}` };
     }
   }
 

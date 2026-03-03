@@ -96,7 +96,7 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 
 - **Session sharing:** All channels share one session ID file. `claude --resume` continues the same conversation. Per-project sessions via `ProjectManager`.
 - **One-shot pipeline:** Pipeline tasks from Gregor do NOT share Marius's session. Each gets a fresh Claude context.
-- **Hook suppression:** Bridge sets `SKIP_KNOWLEDGE_SYNC=1` to prevent hooks firing on every `claude -p`. Bridge handles sync explicitly.
+- **Hook suppression:** Bridge sets `SKIP_KNOWLEDGE_SYNC=1` to prevent hooks firing on every `claude -p`.
 - **Atomic writes:** Pipeline results use write-to-tmp + rename to prevent reading partial files.
 - **Zod validation:** All cross-agent JSON boundaries validated via Zod schemas. Config env vars validated with range checks.
 - **Feature flags:** All major subsystems gated behind env vars (default: off). Enables incremental rollout.
@@ -131,7 +131,6 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 | `memory.ts` | `MemoryStore` — SQLite episodic + semantic memory with FTS5 + optional sqlite-vec + project whiteboards (Phase 3 V2-A, Phase D) |
 | `embeddings.ts` | `EmbeddingProvider` — Ollama embedding client + keyword-only fallback (Phase 3 V2-A) |
 | `context.ts` | `ContextBuilder` — queries memory, formats context prefix with observation masking + whiteboard injection (Phase 3 V2-B, Phase D) |
-| `handoff.ts` | `HandoffManager` — cross-instance state transfer, on-demand via /sync + shutdown (Phase 3 V2-C) |
 | `prd-executor.ts` | `PRDExecutor` — autonomous PRD detection, parsing, execution, progress reporting (Phase 3 V2-D) |
 | `prd-parser.ts` | `PRDParser` — Claude one-shot extraction of structured PRD from freeform text (Phase 3 V2-D) |
 | `injection-scan.ts` | `scanForInjection()` — regex-based prompt injection detection, 18 patterns, log-only v1 (Phase 4) |
@@ -143,7 +142,7 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 
 ## Cross-Instance Continuity
 
-If `CLAUDE.handoff.md` exists in this directory, read it on session start. It contains the other instance's (local/Cloud) last session state.
+Cloud Isidore uses `memory.db` (via ContextBuilder) as its sole persistence layer. There is no file-based handoff mechanism — `memory.db` stores episodic and semantic memory, and ContextBuilder injects relevant context into each Claude invocation.
 
 ## Conventions
 

@@ -329,12 +329,6 @@ export function getDashboardHtml(): string {
   .stat-badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; }
   .stat-badge.active { background: rgba(63,185,80,0.15); color: var(--green); }
   .stat-badge.inactive { background: rgba(139,148,158,0.15); color: var(--text-muted); }
-  .handoff-field { padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--border); }
-  .handoff-field:last-child { border-bottom: none; }
-  .handoff-label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; }
-  .handoff-value { margin-top: 1px; }
-  .handoff-warn { color: var(--yellow); font-size: 11px; margin-top: 4px; }
-
   @media (max-width: 900px) {
     .kanban { grid-template-columns: repeat(2, 1fr); }
     .split-row { grid-template-columns: 1fr; }
@@ -415,7 +409,7 @@ export function getDashboardHtml(): string {
     </div>
   </div>
 
-  <!-- Memory + Handoff -->
+  <!-- Memory -->
   <div class="split-row">
     <div class="section">
       <div class="section-header">Memory Store</div>
@@ -424,10 +418,8 @@ export function getDashboardHtml(): string {
       </div>
     </div>
     <div class="section">
-      <div class="section-header">Last Handoff</div>
-      <div class="section-body" id="handoffPanel">
-        <div class="no-data">No handoff data</div>
-      </div>
+      <div class="section-header">&nbsp;</div>
+      <div class="section-body"><div class="no-data">Reserved for future panels</div></div>
     </div>
   </div>
 
@@ -665,32 +657,6 @@ export function getDashboardHtml(): string {
       '</div>';
   }
 
-  // Handoff panel
-  function renderHandoff(data) {
-    const el = document.getElementById('handoffPanel');
-    if (!data || !data.enabled) {
-      el.innerHTML = '<div class="no-data">Handoff disabled</div>';
-      return;
-    }
-    if (!data.handoff) {
-      el.innerHTML = '<div class="no-data">No handoff data</div>';
-      return;
-    }
-    const h = data.handoff;
-    let html =
-      '<div class="handoff-field"><div class="handoff-label">Direction</div><div class="handoff-value">' + esc(h.direction || '') + '</div></div>' +
-      '<div class="handoff-field"><div class="handoff-label">Timestamp</div><div class="handoff-value">' + formatTime(h.timestamp) + '</div></div>' +
-      '<div class="handoff-field"><div class="handoff-label">Project</div><div class="handoff-value">' + esc(h.activeProject || 'none') + '</div></div>' +
-      '<div class="handoff-field"><div class="handoff-label">Branch</div><div class="handoff-value" style="font-family:monospace">' + esc(h.branch || 'main') + '</div></div>';
-    if (h.recentWorkSummary) {
-      html += '<div class="handoff-field"><div class="handoff-label">Summary</div><div class="handoff-value">' + esc(h.recentWorkSummary) + '</div></div>';
-    }
-    if (h.uncommittedChanges) {
-      html += '<div class="handoff-warn">Uncommitted changes present</div>';
-    }
-    el.innerHTML = html;
-  }
-
   // Synthesis panel
   function renderSynthesis(data) {
     const el = document.getElementById('synthesisPanel');
@@ -814,7 +780,6 @@ export function getDashboardHtml(): string {
   fetch('/api/agents', { headers: headers }).then(function(r) { return r.json(); }).then(renderAgents).catch(function() {});
   fetch('/api/workflows', { headers: headers }).then(function(r) { return r.json(); }).then(renderWorkflows).catch(function() {});
   fetch('/api/memory', { headers: headers }).then(function(r) { return r.json(); }).then(renderMemory).catch(function() {});
-  fetch('/api/handoff', { headers: headers }).then(function(r) { return r.json(); }).then(renderHandoff).catch(function() {});
   fetch('/api/synthesis', { headers: headers }).then(function(r) { return r.json(); }).then(renderSynthesis).catch(function() {});
   loadHistory();
   connectSSE();
