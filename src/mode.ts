@@ -11,6 +11,7 @@ export class ModeManager {
   private mode: BridgeMode = { type: "workspace" };
   private messageCount = 0;
   private lastUsage: ClaudeResponse["usage"] | undefined;
+  private lastTurnUsage: ClaudeResponse["usage"] | undefined;
   private contextWindowSize: number = 200_000; // default, updated from CLI
   private listeners: Array<(mode: BridgeMode) => void> = [];
   private suggestionSent = false;
@@ -39,12 +40,17 @@ export class ModeManager {
   }
 
   /** Called after each message response to track session metrics. */
-  recordMessage(usage?: ClaudeResponse["usage"], contextWindow?: number): void {
+  recordMessage(usage?: ClaudeResponse["usage"], contextWindow?: number, lastTurnUsage?: ClaudeResponse["usage"]): void {
     this.messageCount++;
     if (usage) {
-      // Store latest snapshot — NOT cumulative. Each CLI invocation's input_tokens
-      // includes all prior context, so the latest value IS the total.
+      // Accumulated usage across all agentic turns (for /status display)
       this.lastUsage = usage;
+    }
+    if (lastTurnUsage) {
+      // Per-turn usage from last assistant event — accurate context window fill.
+      // This represents the actual tokens in the context window for the final
+      // API call, not accumulated across tool-use loops.
+      this.lastTurnUsage = lastTurnUsage;
     }
     if (contextWindow) {
       this.contextWindowSize = contextWindow;
@@ -55,6 +61,7 @@ export class ModeManager {
   resetSessionMetrics(): void {
     this.messageCount = 0;
     this.lastUsage = undefined;
+    this.lastTurnUsage = undefined;
     this.suggestionSent = false;
     this.suggestionDismissed = false;
   }
@@ -71,15 +78,18 @@ export class ModeManager {
 
   /**
    * Get real context usage percentage from CLI usage data.
-   * Works for BOTH modes — no mode check needed.
+   * Prefers lastTurnUsage (per-turn, accurate context fill) over
+   * accumulated usage (which inflates when Claude uses tools).
    * Returns undefined if no usage data yet.
    */
   getContextPercent(): number | undefined {
-    if (!this.lastUsage) return undefined;
-    const total = (this.lastUsage.input_tokens || 0) +
-                  (this.lastUsage.cache_creation_input_tokens || 0) +
-                  (this.lastUsage.cache_read_input_tokens || 0);
-    return Math.round((total / this.contextWindowSize) * 100);
+    // Prefer per-turn usage (from last assistant event) — accurate context fill
+    const usage = this.lastTurnUsage || this.lastUsage;
+    if (!usage) return undefined;
+    const total = (usage.input_tokens || 0) +
+                  (usage.cache_creation_input_tokens || 0) +
+                  (usage.cache_read_input_tokens || 0);
+    return Math.min(Math.round((total / this.contextWindowSize) * 100), 99);
   }
 
   /**

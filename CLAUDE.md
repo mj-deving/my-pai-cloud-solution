@@ -60,7 +60,7 @@ Telegram message → Grammy bot (telegram.ts)
   → Append statusline (mode/time/msg count/context%)
   → Reply to user
   → ModeManager.recordMessage() — track session metrics
-  → Auto-wrapup check (workspace mode: warns at 80%, rotates at threshold)
+  → Auto-wrapup check (suggest-only at 70% context fill, both modes)
   → Importance-triggered synthesis flush (workspace mode)
   → (no auto-commit — use /sync on demand)
 ```
@@ -79,7 +79,7 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 
 - **Session sharing:** All channels share one session ID file. `claude --resume` continues the same conversation. Per-project sessions via `ProjectManager`. Workspace has its own session stored in memory.db.
 - **Dual-mode:** Workspace mode (default) for autonomous/general work with auto-session management. Project mode for focused git-repo work with manual session control.
-- **Auto-wrapup:** In workspace mode, ModeManager tracks token/message counts. Warns at 80% threshold, rotates session at 100%. `/keep` extends by 50%.
+- **Auto-wrapup:** ModeManager tracks real context fill via CLI usage data. Suggests wrapup at 70% (both modes), never force-rotates. `/keep` dismisses suggestion.
 - **One-shot pipeline:** Pipeline tasks from Gregor do NOT share Marius's session. Each gets a fresh Claude context.
 - **Hook suppression:** Bridge sets `SKIP_KNOWLEDGE_SYNC=1` to prevent hooks firing on every `claude -p`.
 - **Atomic writes:** Pipeline results use write-to-tmp + rename to prevent reading partial files.
@@ -100,7 +100,7 @@ See `ARCHITECTURE.md` for full file reference (30+ modules). Entry points:
 
 ## Cross-Instance Continuity
 
-Cloud Isidore uses `memory.db` (via ContextBuilder) as its sole persistence layer. There is no file-based handoff mechanism — `memory.db` stores episodic and semantic memory, project state (active project, sessions map), and session summaries. ContextBuilder injects relevant context into each Claude invocation with importance-based scoring. Session summaries are generated on `/clear`, `/wrapup`, and bridge shutdown for cross-session continuity. Daily memory files are written to `~/workspace/memory/YYYY-MM-DD.md` by cron.
+Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence layer — episodic and semantic memory, project state (active project, sessions map), and session summaries. ContextBuilder injects relevant context into each Claude invocation with importance-based scoring. Session summaries are generated on `/clear`, `/wrapup`, and bridge shutdown for cross-session continuity. In project mode, `/wrapup` also writes MEMORY.md and CLAUDE.local.md to the project directory via quickShot synthesis, mirroring local wrapup behavior. Daily memory files are written to `~/workspace/memory/YYYY-MM-DD.md` by cron.
 
 ## Telegram Commands
 

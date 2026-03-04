@@ -94,32 +94,80 @@ export function createTelegramBot(
     msg += `Session: ${session ? session.slice(0, 8) + "..." : "none"}\n`;
     msg += `Project: ${activeProject ? activeProject.displayName : "none"}\n`;
     msg += `Available: ${projectList.map((p) => p.name).join(", ") || "none"}\n`;
-    msg += `\nCommands:\n`;
+    msg += `\nCommands: /help for details\n`;
     msg += `/workspace — Switch to workspace mode\n`;
     msg += `/project <name> — Switch to project mode\n`;
     msg += `/projects — List available projects\n`;
-    msg += `/wrapup — Manual session wrapup (workspace)\n`;
-    msg += `/keep — Cancel auto-wrapup\n`;
+    msg += `/wrapup — Session wrapup (writes MEMORY.md + CLAUDE.md)\n`;
+    msg += `/keep — Dismiss auto-wrapup suggestion\n`;
+    msg += `/help [cmd] — Command help\n`;
     msg += `/sync — Commit, push + status\n`;
     msg += `/pull — Pull latest from remote\n`;
     msg += `/new — Fresh conversation\n`;
     msg += `/status — Current session info\n`;
     msg += `/clear — Archive & restart\n`;
-    msg += `/newproject <name> — Create new project\n`;
-    msg += `/deleteproject <name> — Remove project from registry\n`;
     msg += `/compact — Compact context\n`;
     msg += `/oneshot <msg> — One-shot (no session)\n`;
     msg += `/quick <msg> — Quick answer (lightweight model)\n`;
     msg += `/delegate <prompt> — Delegate task to Gregor\n`;
     msg += `/workflow create <prompt> — Create workflow\n`;
     msg += `/workflows — List workflows\n`;
-    msg += `/workflow <id> — Workflow details\n`;
     msg += `/cancel <id> — Cancel workflow\n`;
-    msg += `/branches — Active branch locks\n`;
     msg += `/pipeline — Pipeline dashboard\n`;
-    msg += `/schedule — Manage scheduled tasks`;
+    msg += `/schedule — Manage scheduled tasks\n`;
+    msg += `/newproject <name> — Create new project\n`;
+    msg += `/deleteproject <name> — Remove project`;
 
     await ctx.reply(msg);
+  });
+
+  // /help — Command help
+  const helpTexts: Record<string, string> = {
+    workspace: "`/workspace` (alias `/home`)\nSwitch to workspace mode — autonomous operations, daily memory, agent interactions.",
+    project: "`/project <name>`\nSwitch to project mode for a git-tracked repo. Session is per-project.\nExample: `/project my-pai-cloud-solution`",
+    projects: "`/projects`\nList all registered projects with their session status.",
+    wrapup: "`/wrapup`\nSession wrapup — synthesizes two files:\n- **MEMORY.md**: operational knowledge, session continuity, learnings\n- **CLAUDE.md**: architecture hygiene (remove stale, add new)\n\nRun before `/clear` to persist context across sessions.",
+    keep: "`/keep`\nDismiss the auto-wrapup suggestion. Context continues growing.",
+    sync: "`/sync`\nCommit + push current project changes, then show git status.",
+    pull: "`/pull`\nPull latest changes from the remote for the active project.",
+    new: "`/new`\nStart a fresh conversation (new session ID). Does NOT persist context — use `/wrapup` first.",
+    status: "`/status`\nShow current mode, session ID, message count, token usage, context %, and episode count.",
+    clear: "`/clear`\nGenerate session summary, archive the session, and start fresh.",
+    compact: "`/compact`\nCompress conversation context to free up token space.",
+    oneshot: "`/oneshot <message>`\nOne-shot question — fresh context, no session persistence.",
+    quick: "`/quick <message>`\nQuick answer using a lightweight model (haiku).",
+    delegate: "`/delegate <prompt>`\nDelegate a task to Gregor via the reverse pipeline.",
+    workflow: "`/workflow create <prompt>` — Create a multi-step workflow\n`/workflows` — List active workflows\n`/workflow <id>` — Workflow details\n`/cancel <id>` — Cancel a workflow",
+    pipeline: "`/pipeline`\nShow pipeline dashboard — pending/active tasks, recent results.",
+    schedule: "`/schedule`\nManage scheduled tasks. Sub-commands: `enable`, `disable`, `run`, or list all.",
+    newproject: "`/newproject <name>`\nCreate a new project — GitHub repo, VPS clone, CLAUDE.md scaffold, registry entry.",
+    deleteproject: "`/deleteproject <name>`\nRemove a project from the registry.",
+    help: "`/help [command]`\nShow help for a specific command, or list all commands.",
+  };
+
+  bot.command("help", async (ctx) => {
+    const arg = ctx.match?.trim().toLowerCase();
+
+    if (arg && helpTexts[arg]) {
+      await ctx.reply(helpTexts[arg], { parse_mode: "Markdown" });
+      return;
+    }
+
+    if (arg) {
+      await ctx.reply(`Unknown command: "${arg}"\n\nAvailable: ${Object.keys(helpTexts).map(c => `/${c}`).join(", ")}`);
+      return;
+    }
+
+    // No argument — grouped overview
+    let msg = "**Commands**\n\n";
+    msg += "**Mode:**\n/workspace · /project · /projects\n\n";
+    msg += "**Session:**\n/wrapup · /keep · /clear · /compact · /new · /status\n\n";
+    msg += "**Git:**\n/sync · /pull\n\n";
+    msg += "**Quick:**\n/oneshot · /quick\n\n";
+    msg += "**Pipeline:**\n/delegate · /workflow · /workflows · /cancel · /pipeline\n\n";
+    msg += "**Admin:**\n/schedule · /newproject · /deleteproject\n\n";
+    msg += "Use `/help <command>` for details.";
+    await ctx.reply(msg, { parse_mode: "Markdown" });
   });
 
   // /projects — List available projects with active marker
@@ -839,7 +887,7 @@ export function createTelegramBot(
       console.warn(`[telegram] Wrapup summary failed: ${err}`);
     }
 
-    // 2. In project mode: write MEMORY.md + CLAUDE.local.md (mirrors local wrapup Steps 3+4)
+    // 2. In project mode: write MEMORY.md + CLAUDE.md (mirrors local wrapup Steps 3+6)
     const activeProject = projects.getActiveProject();
     if (activeProject) {
       const projectDir = projects.getProjectPath(activeProject);
@@ -854,7 +902,7 @@ export function createTelegramBot(
     await sessions.newSession();
   }
 
-  // Write MEMORY.md and CLAUDE.local.md for a project (mirrors local wrapup Steps 3+4)
+  // Write MEMORY.md and CLAUDE.md for a project (mirrors local wrapup Steps 3+6)
   async function writeWrapupFiles(
     projectDir: string,
     displayName: string,
@@ -872,9 +920,10 @@ export function createTelegramBot(
         // No existing MEMORY.md — will create fresh
       }
 
-      const synthesizePrompt = `You are synthesizing the auto-memory file for a project. Rewrite it completely based on the current content and recent conversation.
+      const synthesizePrompt = `You are synthesizing the auto-memory file for a project. This is a FULL REWRITE — every section gets a fresh pass based on current content and recent conversation.
 
 PROJECT: ${displayName}
+WRAPUP TIME: ${now}
 
 CURRENT MEMORY.md (may be empty):
 ${currentMemory.slice(0, 2000)}
@@ -882,20 +931,57 @@ ${currentMemory.slice(0, 2000)}
 RECENT CONVERSATION:
 ${conversationText.slice(0, 2000)}
 
-Write a complete MEMORY.md using this format. Keep under 150 lines. Include ONLY operational knowledge not in the project's CLAUDE.md, plus debugging learnings. Do NOT include architecture, config, or session state (those belong in CLAUDE.md and CLAUDE.local.md respectively).
+SYNTHESIS RULES:
+1. REWRITE completely — do not append. Every section gets a fresh pass.
+2. Keep under 150 lines total. Trim least-important items proportionally if over.
+3. No internal redundancy — info appears in one section only.
+4. No cross-file duplication — never include architecture, config, or design decisions (those belong in CLAUDE.md).
+5. Promote, don't hoard — if an operational detail is important enough for every session, note it for CLAUDE.md promotion instead of keeping it here.
+6. Preserve stable information (credentials, key paths) verbatim.
+7. Update dynamic sections (session continuity, active next steps).
+8. Remove stale entries (completed next steps, outdated state, resolved issues).
+9. Add new entries from this session (new decisions, learnings, next steps).
+
+CONTENT BOUNDARIES — strict two-file separation:
+- CLAUDE.md owns: architecture, config, design decisions, build commands, module table, VPS details, conventions
+- MEMORY.md owns: everything else — operational knowledge, debugging learnings, credentials, session continuity, current focus, next steps, blockers
 
 Format:
 # ${displayName} — Session Memory
 
 > Architecture and config live in **CLAUDE.md** (git-tracked).
-> Session state and next steps live in **CLAUDE.local.md** (wrapup writes this).
-> This file holds only **operational knowledge not in those files** + **debugging learnings**.
+> This file holds **operational knowledge**, **session continuity**, and **debugging learnings**.
+
+## Session Continuity
+
+**Last wrapup:** ${now}
+**Current focus:** [1-2 sentences on what was being worked on]
+
+### Completed This Session
+- [what was done]
+
+### In Progress
+- [active work items, or "None"]
+
+### Next Steps
+1. [prioritized next actions, max 5]
+
+### Blockers
+- [anything blocking progress, or "None"]
 
 ## Operational Knowledge (not in CLAUDE.md)
 - [paths, credentials, config NOT in CLAUDE.md]
 
 ## Patterns & Learnings
 - [what works, what to avoid, debugging insights]
+
+## File Ownership Rules
+| File | Owns | Written by |
+|------|------|-----------|
+| **CLAUDE.md** | Architecture, config, design decisions | Implementation commits + wrapup hygiene |
+| **MEMORY.md** | Operational knowledge, session continuity, learnings | Auto-memory + wrapup |
+
+**Rule:** Never duplicate between these two files. Promote to CLAUDE.md if it belongs there.
 
 Respond with ONLY the markdown content, no code fences.`;
 
@@ -909,41 +995,51 @@ Respond with ONLY the markdown content, no code fences.`;
       console.warn(`[telegram] Wrapup MEMORY.md synthesis failed: ${err}`);
     }
 
-    // --- Step 4: Update CLAUDE.local.md ---
+    // --- Step 6: Synthesize CLAUDE.md with hygiene ---
     try {
-      const localPath = join(projectDir, "CLAUDE.local.md");
-      const claudeLocalPrompt = `Generate a CLAUDE.local.md session continuity file based on this recent conversation. This file is auto-loaded by Claude Code on session start to provide "where was I?" context.
+      const claudeMdPath = join(projectDir, "CLAUDE.md");
+      let currentClaudeMd = "";
+      try {
+        currentClaudeMd = await readFile(claudeMdPath, "utf-8");
+      } catch {
+        // No CLAUDE.md — skip, don't create from scratch
+      }
+
+      if (currentClaudeMd) {
+        const claudeMdPrompt = `You are performing hygiene on a project's CLAUDE.md file. This file is auto-loaded by Claude Code every session and must stay current, concise, and high-signal.
 
 PROJECT: ${displayName}
-RECENT CONVERSATION:
+
+CURRENT CLAUDE.md:
+${currentClaudeMd.slice(0, 4000)}
+
+RECENT CONVERSATION (what changed this session):
 ${conversationText.slice(0, 2000)}
 
-Write the file using this exact format. Be concise and accurate. Respond with ONLY the markdown content, no code fences.
+HYGIENE RULES — apply all of these:
+1. REMOVE stale content: completed work, resolved issues, one-time decisions, outdated descriptions
+2. REMOVE noise: task-specific details that don't apply to every session
+3. REMOVE duplication: anything that belongs in MEMORY.md (operational knowledge, debugging tips, session state, next steps)
+4. UPDATE descriptions that no longer match current behavior (e.g., changed thresholds, new flows)
+5. ADD new architectural changes from this session: new modules, changed message flows, new commands, new design decisions
+6. KEEP: architecture, config, design decisions, build/run commands, module responsibilities, VPS details, conventions, commands reference
+7. Target: ≤ 150 lines total
 
-# Session Continuity
+CONTENT BOUNDARIES — strict two-file separation:
+- CLAUDE.md owns: architecture, config, design decisions, build commands, module table, VPS details, conventions
+- MEMORY.md owns: operational knowledge, debugging learnings, credentials, session continuity, current focus, next steps, blockers
+- NEVER put session state, next steps, or debugging tips in CLAUDE.md
 
-**Last wrapup:** ${now}
-**Current focus:** [1-2 sentences on what was being worked on]
+Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ONLY the markdown, no code fences.`;
 
-## Completed This Session
-- [what was done, based on the conversation]
-
-## In Progress
-- [active work items, or "None"]
-
-## Next Steps
-1. [prioritized next actions, max 5]
-
-## Blockers
-- [anything blocking progress, or "None"]`;
-
-      const localResponse = await claude.quickShot(claudeLocalPrompt);
-      if (localResponse.result && !localResponse.error) {
-        await writeFile(localPath, localResponse.result.trim() + "\n", "utf-8");
-        console.log(`[telegram] Wrapup: wrote CLAUDE.local.md (${localPath})`);
+        const claudeMdResponse = await claude.quickShot(claudeMdPrompt);
+        if (claudeMdResponse.result && !claudeMdResponse.error) {
+          await writeFile(claudeMdPath, claudeMdResponse.result.trim() + "\n", "utf-8");
+          console.log(`[telegram] Wrapup: wrote CLAUDE.md (${claudeMdPath})`);
+        }
       }
     } catch (err) {
-      console.warn(`[telegram] Wrapup CLAUDE.local.md generation failed: ${err}`);
+      console.warn(`[telegram] Wrapup CLAUDE.md hygiene failed: ${err}`);
     }
   }
 
@@ -1053,7 +1149,7 @@ Write the file using this exact format. Be concise and accurate. Respond with ON
 
     // Track message in mode manager (pass usage + contextWindow)
     if (modeManager) {
-      modeManager.recordMessage(response.usage, response.contextWindow);
+      modeManager.recordMessage(response.usage, response.contextWindow, response.lastTurnUsage);
     }
 
     // Suggest-only wrapup check (both modes)

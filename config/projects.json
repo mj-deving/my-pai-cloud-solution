@@ -4,12 +4,67 @@
     {
       "name": "my-pai-cloud-solution",
       "displayName": "PAI Cloud Solution",
-      "git": "git@github.com:mj-deving/my-pai-cloud-solution.git",
+      "git": "https://github.com/mj-deving/my-pai-cloud-solution.git",
       "paths": {
         "local": "/home/mj/projects/my-pai-cloud-solution",
         "vps": "/home/isidore_cloud/projects/my-pai-cloud-solution"
       },
       "autoClone": false,
+      "active": true
+    },
+    {
+      "name": "my-pai",
+      "displayName": "My PAI",
+      "git": "https://github.com/mj-deving/my-pai.git",
+      "paths": {
+        "local": "/home/mj/my-pai",
+        "vps": null
+      },
+      "autoClone": true,
+      "active": true
+    },
+    {
+      "name": "openclaw-bot",
+      "displayName": "OpenClaw Bot",
+      "git": "https://github.com/mj-deving/openclaw-bot.git",
+      "paths": {
+        "local": "/home/mj/projects/openclaw-bot",
+        "vps": null
+      },
+      "autoClone": true,
+      "active": true
+    },
+    {
+      "name": "obsidian-pai",
+      "displayName": "Obsidian PAI",
+      "git": "https://github.com/mj-deving/obsidian-pai.git",
+      "paths": {
+        "local": "/home/mj/projects/obsidian-pai",
+        "vps": null
+      },
+      "autoClone": true,
+      "active": true
+    },
+    {
+      "name": "markdown-reader",
+      "displayName": "Markdown Reader",
+      "git": "https://github.com/mj-deving/markdown-reader.git",
+      "paths": {
+        "local": "/home/mj/projects/markdown-reader",
+        "vps": null
+      },
+      "autoClone": true,
+      "active": true
+    },
+    {
+      "name": "Pai-Exploration",
+      "displayName": "PAI Exploration",
+      "git": "https://github.com/mj-deving/Pai-Exploration.git",
+      "paths": {
+        "local": "/home/mj/projects/Pai-Exploration",
+        "vps": null
+      },
+      "autoClone": true,
       "active": true
     }
   ]

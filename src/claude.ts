@@ -15,6 +15,14 @@ export interface ClaudeResponse {
     cache_creation_input_tokens?: number;
     cache_read_input_tokens?: number;
   };
+  /** Per-turn usage from last assistant event — accurate context window fill.
+   *  Falls back to accumulated `usage` when not available. */
+  lastTurnUsage?: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
   contextWindow?: number;
   error?: string;
 }
@@ -222,6 +230,7 @@ export class ClaudeInvoker {
       let accumulatedText = "";
       let extractedSessionId = "";
       let extractedUsage: ClaudeResponse["usage"] | undefined;
+      let extractedLastTurnUsage: ClaudeResponse["usage"] | undefined;
       let extractedContextWindow: number | undefined;
       const toolBlocks = new Map<number, string>(); // index → tool name
       const decoder = new TextDecoder();
@@ -247,6 +256,7 @@ export class ClaudeInvoker {
                 appendText: (t: string) => { accumulatedText += t; },
                 setSessionId: (id: string) => { extractedSessionId = id; },
                 setUsage: (u: ClaudeResponse["usage"]) => { extractedUsage = u; },
+                setLastTurnUsage: (u: ClaudeResponse["usage"]) => { extractedLastTurnUsage = u; },
                 setContextWindow: (cw: number) => { extractedContextWindow = cw; },
               });
             } catch {
@@ -267,6 +277,7 @@ export class ClaudeInvoker {
             appendText: (t: string) => { accumulatedText += t; },
             setSessionId: (id: string) => { extractedSessionId = id; },
             setUsage: (u: ClaudeResponse["usage"]) => { extractedUsage = u; },
+            setLastTurnUsage: (u: ClaudeResponse["usage"]) => { extractedLastTurnUsage = u; },
             setContextWindow: (cw: number) => { extractedContextWindow = cw; },
           });
         } catch { /* ignore */ }
@@ -302,6 +313,7 @@ export class ClaudeInvoker {
         sessionId: realSessionId,
         result: accumulatedText || "",
         usage: extractedUsage,
+        lastTurnUsage: extractedLastTurnUsage,
         contextWindow: extractedContextWindow,
       };
     } catch (err) {
@@ -328,6 +340,7 @@ export class ClaudeInvoker {
       appendText: (t: string) => void;
       setSessionId: (id: string) => void;
       setUsage: (u: ClaudeResponse["usage"]) => void;
+      setLastTurnUsage: (u: ClaudeResponse["usage"]) => void;
       setContextWindow: (cw: number) => void;
     },
   ): void {
@@ -361,12 +374,24 @@ export class ClaudeInvoker {
       return; // Don't fall through to stream_event handling
     }
 
-    // Handle top-level assistant events (session_id, content)
+    // Handle top-level assistant events (session_id, content, per-turn usage)
     if (obj.type === "assistant") {
       if (typeof obj.session_id === "string" && obj.session_id) {
         state.setSessionId(obj.session_id);
       }
-      // assistant events may contain message.usage — but result event has the full picture
+      // Extract per-turn usage from message.usage — this represents actual context
+      // window fill for THIS turn (not accumulated across agentic tool-use loops).
+      // The LAST assistant event's usage = current context fill.
+      const msg = obj.message as Record<string, unknown> | undefined;
+      const usage = msg?.usage as Record<string, unknown> | undefined;
+      if (usage && typeof usage.input_tokens === "number") {
+        state.setLastTurnUsage({
+          input_tokens: (usage.input_tokens as number) || 0,
+          output_tokens: (usage.output_tokens as number) || 0,
+          cache_creation_input_tokens: (usage.cache_creation_input_tokens as number) || 0,
+          cache_read_input_tokens: (usage.cache_read_input_tokens as number) || 0,
+        });
+      }
       return;
     }
 
