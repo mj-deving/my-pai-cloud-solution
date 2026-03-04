@@ -38,6 +38,15 @@ No test suite exists. Verify changes by deploying and testing via Telegram comma
 
 ## Architecture
 
+### Dual-Mode System
+
+The bridge operates in two modes, managed by `ModeManager`:
+
+- **Workspace Mode** (default): The agent's "home" — autonomous operations, agent-to-agent interactions, scheduled tasks, daily memory. Auto-session management with wrapup on context pressure.
+- **Project Mode**: Focused work on a git-tracked repo. Invoked via `/project`. Manual session management. Syncs with local Claude Code instance.
+
+Every Telegram reply includes a **statusline** showing current mode, time, message count, context %, and episode count.
+
 ### Core Message Flow (Telegram)
 
 ```
@@ -48,7 +57,11 @@ Telegram message → Grammy bot (telegram.ts)
     → Parse JSON, save session ID for next message
   → compactFormat() (format.ts) — strips PAI Algorithm verbosity
   → chunkMessage() — splits at 4000 chars for Telegram API
+  → Append statusline (mode/time/msg count/context%)
   → Reply to user
+  → ModeManager.recordMessage() — track session metrics
+  → Auto-wrapup check (workspace mode: warns at 80%, rotates at threshold)
+  → Importance-triggered synthesis flush (workspace mode)
   → (no auto-commit — use /sync on demand)
 ```
 
@@ -94,7 +107,9 @@ Gregor writes JSON → /var/lib/pai-pipeline/tasks/task.json
 
 See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decisions:
 
-- **Session sharing:** All channels share one session ID file. `claude --resume` continues the same conversation. Per-project sessions via `ProjectManager`.
+- **Session sharing:** All channels share one session ID file. `claude --resume` continues the same conversation. Per-project sessions via `ProjectManager`. Workspace has its own session stored in memory.db.
+- **Dual-mode:** Workspace mode (default) for autonomous/general work with auto-session management. Project mode for focused git-repo work with manual session control.
+- **Auto-wrapup:** In workspace mode, ModeManager tracks token/message counts. Warns at 80% threshold, rotates session at 100%. `/keep` extends by 50%.
 - **One-shot pipeline:** Pipeline tasks from Gregor do NOT share Marius's session. Each gets a fresh Claude context.
 - **Hook suppression:** Bridge sets `SKIP_KNOWLEDGE_SYNC=1` to prevent hooks firing on every `claude -p`.
 - **Atomic writes:** Pipeline results use write-to-tmp + rename to prevent reading partial files.
@@ -139,10 +154,40 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 | `synthesis.ts` | `SynthesisLoop` — periodic knowledge distillation from episodes, per-domain Claude synthesis + project whiteboards (Phase C, Phase D) |
 | `agent-loader.ts` | `AgentLoader` — parses `.pai/agents/*.md` YAML+markdown definitions, self-registers in AgentRegistry (Phase C) |
 | `status-message.ts` | `StatusMessage` — rate-limited editable Telegram message manager with init/update/finish/remove lifecycle |
+| `mode.ts` | `ModeManager` — dual-mode state (workspace/project), session metrics tracking, auto-wrapup threshold detection, /keep extension |
+| `statusline.ts` | `formatStatusline()` — two-line status block appended to every Telegram reply (mode/time/msg count/context%/episodes) |
+| `daily-memory.ts` | `DailyMemoryWriter` — cron-scheduled daily episode summary to markdown files + memory.db + optional git commit |
 
 ## Cross-Instance Continuity
 
-Cloud Isidore uses `memory.db` (via ContextBuilder) as its sole persistence layer. There is no file-based handoff mechanism — `memory.db` stores episodic and semantic memory, project state (active project, sessions map), and session summaries. ContextBuilder injects relevant context into each Claude invocation with importance-based scoring. Session summaries are generated on `/clear` and bridge shutdown for cross-session continuity.
+Cloud Isidore uses `memory.db` (via ContextBuilder) as its sole persistence layer. There is no file-based handoff mechanism — `memory.db` stores episodic and semantic memory, project state (active project, sessions map), and session summaries. ContextBuilder injects relevant context into each Claude invocation with importance-based scoring. Session summaries are generated on `/clear`, `/wrapup`, and bridge shutdown for cross-session continuity. Daily memory files are written to `~/workspace/memory/YYYY-MM-DD.md` by cron.
+
+## Telegram Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Show help and current mode |
+| `/status` | Mode, session metrics, memory stats |
+| `/project <name>` | Switch to project mode (pulls latest) |
+| `/workspace` or `/home` | Switch to workspace mode |
+| `/wrapup` | Manual session wrapup (workspace mode) |
+| `/keep` | Cancel pending auto-wrapup, extend threshold 50% |
+| `/sync` | Git commit + push current project |
+| `/pull` | Git pull current project |
+| `/clear` | Generate session summary + start fresh session |
+| `/compact` | Compact current session |
+| `/oneshot` | One-shot message (no session) |
+| `/quick` | Quick one-shot (haiku, no session) |
+| `/delegate` | Delegate task to Gregor via reverse pipeline |
+| `/workflow create` | Decompose task into DAG workflow |
+| `/workflows` | List active workflows |
+| `/cancel` | Cancel active workflow |
+| `/branches` | List branch locks |
+| `/pipeline` | Pipeline status |
+| `/schedule` | Scheduler status |
+| `/newproject` | Create new project |
+| `/deleteproject` | Delete project |
+| `/new` | Reset session (alias) |
 
 ## Conventions
 
@@ -160,4 +205,5 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its sole persistence laye
 - **Project dir:** `/home/isidore_cloud/projects/my-pai-cloud-solution/`
 - **Config:** `/home/isidore_cloud/.config/isidore_cloud/bridge.env`
 - **Pipeline:** `/var/lib/pai-pipeline/{tasks,results,ack,reverse-tasks,reverse-results,reverse-ack,workflows}` — shared via `pai` group (setgid 2770)
+- **Workspace:** `/home/isidore_cloud/workspace/` — daily memory files, git-tracked
 - **Services:** `isidore-cloud-bridge` (Telegram + pipeline + orchestrator), `isidore-cloud-tmux` (persistent tmux)
