@@ -12,6 +12,8 @@ import type { PipelineWatcher } from "./pipeline";
 import type { BranchManager } from "./branch-manager";
 import type { RateLimiter } from "./rate-limiter";
 import type { MemoryStore } from "./memory";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { compactFormat, chunkMessage } from "./format";
 import type { Scheduler } from "./scheduler";
 import { StatusMessage } from "./status-message";
@@ -794,25 +796,37 @@ export function createTelegramBot(
     await ctx.reply("Got it — wrapup suggestion dismissed.");
   });
 
+  // Compute Claude Code's auto-memory path for a project directory.
+  // Claude Code normalizes: replace / and _ with -, strip dots.
+  function computeAutoMemoryPath(projectDir: string): string {
+    const home = process.env.HOME || "/home/isidore_cloud";
+    const slug = projectDir.replace(/[/_]/g, "-").replace(/\./g, "");
+    return join(home, ".claude", "projects", slug, "memory", "MEMORY.md");
+  }
+
   // Helper: perform session wrapup (shared between suggestion and manual)
   async function performWrapup(chatId?: number): Promise<void> {
     if (!memoryStore || !modeManager) return;
 
+    // Gather recent episodes (used for both summary and file synthesis)
+    const recentEpisodes = memoryStore.getEpisodesSince(
+      Math.max(0, memoryStore.getLastEpisodeId() - 20), 20,
+    );
+    const conversationText = recentEpisodes
+      .map(ep => `[${ep.role}] ${(ep.summary || ep.content).slice(0, 150)}`)
+      .join("\n");
+
+    // 1. Generate session summary → memory.db episode (both modes)
     try {
-      // Generate session summary from recent episodes
-      const recentEpisodes = memoryStore.getEpisodesSince(
-        Math.max(0, memoryStore.getLastEpisodeId() - 20), 20,
-      );
       if (recentEpisodes.length > 0) {
-        const conversationText = recentEpisodes
-          .map(ep => `[${ep.role}] ${(ep.summary || ep.content).slice(0, 150)}`)
-          .join("\n");
         const summaryPrompt = `Summarize this conversation in 3-5 bullets: what was discussed, what was decided, what's pending.\n\n${conversationText.slice(0, 2000)}`;
         const summaryResponse = await claude.quickShot(summaryPrompt);
         if (summaryResponse.result && !summaryResponse.error) {
+          const project = projects.getActiveProjectName() ?? undefined;
           await memoryStore.record({
             timestamp: new Date().toISOString(),
             source: "session_summary",
+            project,
             session_id: (await sessions.current()) ?? undefined,
             role: "system",
             content: summaryResponse.result.slice(0, 1000),
@@ -822,15 +836,115 @@ export function createTelegramBot(
         }
       }
     } catch (err) {
-      console.warn(`[telegram] Workspace wrapup summary failed: ${err}`);
+      console.warn(`[telegram] Wrapup summary failed: ${err}`);
     }
 
-    // Rotate workspace session
+    // 2. In project mode: write MEMORY.md + CLAUDE.local.md (mirrors local wrapup Steps 3+4)
+    const activeProject = projects.getActiveProject();
+    if (activeProject) {
+      const projectDir = projects.getProjectPath(activeProject);
+      if (projectDir) {
+        await writeWrapupFiles(projectDir, activeProject.displayName, conversationText);
+      }
+    }
+
+    // 3. Rotate session + reset metrics
     await sessions.rotateWorkspaceSession();
     modeManager.resetSessionMetrics();
-
-    // Also clear the active session file so next message starts fresh
     await sessions.newSession();
+  }
+
+  // Write MEMORY.md and CLAUDE.local.md for a project (mirrors local wrapup Steps 3+4)
+  async function writeWrapupFiles(
+    projectDir: string,
+    displayName: string,
+    conversationText: string,
+  ): Promise<void> {
+    const now = new Date().toISOString();
+
+    // --- Step 3: Synthesize MEMORY.md ---
+    try {
+      const memoryPath = computeAutoMemoryPath(projectDir);
+      let currentMemory = "";
+      try {
+        currentMemory = await readFile(memoryPath, "utf-8");
+      } catch {
+        // No existing MEMORY.md — will create fresh
+      }
+
+      const synthesizePrompt = `You are synthesizing the auto-memory file for a project. Rewrite it completely based on the current content and recent conversation.
+
+PROJECT: ${displayName}
+
+CURRENT MEMORY.md (may be empty):
+${currentMemory.slice(0, 2000)}
+
+RECENT CONVERSATION:
+${conversationText.slice(0, 2000)}
+
+Write a complete MEMORY.md using this format. Keep under 150 lines. Include ONLY operational knowledge not in the project's CLAUDE.md, plus debugging learnings. Do NOT include architecture, config, or session state (those belong in CLAUDE.md and CLAUDE.local.md respectively).
+
+Format:
+# ${displayName} — Session Memory
+
+> Architecture and config live in **CLAUDE.md** (git-tracked).
+> Session state and next steps live in **CLAUDE.local.md** (wrapup writes this).
+> This file holds only **operational knowledge not in those files** + **debugging learnings**.
+
+## Operational Knowledge (not in CLAUDE.md)
+- [paths, credentials, config NOT in CLAUDE.md]
+
+## Patterns & Learnings
+- [what works, what to avoid, debugging insights]
+
+Respond with ONLY the markdown content, no code fences.`;
+
+      const memoryResponse = await claude.quickShot(synthesizePrompt);
+      if (memoryResponse.result && !memoryResponse.error) {
+        await mkdir(dirname(memoryPath), { recursive: true });
+        await writeFile(memoryPath, memoryResponse.result.trim() + "\n", "utf-8");
+        console.log(`[telegram] Wrapup: wrote MEMORY.md (${memoryPath})`);
+      }
+    } catch (err) {
+      console.warn(`[telegram] Wrapup MEMORY.md synthesis failed: ${err}`);
+    }
+
+    // --- Step 4: Update CLAUDE.local.md ---
+    try {
+      const localPath = join(projectDir, "CLAUDE.local.md");
+      const claudeLocalPrompt = `Generate a CLAUDE.local.md session continuity file based on this recent conversation. This file is auto-loaded by Claude Code on session start to provide "where was I?" context.
+
+PROJECT: ${displayName}
+RECENT CONVERSATION:
+${conversationText.slice(0, 2000)}
+
+Write the file using this exact format. Be concise and accurate. Respond with ONLY the markdown content, no code fences.
+
+# Session Continuity
+
+**Last wrapup:** ${now}
+**Current focus:** [1-2 sentences on what was being worked on]
+
+## Completed This Session
+- [what was done, based on the conversation]
+
+## In Progress
+- [active work items, or "None"]
+
+## Next Steps
+1. [prioritized next actions, max 5]
+
+## Blockers
+- [anything blocking progress, or "None"]`;
+
+      const localResponse = await claude.quickShot(claudeLocalPrompt);
+      if (localResponse.result && !localResponse.error) {
+        await writeFile(localPath, localResponse.result.trim() + "\n", "utf-8");
+        console.log(`[telegram] Wrapup: wrote CLAUDE.local.md (${localPath})`);
+      }
+    } catch (err) {
+      console.warn(`[telegram] Wrapup CLAUDE.local.md generation failed: ${err}`);
+    }
   }
 
   // /schedule — Manage scheduled tasks
