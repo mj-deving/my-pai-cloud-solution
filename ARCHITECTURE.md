@@ -12,17 +12,19 @@
 4. [System Architecture](#system-architecture)
 5. [Communication Channels](#communication-channels)
 6. [The Bridge Service](#the-bridge-service)
-7. [Session Management](#session-management)
-8. [Project Handoff Protocol](#project-handoff-protocol)
-9. [Cross-User Pipeline (Gregor↔Isidore Cloud)](#cross-user-pipeline-gregorisidore-cloud)
-10. [Knowledge Sync](#knowledge-sync)
-11. [VPS Infrastructure](#vps-infrastructure)
-12. [Security Model](#security-model)
-13. [Deployment Guide](#deployment-guide)
-14. [File Reference](#file-reference)
-15. [Troubleshooting](#troubleshooting)
-16. [What's Next](#whats-next)
-17. [Replicating This System](#replicating-this-system)
+7. [Dual-Mode System](#dual-mode-system)
+8. [Memory & Context](#memory--context)
+9. [Session Management](#session-management)
+10. [Project Management](#project-management)
+11. [Cross-User Pipeline (Gregor↔Isidore Cloud)](#cross-user-pipeline-gregorisidore-cloud)
+12. [Autonomous Systems](#autonomous-systems)
+13. [VPS Infrastructure](#vps-infrastructure)
+14. [Security Model](#security-model)
+15. [Deployment Guide](#deployment-guide)
+16. [File Reference](#file-reference)
+17. [Troubleshooting](#troubleshooting)
+18. [What's Next](#whats-next)
+19. [Replicating This System](#replicating-this-system)
 
 ---
 
@@ -30,7 +32,7 @@
 
 Claude Code is powerful but local — it lives in your terminal, on your machine. When you close the lid, it's gone. You can't message it from your phone on the train. You can't have it running a background task while you sleep.
 
-**PAI Cloud Solution solves this** by deploying a second instance of your AI assistant (same personality, same knowledge, same skills) to a VPS that runs 24/7. You talk to it over Telegram from your phone, or SSH in for deep work. Both instances — local and cloud — share the same knowledge base through automatic Git-based sync.
+**PAI Cloud Solution solves this** by deploying a second instance of your AI assistant (same personality, same knowledge, same skills) to a VPS that runs 24/7. You talk to it over Telegram from your phone, or SSH in for deep work. The cloud instance has its own SQLite-backed memory, context injection, and autonomous capabilities.
 
 The result: **one assistant, always available, everywhere.**
 
@@ -38,7 +40,8 @@ The result: **one assistant, always available, everywhere.**
 
 - **One identity, two runtimes.** Isidore is one person. "Isidore" runs locally, "Isidore Cloud" runs on the VPS. They share personality, knowledge, and relationship history. They differ only in environment.
 - **Channel-agnostic conversations.** Whether you SSH in, send a Telegram message, or send an email — it's the same conversation, same session, same context.
-- **Knowledge convergence.** What one instance learns, the other inherits. Relationship notes, learnings from mistakes, user preferences — all synced automatically.
+- **Memory-first persistence.** SQLite-backed episodic + semantic memory (`memory.db`) is the sole persistence layer. No file-based handoff — episodes, knowledge, project state, session summaries, and whiteboards all live in memory.db.
+- **Dual-mode operation.** Workspace mode (default) for autonomous work with auto-session management. Project mode for focused git-repo work with manual session control.
 - **Minimal infrastructure.** A single small VPS, a Telegram bot token, and a Git repo. No Kubernetes, no Docker, no cloud functions. Just systemd, Bun, and shell scripts.
 - **Coexistence and collaboration.** The VPS is shared with Gregor/OpenClaw. Each has its own Linux user and systemd services. They don't interfere — and when they need to collaborate, a shared file-based pipeline (`/var/lib/pai-pipeline/`) enables cross-user task exchange.
 
@@ -56,19 +59,30 @@ You (Marius)
 ├── On your phone / away from home
 │   └── Telegram → @IsidoreCloudBot
 │       └── Bridge service → claude --resume  ← "Isidore Cloud" (VPS)
-│           └── Same PAI skills, same knowledge, text-only
+│           ├── Memory context injection (memory.db → prompt prefix)
+│           ├── Statusline on every reply (mode/time/context%)
+│           └── Auto-wrapup on context pressure (workspace mode)
 │
 ├── Via email (planned)
 │   └── IMAP poll → claude --resume
 │       └── Response via SMTP
 │
-└── Automated tasks
-    └── Cron → claude -p "task"    ← One-shot, no session
+├── Automated tasks (scheduler)
+│   └── Pipeline task → claude -p "task"    ← One-shot, no session
+│       ├── Daily synthesis (02:00 UTC)
+│       ├── Daily memory summary (22:55 UTC)
+│       └── Weekly health review (Sunday 03:00 UTC)
+│
+└── Cross-agent collaboration
+    └── Gregor ↔ Isidore Cloud via /var/lib/pai-pipeline/
+        ├── Forward pipeline (Gregor → Isidore)
+        ├── Reverse pipeline (Isidore → Gregor via /delegate)
+        └── DAG workflows (multi-step, mixed assignees)
 ```
 
-**The bridge service** is the heart: a Bun/TypeScript process that runs 24/7, listens on Telegram (long polling), authenticates you, forwards your messages to Claude Code CLI, formats the response for mobile, and sends it back.
+**The bridge service** is the heart: a Bun/TypeScript process that runs 24/7, listens on Telegram (long polling), authenticates you, forwards your messages to Claude Code CLI, formats the response for mobile, and sends it back. Every reply includes a statusline showing current mode and session metrics.
 
-**Session continuity** works because both SSH (interactive tmux) and Telegram (programmatic bridge) share one session ID file (`~/.claude/active-session-id`). Claude Code's `--resume` flag picks up where you left off.
+**Session continuity** works via two mechanisms: (1) Claude Code's `--resume` flag with session IDs stored in `~/.claude/active-session-id`, and (2) session summaries stored in `memory.db` that are injected as context when sessions rotate. The bridge generates session summaries on `/clear`, `/wrapup`, and shutdown.
 
 ---
 
@@ -110,15 +124,15 @@ VPS: 213.199.32.18 (Ubuntu 24.04, Contabo)
 │   │
 │   ├── ~/projects/*/                  # Other project repos (managed by /newproject)
 │   │
-│   ├── ~/pai-knowledge/               # Shared knowledge Git repo (clone)
+│   ├── ~/workspace/                   # Workspace mode home directory (git-tracked)
+│   │   └── memory/                    # Daily memory files (YYYY-MM-DD.md)
 │   │
 │   ├── ~/.claude/                     # Claude Code configuration
 │   │   ├── settings.json              # PAI settings (Isidore Cloud identity)
 │   │   ├── skills/PAI/               # Full PAI skill set
 │   │   ├── hooks/                    # PAI hooks (non-interactive subset)
-│   │   ├── MEMORY/                   # Synced knowledge (RELATIONSHIP, LEARNING)
 │   │   ├── active-session-id         # Current conversation session pointer
-│   │   └── handoff-state.json        # Per-project session mapping
+│   │   └── memory.db                 # SQLite memory store (episodes, knowledge, state)
 │   │
 │   ├── ~/.config/isidore_cloud/
 │   │   └── bridge.env                # Secrets (Telegram token, paths)
@@ -150,13 +164,11 @@ VPS: 213.199.32.18 (Ubuntu 24.04, Contabo)
 ```
 Local: WSL2 (your machine)
 ├── ~/projects/my-pai-cloud-solution/  # Source code (this repo)
-├── ~/pai-knowledge/                   # Shared knowledge Git repo (clone)
 ├── ~/.ssh/
 │   ├── id_ed25519_isidore_cloud      # SSH key for VPS access
 │   └── config                        # SSH alias: isidore_cloud → VPS
 └── ~/.claude/                         # Claude Code (local Isidore)
-    ├── MEMORY/                        # Synced from/to pai-knowledge
-    └── skills/PAI/USER/               # Synced from/to pai-knowledge
+    └── skills/PAI/                    # Full PAI skill set
 ```
 
 ---
@@ -175,27 +187,31 @@ The Telegram bot (`@IsidoreCloudBot`) is the main way to talk to Isidore Cloud f
 5. Claude's response is parsed, run through the compact formatter (strips PAI Algorithm verbosity), chunked to fit Telegram's 4096-char limit, and sent back
 
 **Bot commands:**
-- `/start` — Welcome message and available commands
-- `/project <name>` — Switch active project (auto-push current, pull target, restore session)
-- `/projects` — List all registered projects with active marker and session info
-- `/newproject <name>` — Create a new project (GitHub repo + VPS dir + scaffold + registry)
-- `/done` — Commit + push current project + knowledge sync
-- `/handoff` — Done + detailed status summary for local pickup
-- `/new` — Start a fresh conversation (archives current session)
-- `/status` — Show current session info and archived sessions
-- `/clear` — Archive current session and start fresh
-- `/compact` — Send `/compact` to Claude to compress context
-- `/oneshot <msg>` — One-shot query without session (for quick questions)
-- `/quick <msg>` — Quick query using Haiku model (fast, cheap)
-- `/deleteproject <name>` — Remove a project from the registry
-- `/delegate <prompt>` — Delegate a task to Gregor via reverse pipeline
-- `/workflow create <prompt>` — Create a DAG workflow (auto-decomposes into steps)
-- `/workflow status [id]` — List all workflows or show specific workflow details
-- `/workflow <id>` — Show details for a specific workflow
-- `/workflows` — List all workflows with status
-- `/cancel <id>` — Cancel an active workflow
-- `/pipeline` — Dashboard: forward + reverse pipeline + workflow status
-- `/branches` — Show active branch isolation locks
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Welcome message, current mode, available commands |
+| `/status` | Mode, session metrics (msg count, tokens, context %), memory stats |
+| `/workspace` or `/home` | Switch to workspace mode (auto-pushes current project) |
+| `/project <name>` | Switch to project mode (auto-push current, pull target, restore session) |
+| `/wrapup` | Manual workspace session wrapup (generates summary, rotates session) |
+| `/keep` | Cancel pending auto-wrapup, extend threshold by 50% |
+| `/sync` | Git commit + push current project |
+| `/pull` | Git pull current project |
+| `/clear` | Generate session summary + archive session + start fresh |
+| `/compact` | Send `/compact` to Claude to compress context |
+| `/new` | Start fresh conversation (archives current session) |
+| `/oneshot <msg>` | One-shot query without session (for quick questions) |
+| `/quick <msg>` | Quick query using Haiku model (fast, cheap) |
+| `/delegate <prompt>` | Delegate a task to Gregor via reverse pipeline |
+| `/workflow create <prompt>` | Create a DAG workflow (auto-decomposes into steps) |
+| `/workflows` | List all workflows with status |
+| `/cancel <id>` | Cancel an active workflow |
+| `/pipeline` | Pipeline status (forward + reverse + workflows) |
+| `/branches` | Show active branch isolation locks |
+| `/schedule` | Scheduler status (cron jobs) |
+| `/newproject <name>` | Create new project (GitHub repo + VPS dir + scaffold + registry) |
+| `/deleteproject <name>` | Remove a project from the registry |
 
 **Authentication:** Only one Telegram user ID is allowed (configured in `bridge.env`). All other users get "Unauthorized. This bot is private."
 
@@ -240,14 +256,31 @@ The bridge is a single Bun process (`src/bridge.ts`) that orchestrates everythin
 ```
 bridge.ts (entry point)
 ├── loadConfig()            → config.ts           — reads bridge.env, validates, returns typed config
-├── SessionManager          → session.ts          — reads/writes ~/.claude/active-session-id
-├── ClaudeInvoker           → claude.ts           — spawns claude CLI, handles timeouts, parses JSON
-├── ProjectManager          → projects.ts         — project registry, handoff state, git sync
-├── createTelegramBot()     → telegram.ts         — Grammy bot with auth middleware + handlers
+├── SessionManager          → session.ts          — session IDs + workspace session via memory.db
+├── ClaudeInvoker           → claude.ts           — spawns CLI, timeouts, stream-json, importance scoring
+├── ProjectManager          → projects.ts         — project registry, state in memory.db, git sync
+├── ModeManager             → mode.ts             — dual-mode state, session metrics, auto-wrapup
+├── TelegramAdapter         → telegram-adapter.ts — wraps Grammy bot behind MessengerAdapter interface
+│   └── createTelegramBot() → telegram.ts         — auth middleware, all commands, statusline
+├── MemoryStore             → memory.ts           — SQLite episodic + semantic memory, FTS5, whiteboards
+├── EmbeddingProvider       → embeddings.ts       — Ollama embeddings or keyword fallback
+├── ContextBuilder          → context.ts          — scored retrieval, topic tracking, budget injection
 ├── PipelineWatcher         → pipeline.ts         — cross-user task queue (Gregor → Isidore)
 ├── ReversePipelineWatcher  → reverse-pipeline.ts — delegation queue (Isidore → Gregor)
 ├── TaskOrchestrator        → orchestrator.ts     — DAG workflow decomposition + execution
 ├── BranchManager           → branch-manager.ts   — task-specific branch isolation + locks
+├── SynthesisLoop           → synthesis.ts        — knowledge distillation + project whiteboards
+├── Scheduler               → scheduler.ts        — SQLite cron scheduler (synthesis, memory, health)
+├── PolicyEngine            → policy.ts           — YAML-based action authorization
+├── DailyMemoryWriter       → daily-memory.ts     — workspace daily episode summary to markdown
+├── Dashboard               → dashboard.ts        — HTTP API + SSE real-time updates
+├── ResourceGuard           → resource-guard.ts   — memory-gated dispatch
+├── RateLimiter             → rate-limiter.ts     — failure-rate circuit breaker
+├── Verifier                → verifier.ts         — result verification via Claude one-shot
+├── AgentLoader             → agent-loader.ts     — .pai/agents/*.md definitions
+├── AgentRegistry           → agent-registry.ts   — SQLite agent tracking + heartbeat
+├── IdempotencyStore        → idempotency.ts      — duplicate task detection
+├── formatStatusline()      → statusline.ts       — two-line status block for Telegram
 ├── compactFormat()         → format.ts           — strips PAI Algorithm formatting for mobile
 ├── chunkMessage()          → format.ts           — splits long responses for Telegram's 4096 limit
 └── escMd()                 → format.ts           — escapes Markdown in notifications
@@ -259,19 +292,31 @@ bridge.ts (entry point)
 User message
   → Grammy middleware: check user ID
   → Send "typing" indicator
-  → ClaudeInvoker.send(message)
+  → ContextBuilder.buildContext(message, project)
+    → Query memory.db (scored retrieval: FTS5 + recency + importance)
+    → Get session summary for recovery context
+    → Get project whiteboard (or cross-project whiteboards in workspace mode)
+    → Format within char budget (whiteboard 20%, knowledge 20%, episodes 30%, summary 30%)
+    → Freeze as snapshot (topic-based invalidation, 5min TTL fallback)
+  → ClaudeInvoker.send(message, contextPrefix)
     → Read session ID from file
-    → Spawn: claude [--resume <id>] -p "message" --output-format json
-    → Wait (up to 5 min timeout)
-    → Parse JSON response
+    → Spawn: claude [--resume <id>] -p "[context]\nmessage" --output-format stream-json
+    → Parse NDJSON stream events, extract text + usage
     → Save real session ID from Claude's response
+    → Record episode in memory.db (with importance scoring via haiku)
   → compactFormat(response)
     → Strip Algorithm headers, ISC gates, voice curls, time checks
-    → No truncation — chunkMessage() handles splitting
   → chunkMessage(formatted, 4000)
     → Split at paragraph → line → space → hard break boundaries
     → Add [1/N] part indicators
+  → Append statusline to last chunk (mode/time/msg count/context%/episodes)
   → Send chunks back to Telegram
+  → ModeManager.recordMessage(usage)
+  → Auto-wrapup check (workspace mode only):
+    → 80% threshold: warn user, set pending wrapup
+    → 100% threshold: generate summary, rotate session, reset metrics
+  → Importance-triggered synthesis (workspace mode only):
+    → If unsynthesized importance sum > threshold → trigger SynthesisLoop
 ```
 
 ### Compact Formatter
@@ -294,6 +339,118 @@ Claude Code with PAI runs the full Algorithm for every response — phase header
 
 ---
 
+## Dual-Mode System
+
+The bridge operates in two distinct modes, managed by `ModeManager` (`mode.ts`):
+
+### Workspace Mode (Default)
+
+The agent's "home" — where it lives between projects. Active when no project is selected.
+
+- **Auto-session management:** ModeManager tracks cumulative tokens and message count. When context pressure reaches 80%, warns the user. At 100%, automatically generates a session summary, rotates the session, and resets metrics.
+- **Importance-triggered synthesis:** After each message, checks if unsynthesized episode importance sum exceeds threshold (default 50). If so, triggers `SynthesisLoop` to distill knowledge.
+- **Daily memory:** Cron-scheduled summary of day's episodes → markdown file + memory.db episode.
+- **Workspace session:** Stored in memory.db (domain="system", key="workspace_session"), separate from project sessions.
+
+### Project Mode
+
+Focused work on a specific git-tracked repo. Invoked via `/project <name>`.
+
+- **Manual session management:** Sessions keyed by project name, stored in memory.db sessions map.
+- **Git-aware:** `/sync` commits + pushes, `/pull` pulls latest.
+- **Context scoping:** ContextBuilder filters episodes by project, injects project-specific whiteboard.
+
+### Statusline
+
+Every Telegram reply ends with a statusline code block:
+
+```
+══ PAI ══════════════════════════
+🏠 workspace · 14:30
+msg 5/30 · ctx 42% · 21ep
+```
+
+- Line 1: Mode icon (🏠 workspace / 📁 project name) + time
+- Line 2: Message count + context pressure % + episode count
+
+### Auto-Wrapup Flow
+
+```
+Message N in workspace mode:
+  → ModeManager.recordMessage(usage)
+  → ModeManager.shouldAutoWrapup(config)
+  → At 80%: "Context at X%, auto-freshening in ~N messages. /keep to stay."
+  → At 100%: performWorkspaceWrapup()
+    → Generate session summary via quickShot (haiku)
+    → Record as importance-9 episode (source: "session_summary")
+    → Rotate workspace session (archive old, clear from memory.db)
+    → Reset ModeManager metrics
+    → Next message starts with context injection from summary
+  → /keep: extends threshold by 50%, clears pending warning
+```
+
+---
+
+## Memory & Context
+
+### Memory Store (`memory.ts`)
+
+SQLite-backed episodic + semantic memory. The sole persistence layer for the bridge.
+
+```
+memory.db
+├── episodes            # Episodic memory (every message, pipeline result, etc.)
+│   ├── id, timestamp, source, project, session_id, role
+│   ├── content, summary (haiku-generated)
+│   ├── importance (1-10, haiku-scored)
+│   ├── access_count, last_accessed
+│   └── FTS5 index (content + summary)
+│
+├── knowledge           # Semantic memory (distilled facts, state, whiteboards)
+│   ├── domain/key namespacing
+│   ├── Synthesis knowledge: domain=topic, key=entity
+│   ├── System state: domain="system", key="activeProject"|"sessions"|"workspace_session"
+│   └── Whiteboards: domain="whiteboard", key=project
+│
+├── synthesis_state     # SynthesisLoop tracking (last_episode_id, run count)
+│
+└── Optional: sqlite-vec vectors for semantic search (falls back to FTS5 keyword)
+```
+
+**Episode sources:** `telegram`, `pipeline`, `orchestrator`, `handoff`, `prd`, `synthesis`, `session_summary`, `daily_memory`
+
+**Importance scoring:** Every episode gets scored 1-10 at record time via `ClaudeInvoker.rateAndSummarize()` (haiku one-shot). High-importance episodes get full content in context injection; lower-importance get summary-only.
+
+### Context Injection (`context.ts`)
+
+`ContextBuilder` queries memory before each Claude invocation and prepends relevant context:
+
+```
+Budget allocation (default 8000 chars):
+├── 20% — Project whiteboard (or cross-project whiteboards in workspace mode)
+├── 20% — Relevant knowledge entries
+├── 30% — Recent relevant episodes (importance-masked)
+└── 30% — Session summary (recovery context from previous conversation)
+```
+
+**Retrieval:** `scoredQuery()` combines FTS5 text relevance + recency decay + importance weighting + access frequency into a composite score.
+
+**Caching:** Topic-based snapshot invalidation. Extracts keywords from each message, computes Jaccard similarity with rolling topic. Topic shift → invalidate snapshot → fresh query. Time-based fallback TTL of 5 minutes.
+
+**Mode-aware:** In project mode, injects single project whiteboard. In workspace mode, injects up to 3 recent project whiteboards.
+
+### Synthesis Loop (`synthesis.ts`)
+
+Periodic knowledge distillation from accumulated episodes:
+
+- Groups episodes by source domain
+- Calls Claude one-shot per domain to extract reusable knowledge
+- Writes entries via `MemoryStore.distill()`
+- Generates per-project whiteboards (running summary of what's happening in each project)
+- Triggered by scheduler (daily at 02:00 UTC) or importance threshold (workspace mode)
+
+---
+
 ## Session Management
 
 Sessions are the mechanism for conversation continuity. Claude Code identifies conversations by session ID — passing `--resume <session-id>` continues where you left off.
@@ -302,161 +459,70 @@ Sessions are the mechanism for conversation continuity. Claude Code identifies c
 
 ```
 1. First message (no session ID file):
-   claude -p "hello" --output-format json
+   claude -p "hello" --output-format stream-json
    → Claude creates a new session
    → Response includes session_id: "abc-123..."
    → Bridge saves "abc-123..." to ~/.claude/active-session-id
 
 2. Subsequent messages:
-   claude --resume abc-123... -p "continue" --output-format json
+   claude --resume abc-123... -p "continue" --output-format stream-json
    → Claude resumes the conversation
    → Same context, same history
 
-3. /new or /clear command:
-   → Archives current session ID to ~/.claude/archived-sessions/
-   → Clears active-session-id
-   → Next message starts fresh (back to step 1)
+3. /clear or /wrapup command:
+   → Generate session summary (haiku quickShot)
+   → Record summary as importance-9 episode in memory.db
+   → Archive session ID to ~/.claude/archived-sessions/
+   → Clear active-session-id
+   → Next message starts fresh with context injection from summary
 ```
 
-### Session ID File
+### Session Types
 
-- **Path:** `/home/isidore_cloud/.claude/active-session-id`
-- **Content:** A single line containing the UUID-format session ID
-- **Shared by:** Telegram bridge, SSH/tmux sessions, cron (read-only)
-- **Archives:** `~/.claude/archived-sessions/{timestamp}_{id}.session`
+| Type | Storage | Lifecycle |
+|------|---------|-----------|
+| **Project session** | memory.db knowledge (domain="system", key="sessions") | Per-project, persists across mode switches |
+| **Workspace session** | memory.db knowledge (domain="system", key="workspace_session") | Auto-rotated on context pressure |
+| **Active session file** | `~/.claude/active-session-id` | Points to current CLI session |
 
-### Gotcha: Stale Session IDs
+### Stale Session Recovery
 
-If the session ID file points to a session that no longer exists (e.g., after a service restart or Claude Code update), you'll get:
-
-```
-Error: No conversation found with session ID: abc-123...
-```
-
-**Auto-recovery:** The bridge detects this automatically (`claude.ts:93-97`), clears the stale session, and retries. No manual intervention needed. **Manual fallback:** Delete the file (`rm ~/.claude/active-session-id`) if auto-recovery fails.
+If the session ID file points to a session that no longer exists, the bridge detects this automatically, clears the stale session, and retries without `--resume`. No manual intervention needed.
 
 ---
 
-## Project Handoff Protocol
+## Project Management
 
-The handoff protocol enables seamless project switching between local Isidore and Isidore Cloud. Each project maintains its own session, working directory, and git state.
+A **project registry** (`config/projects.json`) tracks all projects with their paths, git URLs, and active status. Project state (active project, per-project sessions) is persisted in `memory.db` — no file-based handoff.
 
-### The Problem
-
-Working on multiple projects across two instances (local + VPS) without a protocol means:
-- Losing conversation context when switching projects
-- Forgetting to commit/push before switching
-- No way to know what the other instance was working on
-
-### The Solution
-
-A **project registry** (`config/projects.json`) tracks all projects. A **handoff state file** (`~/.claude/handoff-state.json`) maps each project to its own Claude session ID. The bridge coordinates switching.
-
-### Project Registry
-
-```json
-{
-  "version": 1,
-  "projects": [
-    {
-      "name": "my-pai-cloud-solution",
-      "displayName": "My PAI Cloud Solution",
-      "git": "https://github.com/mj-deving/my-pai-cloud-solution.git",
-      "paths": {
-        "local": "/home/mj/projects/my-pai-cloud-solution",
-        "vps": "/home/isidore_cloud/projects/my-pai-cloud-solution"
-      },
-      "autoClone": true,
-      "active": true
-    }
-  ]
-}
-```
-
-**Key fields:**
-- `paths.local` / `paths.vps` — Where the project lives on each machine. Can be `null` for cloud-only or local-only projects.
-- `autoClone` — If `true`, the bridge will `git clone` the project on first access if the directory doesn't exist.
-- `active` — Soft-delete flag. Inactive projects are hidden from `/projects`.
-
-**Two copies exist:**
-1. `config/projects.json` — Bundled with the bridge code (deployed via rsync)
-2. `pai-knowledge/HANDOFF/projects.json` — In the knowledge sync repo (survives across instances)
-
-### Handoff State
-
-```json
-{
-  "activeProject": "my-pai-cloud-solution",
-  "lastSwitch": "2026-02-26T15:30:00.000Z",
-  "sessions": {
-    "my-pai-cloud-solution": "abc-123-session-id",
-    "openclaw-bot": "def-456-session-id"
-  }
-}
-```
-
-Each project gets its own Claude session. When you switch projects:
-1. Current project's session ID is saved
-2. Target project's session ID is restored (or a new session is started)
-3. Claude's working directory is updated
-4. The bridge automatically pushes the current project and pulls the target
-
-### Project Switching Flow (`/project <name>`)
+### Project Switching (`/project <name>`)
 
 ```
 /project openclaw-bot
-  → Auto-push current project (git add -u && commit && push)
-  → Look up "openclaw-bot" in registry (case-insensitive partial match)
-  → Ensure target is cloned on this machine (auto-clone if needed)
+  → Auto-push current project (git commit + push)
+  → ModeManager.switchToProject("openclaw-bot")
+  → Look up in registry (case-insensitive partial match)
+  → Ensure target is cloned (auto-clone if needed)
   → Pull latest code (git pull)
-  → Pull latest knowledge (sync-knowledge.sh pull)
-  → Save current session ID, restore target's session ID
+  → Save current session ID, restore target's session ID (from memory.db)
   → Set Claude working directory to target's path
-  → Reply with status
+  → Reply with status + statusline
 ```
 
 ### Project Creation (`/newproject <name>`)
 
-Creates everything from scratch via a single Telegram command:
-
 ```
 /newproject my-new-project
   → Validate name (lowercase kebab-case)
-  → Check for duplicates in registry
   → gh repo create mj-deving/my-new-project --private
   → git clone into /home/isidore_cloud/projects/my-new-project/
-  → Write scaffold CLAUDE.md (conventions, handoff instructions)
+  → Write scaffold CLAUDE.md
   → git add -A && commit && push
-  → Add to registry (both copies) and save
+  → Add to registry and save
   → Auto-switch to the new project
-  → Reply with details + "git clone ..." instruction for local pickup
 ```
 
-**New projects start as cloud-only** (`paths.local: null`). When you want to work on it locally, just `git clone` from GitHub and update the registry with the local path.
-
-### Cross-Instance Handoff (`/handoff`)
-
-A combination of `/done` + a status summary:
-
-```
-/handoff
-  → Git commit + push current project
-  → Knowledge sync push
-  → Reply with:
-    - Git status (pushed / nothing to push)
-    - Knowledge sync status
-    - Current session ID
-    - Path on this machine
-    - "To pick up locally: cd /path && git pull"
-```
-
-### CLAUDE.handoff.md
-
-When knowledge sync pulls, it can write a `CLAUDE.handoff.md` file in the project directory. This file contains the other instance's last session state — what it was working on, what decisions were made, what's pending.
-
-**Important:** `CLAUDE.handoff.md` never overwrites `CLAUDE.local.md`. Each instance maintains its own local context. The handoff file is *additional* context.
-
-Each project's `CLAUDE.md` contains the instruction: "If `CLAUDE.handoff.md` exists, read it on session start."
+**New projects start as cloud-only** (`paths.local: null`). Clone from GitHub to work locally.
 
 ---
 
@@ -738,106 +804,55 @@ Task arrives → BranchManager.checkout(projectDir, taskId)
 
 ---
 
-### The Problem
+## Autonomous Systems
 
-Claude Code is stateless. Every session starts from scratch, loading context from files on disk. "Knowledge" is just files. Two instances on two machines = two separate file systems = divergent knowledge.
+### Scheduler (`scheduler.ts`)
 
-### The Solution
+SQLite-backed cron scheduler for self-initiated tasks. 5-field cron parser with ranges, steps, lists. Emits task JSON to pipeline `tasks/` directory. Feature-flagged `SCHEDULER_ENABLED`.
 
-A private GitHub repo (`mj-deving/pai-knowledge`) acts as the intermediary. Both instances push/pull knowledge to/from this repo.
+| Schedule | Cron | Purpose |
+|----------|------|---------|
+| `daily-synthesis` | `0 2 * * *` | Knowledge distillation from accumulated episodes |
+| `daily-memory` | `55 22 * * *` | Daily workspace episode summary to markdown |
+| `weekly-review` | `0 3 * * 0` | System health review (memory, pipeline, disk) |
 
-```
-     Local Isidore (WSL2)              Isidore Cloud (VPS)
-     ┌──────────────────┐              ┌──────────────────┐
-     │ ~/.claude/MEMORY/ │              │ ~/.claude/MEMORY/ │
-     │ ~/.claude/skills/ │              │ ~/.claude/skills/ │
-     └────────┬─────────┘              └────────┬─────────┘
-              │                                 │
-              │ sync-knowledge.sh push          │ sync-knowledge.sh push
-              │ (copy → commit → push)          │ (copy → commit → push)
-              │                                 │
-              ▼                                 ▼
-     ┌──────────────────┐              ┌──────────────────┐
-     │ ~/pai-knowledge/  │◄── GitHub ──►│ ~/pai-knowledge/  │
-     │   (local clone)   │  (private)   │   (VPS clone)    │
-     └────────┬─────────┘              └────────┬─────────┘
-              │                                 │
-              │ sync-knowledge.sh pull          │ sync-knowledge.sh pull
-              │ (pull → copy to MEMORY)         │ (pull → copy to MEMORY)
-              ▲                                 ▲
-```
+Managed via `/schedule` Telegram command. Custom schedules can be added programmatically.
 
-### What Syncs
+### Daily Memory Writer (`daily-memory.ts`)
 
-| Data | Direction | Why |
-|------|-----------|-----|
-| `USER/` (ABOUTME, contacts, preferences, Telos) | Bidirectional | Same person, same profile |
-| `RELATIONSHIP/` (daily interaction notes) | Bidirectional | Same relationship with you |
-| `LEARNING/` (algorithm learnings, failures, signals) | Bidirectional | Mistakes on one instance benefit the other |
-
-### What Does NOT Sync (by design)
-
-| Data | Why |
-|------|-----|
-| Active session context | Each instance has its own conversation |
-| `CLAUDE.local.md` | Environment-specific session continuity |
-| `settings.json` | Different paths, different hook subsets, different identity name |
-| `STATE/` | Session pointers, caches — environment-local |
-| `VOICE/` | Local hardware only (no speakers on VPS) |
-| Per-project `MEMORY.md` | Path-bound, different on each machine |
-
-### Repo Structure
+Generates a daily summary of workspace episodes:
 
 ```
-pai-knowledge/            (github.com/mj-deving/pai-knowledge, private)
-├── USER/                 # Mirror of ~/.claude/skills/PAI/USER/
-│   ├── ABOUTME.md
-│   ├── CONTACTS.md
-│   ├── PROJECTS/
-│   ├── TELOS/
-│   └── ...
-├── RELATIONSHIP/         # Daily notes (append-only per day)
-│   └── 2026-02/
-│       ├── 2026-02-25.md
-│       └── 2026-02-26.md
-├── LEARNING/             # Accumulated learnings
-│   ├── ALGORITHM/        # Algorithm execution learnings
-│   ├── SYSTEM/           # Infrastructure learnings
-│   ├── SIGNALS/          # User satisfaction data (ratings JSONL)
-│   └── FAILURES/         # Failure mode documentation
-├── WORK-ARTIFACTS/       # Shared PRDs and threads
-└── .sync-meta.json       # Last sync timestamps per instance
+Cron trigger (22:55 UTC) → pipeline task (type: "daily-memory")
+  → DailyMemoryWriter.writeDailyMemory()
+  → Filter episodes by importance ≥ 3
+  → Summarize via quickShot (haiku)
+  → Write ~/workspace/memory/YYYY-MM-DD.md
+  → Record episode in memory.db (source: "daily_memory", importance: 8)
+  → Git commit in workspace repo (if WORKSPACE_GIT_ENABLED)
 ```
 
-### Sync Script
+### Policy Engine (`policy.ts`)
 
-`scripts/sync-knowledge.sh` handles both directions:
+YAML-based action authorization. Rules with allow/deny/must_ask dispositions. Default: deny. `must_ask` triggers Telegram notification. Checked before pipeline dispatch and orchestrator step dispatch. Feature-flagged `POLICY_ENABLED`.
 
-```bash
-# Push local knowledge to repo (run at session end)
-sync-knowledge.sh push
-# 1. cd ~/pai-knowledge && git pull --rebase
-# 2. rsync USER/, RELATIONSHIP/, LEARNING/ from ~/.claude/ to repo
-# 3. git add -A && git commit && git push
+### Agent Definitions (`agent-loader.ts`)
 
-# Pull repo knowledge to local (run at session start)
-sync-knowledge.sh pull
-# 1. cd ~/pai-knowledge && git pull
-# 2. rsync USER/, RELATIONSHIP/, LEARNING/ from repo to ~/.claude/
-```
+Declarative `.pai/agents/*.md` files with YAML frontmatter + markdown system prompt. Agents have execution tiers (1=full, 2=algo-lite, 3=quickShot), memory scope, constraints, and delegation permissions. Self-register in `AgentRegistry`. Feature-flagged `AGENT_DEFINITIONS_ENABLED`.
 
-### Conflict Handling
+### Dashboard (`dashboard.ts`)
 
-| Data | Conflict scenario | Resolution |
-|------|------------------|------------|
-| RELATIONSHIP daily notes | Both append to same day | Git auto-merge (appends at different positions) |
-| LEARNING JSONL | Both append lines | Git auto-merge (different lines) |
-| USER profile files | Both edit same file | Rare. Local is authoritative. Git conflict → manual resolve |
+Bun.serve HTTP server on localhost:3456 with REST API (8 endpoints) + SSE real-time updates. Dark Kanban board showing pipeline status, workflows, agent health, memory stats, and decision traces. Access via SSH tunnel. Feature-flagged `DASHBOARD_ENABLED`.
 
-### Sync Latency
+### Reliability Layer
 
-- Session end on one instance → push → session start on other instance → pull = **seconds**
-- Both active simultaneously → diverge until next session boundary = **acceptable**
+| Component | Purpose | Feature flag |
+|-----------|---------|-------------|
+| `ResourceGuard` | Blocks dispatch when `os.freemem()` < threshold | `RESOURCE_GUARD_ENABLED` |
+| `RateLimiter` | Sliding-window failure tracking with cooldown | `RATE_LIMITER_ENABLED` |
+| `Verifier` | Result verification via separate Claude one-shot | `VERIFIER_ENABLED` |
+| `IdempotencyStore` | SHA256-based duplicate task detection | `PIPELINE_DEDUP_ENABLED` |
+| `InjectionScan` | Regex prompt injection detection (18 patterns, log-only) | `INJECTION_SCAN_ENABLED` |
 
 ---
 
@@ -1035,41 +1050,14 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now isidore-cloud-bridge isidore-cloud-tmux
 ```
 
-#### 7. Set Up Knowledge Sync
+#### 7. Configure GitHub Access (VPS)
 
 ```bash
-# Create private repo
-gh repo create your-username/pai-knowledge --private
-
-# Clone locally
-gh repo clone your-username/pai-knowledge ~/pai-knowledge
-
-# Generate deploy key on VPS
-ssh isidore_cloud 'ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_github -N ""'
-
-# Add deploy key to repo (with write access)
-gh repo deploy-key add --repo your-username/pai-knowledge --title "vps" -w <(ssh isidore_cloud 'cat ~/.ssh/id_ed25519_github.pub')
-
-# Configure VPS SSH for GitHub
-ssh isidore_cloud 'cat > ~/.ssh/config << EOF
-Host github.com
-    HostName github.com
-    User git
-    IdentityFile ~/.ssh/id_ed25519_github
-    IdentitiesOnly yes
-EOF'
+# Authenticate GitHub via PAT (for HTTPS git operations)
+ssh isidore_cloud 'gh auth login'
 
 # Set git identity on VPS
 ssh isidore_cloud 'git config --global user.name "Isidore Cloud" && git config --global user.email "isidore-cloud@pai.local"'
-
-# Clone on VPS
-ssh isidore_cloud 'git clone git@github.com:your-username/pai-knowledge.git ~/pai-knowledge'
-
-# Initial seed (from local)
-scripts/sync-knowledge.sh push
-
-# Pull on VPS
-ssh isidore_cloud 'CLAUDE_DIR=~/.claude bash ~/projects/my-pai-cloud-solution/scripts/sync-knowledge.sh pull'
 ```
 
 #### 8. Verify Everything
@@ -1084,14 +1072,13 @@ ssh isidore_cloud 'sudo systemctl status isidore-cloud-bridge'  # → active
 ssh isidore_cloud 'sudo systemctl status isidore-cloud-tmux'    # → active
 
 # Telegram works
-# → Send a message to your bot, expect a response
+# → Send a message to your bot, expect a response with statusline
 
-# Knowledge sync works
-ssh isidore_cloud 'CLAUDE_DIR=~/.claude bash ~/projects/my-pai-cloud-solution/scripts/sync-knowledge.sh pull'
-ssh isidore_cloud 'ls ~/.claude/MEMORY/RELATIONSHIP/'  # → dated files
+# Memory works
+ssh isidore_cloud 'bun -e "const db = new (require(\"bun:sqlite\").default)(process.env.HOME + \"/.claude/memory.db\"); console.log(db.query(\"SELECT COUNT(*) as c FROM episodes\").get())"'
 
 # GitHub access (VPS)
-ssh isidore_cloud 'ssh -T git@github.com'  # → "Hi your-username/pai-knowledge!"
+ssh isidore_cloud 'gh auth status'
 ```
 
 ---
@@ -1103,22 +1090,43 @@ ssh isidore_cloud 'ssh -T git@github.com'  # → "Hi your-username/pai-knowledge
 | File | Purpose | Key exports |
 |------|---------|-------------|
 | `bridge.ts` | Entry point. Loads config, initializes all components, wires callbacks, starts services. | `main()` |
-| `telegram.ts` | Grammy bot setup. Auth middleware, command handlers, message forwarding. | `createTelegramBot()` |
-| `claude.ts` | Claude CLI wrapper. Spawns `claude` with `--resume`, handles timeouts, parses JSON. | `ClaudeInvoker`, `ClaudeResponse` |
-| `session.ts` | Reads/writes the shared session ID file. Archives old sessions. | `SessionManager` |
-| `projects.ts` | Project registry, handoff state, git sync, project creation. | `ProjectManager`, `ProjectEntry` |
-| `pipeline.ts` | Cross-user task queue watcher with concurrency pool and branch isolation. | `PipelineWatcher`, `PipelineTask`, `PipelineResult` |
-| `reverse-pipeline.ts` | Isidore→Gregor delegation. Writes tasks, polls results, crash recovery. | `ReversePipelineWatcher`, `PendingDelegation` |
-| `orchestrator.ts` | DAG workflow decomposition via Claude, step dispatch, persistence. | `TaskOrchestrator`, `Workflow`, `WorkflowStep` |
-| `branch-manager.ts` | Task-specific branch creation, locking, release, stale cleanup. | `BranchManager`, `BranchLock` |
-| `wrapup.ts` | Auto-commit tracked changes with branch guard (refuses wrong branch). | `lightweightWrapup()` |
-| `format.ts` | Strips PAI Algorithm verbosity, chunks for Telegram, escapes Markdown. | `compactFormat()`, `chunkMessage()`, `escMd()` |
-| `config.ts` | Reads environment variables, validates required ones, returns typed config. | `Config`, `loadConfig()` |
+| `telegram.ts` | Grammy bot: auth middleware, all `/command` handlers, message forwarding, statusline, auto-wrapup. | `createTelegramBot()` |
+| `telegram-adapter.ts` | Wraps Grammy bot behind platform-agnostic `MessengerAdapter` interface. | `TelegramAdapter` |
+| `messenger-adapter.ts` | Platform-agnostic messaging contract (send, edit, delete, typing). | `MessengerAdapter` |
+| `claude.ts` | Claude CLI wrapper. Spawns with `--resume`, stream-json parsing, importance scoring, quickShot. | `ClaudeInvoker`, `ClaudeResponse` |
+| `session.ts` | Session IDs (file-based) + workspace session management via memory.db. | `SessionManager` |
+| `projects.ts` | Project registry, state in memory.db, git sync, project creation. | `ProjectManager`, `ProjectEntry` |
+| `mode.ts` | Dual-mode state (workspace/project), session metrics, auto-wrapup detection, /keep. | `ModeManager`, `BridgeMode` |
+| `statusline.ts` | Two-line status block appended to every Telegram reply. | `formatStatusline()` |
+| `memory.ts` | SQLite episodic + semantic memory, FTS5, whiteboards, importance scoring, system state. | `MemoryStore` |
+| `embeddings.ts` | Ollama embedding client + keyword-only fallback. | `EmbeddingProvider` |
+| `context.ts` | Scored retrieval, topic tracking, budget-based injection, importance masking. | `ContextBuilder` |
+| `synthesis.ts` | Periodic knowledge distillation from episodes + project whiteboards. | `SynthesisLoop` |
+| `daily-memory.ts` | Cron-scheduled daily episode summary to markdown + memory.db + git. | `DailyMemoryWriter` |
+| `scheduler.ts` | SQLite-backed cron scheduler. 5-field cron parser, emits to pipeline. | `Scheduler` |
+| `policy.ts` | YAML-based action authorization (allow/deny/must_ask). | `PolicyEngine` |
+| `pipeline.ts` | Cross-user task queue watcher with concurrency pool and branch isolation. | `PipelineWatcher` |
+| `reverse-pipeline.ts` | Isidore→Gregor delegation. Writes tasks, polls results, crash recovery. | `ReversePipelineWatcher` |
+| `orchestrator.ts` | DAG workflow decomposition via Claude, step dispatch, persistence. | `TaskOrchestrator` |
+| `branch-manager.ts` | Task-specific branch creation, locking, release, stale cleanup. | `BranchManager` |
+| `schemas.ts` | Zod schemas for all external data types + `safeParse`/`strictParse` helpers. | All schema types |
+| `agent-loader.ts` | Parses `.pai/agents/*.md` YAML+markdown definitions, registers in AgentRegistry. | `AgentLoader` |
+| `agent-registry.ts` | SQLite agent tracking with heartbeat + stale detection. | `AgentRegistry` |
+| `agent-message.ts` | AgentMessage envelope type + mapping functions for inter-agent transport. | `AgentMessage` |
+| `decision-trace.ts` | Structured decision logging at pipeline/orchestrator decision points. | `TraceCollector` |
+| `idempotency.ts` | SQLite-backed duplicate task detection (sha256 op_id). | `IdempotencyStore` |
+| `injection-scan.ts` | Regex-based prompt injection detection (18 patterns, log-only). | `scanForInjection()` |
+| `prd-executor.ts` | Autonomous PRD detection, parsing, execution, progress reporting. | `PRDExecutor` |
+| `prd-parser.ts` | Claude one-shot extraction of structured PRD from freeform text. | `PRDParser` |
+| `dashboard.ts` | Bun.serve HTTP server, REST API (8 endpoints), SSE real-time updates. | `Dashboard` |
+| `dashboard-html.ts` | Self-contained HTML/CSS/JS dark-themed dashboard page. | `getDashboardHtml()` |
+| `status-message.ts` | Rate-limited editable Telegram message manager. | `StatusMessage` |
 | `resource-guard.ts` | Memory-gated dispatch. Checks `os.freemem()` before allowing tasks. | `ResourceGuard` |
 | `rate-limiter.ts` | Sliding-window failure tracking with cooldown period. | `RateLimiter` |
 | `verifier.ts` | Result verification via separate Claude one-shot. Fail-open. | `Verifier` |
-| `isidore-cloud-session.ts` | CLI tool for manual session management (inspect, clear, archive). | CLI script |
-| `isidore-session.ts` | CLI helper (alternate usage string variant of session tool). | CLI script |
+| `format.ts` | Strips PAI Algorithm verbosity, chunks for Telegram, escapes Markdown. | `compactFormat()`, `chunkMessage()`, `escMd()` |
+| `config.ts` | Zod-validated env vars with range checks, feature flags, WORKSPACE_* config. | `Config`, `loadConfig()` |
+| `wrapup.ts` | Auto-commit tracked changes with branch guard (refuses wrong branch). | `lightweightWrapup()` |
 
 ### Scripts (`scripts/`)
 
@@ -1126,11 +1134,10 @@ ssh isidore_cloud 'ssh -T git@github.com'  # → "Hi your-username/pai-knowledge
 |--------|---------|-------------|
 | `setup-vps.sh` | Creates `isidore_cloud` user, installs Bun + Claude CLI, configures SSH. | Once, during initial setup |
 | `deploy-key.sh` | Deploys your SSH public key to the VPS `authorized_keys`. | Once, during initial setup |
-| `deploy.sh` | Full deployment: rsync code, install deps, restart services. Excludes `CLAUDE.local.md`. | Every time you update the code |
+| `deploy.sh` | Full deployment: rsync code + git fetch/reset + bun install. Excludes `CLAUDE.local.md`. | Every time you update the code |
 | `auth-health-check.sh` | Checks Claude OAuth health. Runs via cron every 4 hours. | Automatically via cron |
 | `run-task.sh` | Runs a one-shot Claude task. For cron-based automation. | Manually or via cron |
-| `sync-knowledge.sh` | Bidirectional knowledge sync via Git. `push` or `pull`. | At session boundaries or via /done, /project commands |
-| `project-sync.sh` | Git operations for project handoff: `pull`, `push`, `clone`. | Called by ProjectManager (not directly) |
+| `project-sync.sh` | Git operations for projects: `pull`, `push`, `clone`. | Called by ProjectManager (not directly) |
 
 ### Systemd (`systemd/`)
 
@@ -1183,17 +1190,14 @@ ssh isidore_cloud 'cat ~/.claude/auth-health.log'
 # On VPS: claude /login
 ```
 
-### Knowledge sync fails
+### Memory database issues
 
 ```bash
-# Check SSH to GitHub works
-ssh isidore_cloud 'ssh -T git@github.com'
+# Check episode count
+ssh isidore_cloud 'bun -e "const db = new (require(\"bun:sqlite\").default)(process.env.HOME + \"/.claude/memory.db\"); console.log(db.query(\"SELECT COUNT(*) as c FROM episodes\").get())"'
 
-# Check repo state
-ssh isidore_cloud 'cd ~/pai-knowledge && git status'
-
-# If dirty state from failed sync:
-ssh isidore_cloud 'cd ~/pai-knowledge && git stash && git pull'
+# Check system state
+ssh isidore_cloud 'bun -e "const db = new (require(\"bun:sqlite\").default)(process.env.HOME + \"/.claude/memory.db\"); console.log(db.query(\"SELECT domain, key FROM knowledge WHERE domain=\\\"system\\\"\").all())"'
 ```
 
 ### Cron not running
@@ -1212,34 +1216,37 @@ ssh isidore_cloud 'crontab -l'
 
 ### Completed
 
-- **GitHub PAT for VPS** — Classic PAT with `repo` scope, authenticated via `gh auth`.
-- **VPS CLAUDE.local.md** — Isidore Cloud has self-awareness about its infrastructure.
-- **Handoff protocol** — Full project registry, per-project sessions, `/project`, `/done`, `/handoff` commands.
-- **`/newproject` command** — Telegram-driven project creation (GitHub repo + VPS dir + scaffold + registry).
-- **Cross-user pipeline (Phase 3)** — Gregor↔Isidore Cloud task queue with shared dirs, watcher, sender scripts.
-- **Session-project affinity + structured results (Phase 2)** — Per-project session isolation, priority sorting.
-- **Parallel pipeline execution (Phase 4)** — Concurrency pool with per-project locking, `PIPELINE_MAX_CONCURRENT`.
-- **Reverse pipeline (Phase 5A)** — Isidore→Gregor delegation via `/delegate` command. Crash recovery via directory scan.
-- **Task orchestrator (Phase 5B)** — DAG workflow decomposition, parallel step dispatch, mixed isidore/gregor assignees. Persists to disk.
-- **Branch isolation (Phase 5C)** — Pipeline/orchestrator tasks run on `pipeline/<taskId>` branches. Lock persistence, wrapup branch guard, `/branches` command.
-- **UX fixes** — `/workflow status` subcommand, `escMd()` Markdown escaping in all notifications.
-- **Resource guard, rate limiter, verifier, quick model (Phase 6A-6D)** — Memory-gated dispatch, failure-rate circuit breaker, result verification, `/quick` Haiku shortcut.
-- **Per-task timeout + max-turns** — Pipeline tasks can specify `timeout_minutes` (overrides 5min default) and `max_turns` (passed to CLI). Enables long-running overnight PRD execution.
-- **Workflow-completion results** — Orchestrator writes `results/workflow-<taskId>.json` when workflows finish (success, failure, or timeout) so Gregor can consume outcomes programmatically.
-- **Gregor reverse handler fix** — `pai-reverse-handler.sh` now uses `--local` flag for `openclaw agent` routing.
-- **Gregor overnight queue system** — `pai-overnight.sh` + `pai-overnight-local.sh` for PRD-driven overnight batch processing with sequential queue, cron-based advancement, and morning reports.
+- **Core bridge** — Telegram bot + Claude CLI wrapper + session management + project registry
+- **Cross-user pipeline** — Gregor↔Isidore Cloud task queue, reverse delegation, DAG workflows
+- **Branch isolation** — Pipeline/orchestrator tasks on isolated git branches with lock persistence
+- **Reliability layer** — Resource guard, rate limiter, verifier, idempotency, quick model
+- **Memory system** — SQLite episodic + semantic memory, FTS5, importance scoring, scored retrieval
+- **Context injection** — Topic-based invalidation, budget-based allocation, importance masking
+- **Observation masking + whiteboards** — Importance-based content filtering, per-project running summaries
+- **Persistence redesign** — memory.db as sole persistence, session summaries, state migration
+- **Synthesis loop** — Periodic knowledge distillation, per-domain Claude synthesis, whiteboard generation
+- **Agent definitions** — Declarative .pai/agents/*.md with tier-based sub-delegation
+- **Scheduler** — SQLite-backed cron (daily synthesis, weekly review)
+- **Policy engine** — YAML-based action authorization
+- **Dashboard** — HTTP API + SSE + dark Kanban board
+- **Injection scanning** — 18-pattern regex detection (log-only v1)
+- **PRD executor** — Autonomous PRD detection, parsing, execution (code complete, not enabled)
+- **Dual-mode system** — Workspace/project modes, statusline, auto-wrapup, /workspace + /wrapup + /keep
+- **Daily memory** — Cron-scheduled workspace episode summary to markdown + git
+- **Importance-triggered synthesis** — Workspace mode auto-flush when importance sum exceeds threshold
 
 ### Planned
 
-- **E2E multi-step orchestrate test** — Test workflow with both isidore and gregor-assigned steps now that reverse handler is fixed.
-- **E2E overnight queue test** — Smoke test with trivial PRDs to validate the full overnight flow.
-- **Email bridge (C6)** — IMAP polling + SMTP response. Architecture is in place, needs email server credentials from Marius.
+- **E2E testing** — Test dual-mode flow on Telegram, Gregor pipeline end-to-end
+- **Enable PRD executor** — Set PRD_EXECUTOR_ENABLED=1 on VPS after testing
+- **Email bridge** — IMAP polling + SMTP response (architecture in place, needs credentials)
+- **Cleanup** — Remove dead SKIP_KNOWLEDGE_SYNC env vars
 
 ### Vision
 
 - **Full parity** — Isidore Cloud should be able to do everything local Isidore can (minus voice/browser), including working on repos, running tests, deploying code.
-- **Proactive behavior** — Cron-triggered tasks: daily summaries, project monitoring, automated maintenance.
-- **Multi-channel unified inbox** — Telegram, email, and future channels (Signal, Matrix?) all feed into one conversation.
+- **Proactive behavior** — Daily summaries, project monitoring, automated maintenance (scheduler + daily memory now enable this).
+- **Multi-channel unified inbox** — Telegram, email, and future channels all feed into one conversation.
 
 ---
 
@@ -1268,7 +1275,7 @@ Want to build this for your own AI assistant? Here's what you need:
 ### What's Transferable
 
 - The bridge architecture (Grammy bot → CLI wrapper → session management) works with any Claude Code setup
-- The knowledge sync pattern (Git repo as intermediary) works for any multi-instance AI
+- The memory system (SQLite + FTS5 + context injection) works for any long-running AI agent
 - The systemd service definitions work on any Linux server
 - The compact formatter is specific to PAI Algorithm output — replace with your own formatting needs
 
@@ -1281,5 +1288,5 @@ Want to build this for your own AI assistant? Here's what you need:
 
 ---
 
-*Last updated: 2026-02-27 (Phases 4-6D + per-task timeout, workflow-completion results, overnight queue support)*
+*Last updated: 2026-03-04 (Dual-mode system, memory persistence, synthesis, daily memory, auto-wrapup)*
 *Author: mj-deving + Isidore (PAI)*
