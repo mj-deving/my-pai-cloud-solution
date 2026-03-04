@@ -65,43 +65,13 @@ Telegram message → Grammy bot (telegram.ts)
   → (no auto-commit — use /sync on demand)
 ```
 
-### Cross-User Pipeline Flow (Gregor collaboration)
+### Cross-User Pipeline & Orchestrator
 
-```
-Gregor writes JSON → /var/lib/pai-pipeline/tasks/task.json
-  → PipelineWatcher (pipeline.ts) polls every 5s
-  → Reads task, resolves cwd (with fallback if project dir missing)
-  → Branch isolation: checkout pipeline/<taskId> branch (if enabled)
-  → Bun.spawn: claude -p "prompt" --output-format json (one-shot, no session)
-  → Writes result atomically (.tmp → rename) to results/
-  → Moves task to ack/
-  → Branch isolation: release branch, return to main
-```
+See `ARCHITECTURE.md` for detailed flow diagrams. Summary:
 
-### Reverse Pipeline (Isidore → Gregor delegation)
-
-```
-/delegate or orchestrator step (assignee: gregor)
-  → ReversePipelineWatcher writes JSON to reverse-tasks/
-  → Gregor's side picks up and executes
-  → Result written to reverse-results/
-  → ReversePipelineWatcher polls, reads result, routes:
-    - Workflow step → orchestrator.completeStep()/failStep()
-    - Standalone → Telegram notification
-```
-
-### Task Orchestrator (DAG workflows)
-
-```
-/workflow create "complex task"
-  → Claude one-shot decomposes into DAG steps
-  → Each step: {id, description, assignee, dependsOn}
-  → Orchestrator dispatches ready steps (all deps satisfied)
-  → Parallel execution where dependencies allow
-  → Isidore steps: local claude oneShot
-  → Gregor steps: reverse pipeline delegation
-  → Persists to workflows/*.json for crash recovery
-```
+- **Forward pipeline:** Gregor writes JSON tasks → `PipelineWatcher` polls, dispatches one-shot Claude, writes results atomically
+- **Reverse pipeline:** `/delegate` or orchestrator → writes to reverse-tasks/ → Gregor executes → result routed back
+- **Orchestrator:** `/workflow create` → Claude decomposes into DAG steps → parallel dispatch to Isidore (local) or Gregor (reverse pipeline)
 
 ### Key Design Decisions
 
@@ -118,45 +88,15 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 
 ### Module Responsibilities
 
-| Module | Role |
-|--------|------|
-| `bridge.ts` | Entry point — wires everything together via `MessengerAdapter`, graceful shutdown |
-| `telegram.ts` | Grammy bot: auth middleware, all `/command` handlers, message forwarding |
-| `telegram-adapter.ts` | `TelegramAdapter` — wraps `createTelegramBot()` behind `MessengerAdapter` interface |
-| `messenger-adapter.ts` | `MessengerAdapter` interface — platform-agnostic messaging contract |
-| `claude.ts` | `ClaudeInvoker` — spawns CLI, manages timeouts, handles stale session recovery |
-| `session.ts` | `SessionManager` — reads/writes/archives the active session ID file |
-| `projects.ts` | `ProjectManager` — project registry, handoff state, git sync, project creation |
-| `pipeline.ts` | `PipelineWatcher` — polls tasks/, validates via Zod, dispatches with decision traces + idempotency |
-| `reverse-pipeline.ts` | `ReversePipelineWatcher` — Isidore→Gregor delegation via reverse-tasks/results dirs |
-| `orchestrator.ts` | `TaskOrchestrator` — DAG workflow decomposition, step dispatch, crash recovery |
-| `branch-manager.ts` | `BranchManager` — task-specific branch checkout/release, lock persistence |
-| `schemas.ts` | Zod schemas for all external data types + `safeParse`/`strictParse` helpers |
-| `decision-trace.ts` | `TraceCollector` — structured decision logging at pipeline/orchestrator decision points |
-| `agent-message.ts` | `AgentMessage` envelope type + mapping functions for inter-agent transport |
-| `idempotency.ts` | `IdempotencyStore` — SQLite-backed duplicate task detection (sha256 op_id) |
-| `agent-registry.ts` | `AgentRegistry` — SQLite agent tracking with heartbeat + stale detection |
-| `resource-guard.ts` | `ResourceGuard` — memory-gated dispatch, `os.freemem()` check (Phase 6A) |
-| `rate-limiter.ts` | `RateLimiter` — sliding window failure tracking, cooldown (Phase 6A) |
-| `verifier.ts` | `Verifier` — result verification via separate Claude one-shot (Phase 6B) |
-| `config.ts` | `loadConfig()` — Zod-validated env vars with range checks, feature flags |
-| `format.ts` | `compactFormat()`, `chunkMessage()`, `escMd()` — formatting + Markdown escaping |
-| `dashboard.ts` | `Dashboard` — Bun.serve HTTP server, REST API (8 endpoints), SSE real-time updates |
-| `dashboard-html.ts` | `getDashboardHtml()` — self-contained HTML/CSS/JS dark-themed dashboard page |
-| `memory.ts` | `MemoryStore` — SQLite episodic + semantic memory with FTS5 + optional sqlite-vec + project whiteboards + importance scoring + scored retrieval + system state + session summaries |
-| `embeddings.ts` | `EmbeddingProvider` — Ollama embedding client + keyword-only fallback (Phase 3 V2-A) |
-| `context.ts` | `ContextBuilder` — queries memory with scored retrieval, topic-based invalidation, budget-based injection (whiteboard/knowledge/episodes/summary), importance-based masking, session recovery |
-| `prd-executor.ts` | `PRDExecutor` — autonomous PRD detection, parsing, execution, progress reporting (Phase 3 V2-D) |
-| `prd-parser.ts` | `PRDParser` — Claude one-shot extraction of structured PRD from freeform text (Phase 3 V2-D) |
-| `injection-scan.ts` | `scanForInjection()` — regex-based prompt injection detection, 18 patterns, log-only v1 (Phase 4) |
-| `scheduler.ts` | `Scheduler` — SQLite-backed cron scheduler, 5-field cron parser, emits tasks to pipeline (Phase 4) |
-| `policy.ts` | `PolicyEngine` — YAML-based action authorization, allow/deny/must_ask dispositions (Phase 4) |
-| `synthesis.ts` | `SynthesisLoop` — periodic knowledge distillation from episodes, per-domain Claude synthesis + project whiteboards (Phase C, Phase D) |
-| `agent-loader.ts` | `AgentLoader` — parses `.pai/agents/*.md` YAML+markdown definitions, self-registers in AgentRegistry (Phase C) |
-| `status-message.ts` | `StatusMessage` — rate-limited editable Telegram message manager with init/update/finish/remove lifecycle |
-| `mode.ts` | `ModeManager` — dual-mode state (workspace/project), session metrics tracking, auto-wrapup threshold detection, /keep extension |
-| `statusline.ts` | `formatStatusline()` — two-line status block appended to every Telegram reply (mode/time/msg count/context%/episodes) |
-| `daily-memory.ts` | `DailyMemoryWriter` — cron-scheduled daily episode summary to markdown files + memory.db + optional git commit |
+See `ARCHITECTURE.md` for full file reference (30+ modules). Entry points:
+
+- **`bridge.ts`** — wires everything together, graceful shutdown
+- **`telegram.ts`** — Grammy bot: commands, message forwarding, statusline, auto-wrapup
+- **`claude.ts`** — `ClaudeInvoker`: spawns CLI, stream-json parsing, importance scoring
+- **`memory.ts`** — `MemoryStore`: SQLite episodic + semantic memory, FTS5, whiteboards
+- **`context.ts`** — `ContextBuilder`: scored retrieval, topic tracking, budget injection
+- **`pipeline.ts`** — `PipelineWatcher`: polls tasks/, Zod validation, concurrent dispatch
+- **`config.ts`** — Zod-validated env vars with range checks, feature flags
 
 ## Cross-Instance Continuity
 
@@ -164,30 +104,11 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its sole persistence laye
 
 ## Telegram Commands
 
-| Command | Description |
-|---------|-------------|
-| `/start` | Show help and current mode |
-| `/status` | Mode, session metrics, memory stats |
-| `/project <name>` | Switch to project mode (pulls latest) |
-| `/workspace` or `/home` | Switch to workspace mode |
-| `/wrapup` | Manual session wrapup (workspace mode) |
-| `/keep` | Cancel pending auto-wrapup, extend threshold 50% |
-| `/sync` | Git commit + push current project |
-| `/pull` | Git pull current project |
-| `/clear` | Generate session summary + start fresh session |
-| `/compact` | Compact current session |
-| `/oneshot` | One-shot message (no session) |
-| `/quick` | Quick one-shot (haiku, no session) |
-| `/delegate` | Delegate task to Gregor via reverse pipeline |
-| `/workflow create` | Decompose task into DAG workflow |
-| `/workflows` | List active workflows |
-| `/cancel` | Cancel active workflow |
-| `/branches` | List branch locks |
-| `/pipeline` | Pipeline status |
-| `/schedule` | Scheduler status |
-| `/newproject` | Create new project |
-| `/deleteproject` | Delete project |
-| `/new` | Reset session (alias) |
+- **Mode:** `/workspace` (`/home`), `/project <name>`, `/wrapup`, `/keep`, `/start`, `/status`
+- **Session:** `/clear` (summary + reset), `/compact`, `/new`, `/oneshot`, `/quick`
+- **Git:** `/sync` (commit+push), `/pull`
+- **Pipeline:** `/delegate`, `/workflow create`, `/workflows`, `/cancel`, `/branches`, `/pipeline`
+- **Admin:** `/schedule`, `/newproject`, `/deleteproject`
 
 ## Conventions
 

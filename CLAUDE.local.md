@@ -1,20 +1,12 @@
 # Session Continuity
 
-**Last wrapup:** 2026-03-04T09:30:00+01:00
-**Current focus:** Dual-mode system deployed — workspace mode, statusline, auto-wrapup, daily memory.
+**Last wrapup:** 2026-03-04T09:45:00+01:00
+**Current focus:** Dual-mode system fully implemented, deployed, and documented. Ready for Telegram testing.
 
 ## Completed This Session
-- Implemented dual-mode system (workspace vs project mode) — 3 new files, 8 modified
-- ModeManager: mode switching, session metrics, auto-wrapup detection, /keep extension
-- Statusline: appended to every Telegram reply (mode/time/msg count/context%/episodes)
-- DailyMemoryWriter: cron-scheduled daily episode summary to markdown + memory.db + git
-- New Telegram commands: /workspace (/home), /wrapup, /keep
-- Auto-wrapup flow: warns at 80%, rotates session at threshold, /keep extends 50%
-- Importance-triggered synthesis flush in workspace mode
-- Workspace session persistence in memory.db (separate from project sessions)
-- Config: 6 new WORKSPACE_* env vars
-- Deployed to VPS — clean startup confirmed
-- Updated CLAUDE.md: dual-mode architecture, 3 new modules, command reference, workspace details
+- Implemented dual-mode system (3 new files, 8 modified) — workspace/project modes, statusline, auto-wrapup, daily memory
+- Deployed to VPS — clean startup, all features initialized
+- Updated all documentation: CLAUDE.md, design-decisions.md, ARCHITECTURE.md (major rewrite)
 
 ## In Progress
 - None — clean stopping point
