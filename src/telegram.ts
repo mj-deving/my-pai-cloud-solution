@@ -17,6 +17,12 @@ import type { Scheduler } from "./scheduler";
 import { StatusMessage } from "./status-message";
 import type { ProgressEvent } from "./claude";
 import type { MessengerAdapter } from "./messenger-adapter";
+import type { ModeManager } from "./mode";
+import { formatStatusline } from "./statusline";
+
+export interface SynthesisLoopLike {
+  run(): Promise<unknown>;
+}
 
 export function createTelegramBot(
   config: Config,
@@ -29,8 +35,37 @@ export function createTelegramBot(
   rateLimiter?: RateLimiter | null,
   memoryStore?: MemoryStore | null,
   scheduler?: Scheduler | null,
+  modeManager?: ModeManager | null,
+  synthesisLoop?: SynthesisLoopLike | null,
 ): Bot {
   const bot = new Bot(config.telegramBotToken);
+
+  // Helper: build statusline for current state
+  const buildStatusline = (): string => {
+    if (!modeManager) return "";
+    const mode = modeManager.getCurrentMode();
+    const now = new Date();
+    const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const episodeCount = memoryStore?.getStats().episodeCount ?? 0;
+    const contextPercent = modeManager.getContextPercent(config);
+    const maxMessages = mode.type === "workspace" ? config.workspaceSessionMaxMessages : undefined;
+    return formatStatusline(mode, {
+      time,
+      messageCount: modeManager.getMessageCount(),
+      maxMessages,
+      contextPercent,
+      episodeCount,
+    });
+  };
+
+  // Helper: append statusline to last chunk
+  const appendStatusline = (chunks: string[]): string[] => {
+    if (!modeManager || chunks.length === 0) return chunks;
+    const statusline = buildStatusline();
+    const result = [...chunks];
+    result[result.length - 1] += `\n\n\`\`\`\n${statusline}\n\`\`\``;
+    return result;
+  };
 
   // Middleware: authenticate sender — ONLY Marius allowed
   bot.use(async (ctx, next) => {
@@ -51,13 +86,20 @@ export function createTelegramBot(
     const activeProject = projects.getActiveProject();
     const projectList = projects.listProjects();
 
+    const mode = modeManager?.getCurrentMode();
+    const modeStr = mode ? (mode.type === "workspace" ? "workspace" : `project (${mode.name})`) : "unknown";
+
     let msg = `Isidore Cloud bridge active.\n\n`;
+    msg += `Mode: ${modeStr}\n`;
     msg += `Session: ${session ? session.slice(0, 8) + "..." : "none"}\n`;
     msg += `Project: ${activeProject ? activeProject.displayName : "none"}\n`;
     msg += `Available: ${projectList.map((p) => p.name).join(", ") || "none"}\n`;
     msg += `\nCommands:\n`;
-    msg += `/project <name> — Switch project\n`;
+    msg += `/workspace — Switch to workspace mode\n`;
+    msg += `/project <name> — Switch to project mode\n`;
     msg += `/projects — List available projects\n`;
+    msg += `/wrapup — Manual session wrapup (workspace)\n`;
+    msg += `/keep — Cancel auto-wrapup\n`;
     msg += `/sync — Commit, push + status\n`;
     msg += `/pull — Pull latest from remote\n`;
     msg += `/new — Fresh conversation\n`;
@@ -156,6 +198,11 @@ export function createTelegramBot(
       claude.setWorkingDirectory(result.path);
     }
 
+    // Emit mode change to project
+    if (modeManager) {
+      modeManager.switchToProject(target.name);
+    }
+
     const autoDetected = cloneResult.autoDetected || result.autoDetected;
     let msg = `Switched to **${target.displayName}**\n`;
     if (result.path) {
@@ -164,6 +211,10 @@ export function createTelegramBot(
       msg += "Path: not configured for this instance\n";
     }
     msg += pullResult.ok ? "Git: pulled latest" : `Git: ${pullResult.output}`;
+
+    if (modeManager) {
+      msg += `\n\n\`\`\`\n${buildStatusline()}\n\`\`\``;
+    }
 
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
@@ -294,18 +345,32 @@ export function createTelegramBot(
     );
   });
 
-  // /status — Show current session + project info
+  // /status — Show current session + project info + mode
   bot.command("status", async (ctx) => {
     const { current, archived } = await sessions.list();
     const activeProject = projects.getActiveProject();
     const path = activeProject ? projects.getProjectPath(activeProject) : null;
+    const mode = modeManager?.getCurrentMode();
 
-    let msg = `**Project:** ${activeProject ? activeProject.displayName : "none"}\n`;
+    let msg = "";
+    if (mode) {
+      msg += `**Mode:** ${mode.type === "workspace" ? "workspace" : `project (${mode.name})`}\n`;
+    }
+    msg += `**Project:** ${activeProject ? activeProject.displayName : "none"}\n`;
     if (path) msg += `**Path:** \`${path}\`\n`;
     msg += `**Session:** ${current ? current.slice(0, 8) + "..." : "none"}\n`;
+    if (modeManager) {
+      msg += `**Messages:** ${modeManager.getMessageCount()}\n`;
+      msg += `**Tokens (est):** ${modeManager.getCumulativeTokens()}\n`;
+      const ctxPct = modeManager.getContextPercent(config);
+      if (ctxPct != null) msg += `**Context:** ${ctxPct}%\n`;
+    }
     msg += `**Archived:** ${archived.length} sessions`;
     if (archived.length > 0) {
       msg += `\nMost recent: ${archived[0]?.slice(0, 20)}...`;
+    }
+    if (modeManager) {
+      msg += `\n\n\`\`\`\n${buildStatusline()}\n\`\`\``;
     }
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
@@ -671,6 +736,101 @@ export function createTelegramBot(
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
 
+  // /workspace or /home — Switch to workspace mode
+  bot.command(["workspace", "home"], async (ctx) => {
+    if (!modeManager) {
+      await ctx.reply("Mode manager not available.");
+      return;
+    }
+
+    // If in project mode, auto-push before switching
+    const currentProject = projects.getActiveProject();
+    if (currentProject) {
+      const pushResult = await projects.syncPush(currentProject);
+      if (pushResult.ok) {
+        console.log(`[telegram] Auto-pushed ${currentProject.name} before workspace switch`);
+      }
+    }
+
+    modeManager.switchToWorkspace();
+    claude.setWorkingDirectory(config.workspaceDir);
+
+    // Load workspace session
+    const wsSession = sessions.getWorkspaceSession();
+    if (wsSession) {
+      await sessions.saveSession(wsSession);
+    }
+
+    const statusline = buildStatusline();
+    await ctx.reply(`Switched to workspace mode.\n\n\`\`\`\n${statusline}\n\`\`\``);
+  });
+
+  // /wrapup — Manual workspace session wrapup
+  bot.command("wrapup", async (ctx) => {
+    if (!modeManager) {
+      await ctx.reply("Mode manager not available.");
+      return;
+    }
+    if (modeManager.getCurrentMode().type !== "workspace") {
+      await ctx.reply("Wrapup is for workspace mode. Use /clear for project sessions.");
+      return;
+    }
+
+    await ctx.replyWithChatAction("typing");
+    await performWorkspaceWrapup(ctx.chat.id);
+    const statusline = buildStatusline();
+    await ctx.reply(`Session wrapped up. Fresh context started.\n\n\`\`\`\n${statusline}\n\`\`\``);
+  });
+
+  // /keep — Cancel pending auto-wrapup
+  bot.command("keep", async (ctx) => {
+    if (!modeManager) {
+      await ctx.reply("Mode manager not available.");
+      return;
+    }
+    modeManager.requestKeep();
+    await ctx.reply("Got it — extending session. Threshold raised by 50%.");
+  });
+
+  // Helper: perform workspace wrapup (shared between auto and manual)
+  async function performWorkspaceWrapup(chatId?: number): Promise<void> {
+    if (!memoryStore || !modeManager) return;
+
+    try {
+      // Generate session summary from recent episodes
+      const recentEpisodes = memoryStore.getEpisodesSince(
+        Math.max(0, memoryStore.getLastEpisodeId() - 20), 20,
+      );
+      if (recentEpisodes.length > 0) {
+        const conversationText = recentEpisodes
+          .map(ep => `[${ep.role}] ${(ep.summary || ep.content).slice(0, 150)}`)
+          .join("\n");
+        const summaryPrompt = `Summarize this conversation in 3-5 bullets: what was discussed, what was decided, what's pending.\n\n${conversationText.slice(0, 2000)}`;
+        const summaryResponse = await claude.quickShot(summaryPrompt);
+        if (summaryResponse.result && !summaryResponse.error) {
+          await memoryStore.record({
+            timestamp: new Date().toISOString(),
+            source: "session_summary",
+            session_id: (await sessions.current()) ?? undefined,
+            role: "system",
+            content: summaryResponse.result.slice(0, 1000),
+            summary: "Workspace session summary (auto-wrapup)",
+            importance: 9,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn(`[telegram] Workspace wrapup summary failed: ${err}`);
+    }
+
+    // Rotate workspace session
+    await sessions.rotateWorkspaceSession();
+    modeManager.resetSessionMetrics();
+
+    // Also clear the active session file so next message starts fresh
+    await sessions.newSession();
+  }
+
   // /schedule — Manage scheduled tasks
   bot.command("schedule", async (ctx) => {
     if (!scheduler) {
@@ -768,10 +928,46 @@ export function createTelegramBot(
     }
 
     const formatted = compactFormat(response.result);
-    const chunks = chunkMessage(formatted, config.telegramMaxChunkSize);
+    const rawChunks = chunkMessage(formatted, config.telegramMaxChunkSize);
+    const chunks = appendStatusline(rawChunks);
 
     for (const chunk of chunks) {
       await ctx.reply(chunk);
+    }
+
+    // Track message in mode manager
+    if (modeManager) {
+      modeManager.recordMessage(response.usage);
+    }
+
+    // Auto-wrapup check (workspace mode only)
+    if (modeManager && modeManager.getCurrentMode().type === "workspace") {
+      const wrapupCheck = modeManager.shouldAutoWrapup(config);
+
+      if (wrapupCheck.warning && !modeManager.isWarningSent()) {
+        // Send warning
+        modeManager.markWarningSent();
+        await ctx.reply(`\u26A0\uFE0F ${wrapupCheck.reason}`);
+      } else if (wrapupCheck.trigger && !modeManager.isKeepRequested()) {
+        // Execute auto-wrapup
+        await ctx.reply("Auto-freshening session...");
+        await performWorkspaceWrapup(chatId);
+        await ctx.reply(`Session freshened. Conversation continues seamlessly.\n\n\`\`\`\n${buildStatusline()}\n\`\`\``);
+      }
+
+      // Importance-triggered synthesis flush
+      if (memoryStore && synthesisLoop) {
+        try {
+          const unsynthesized = memoryStore.getUnsynthesizedImportanceSum();
+          if (unsynthesized > config.workspaceImportanceFlushThreshold) {
+            synthesisLoop.run().catch(err =>
+              console.warn(`[telegram] Importance-triggered synthesis failed: ${err}`),
+            );
+          }
+        } catch (err) {
+          console.warn(`[telegram] Importance flush check error: ${err}`);
+        }
+      }
     }
 
     // Record conversation to memory (non-blocking, with importance scoring)

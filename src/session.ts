@@ -6,8 +6,20 @@ import { dirname, join } from "node:path";
 
 const ARCHIVE_DIR_NAME = "archived-sessions";
 
+export interface MemoryStoreLike {
+  getSystemState(key: string): string | null;
+  setSystemState(key: string, value: string): void;
+}
+
 export class SessionManager {
+  private memoryStore: MemoryStoreLike | null = null;
+
   constructor(private sessionIdFile: string) {}
+
+  /** Wire memory store for workspace session persistence. */
+  setMemoryStore(store: MemoryStoreLike): void {
+    this.memoryStore = store;
+  }
 
   // Get the current active session ID, or null if none exists
   async current(): Promise<string | null> {
@@ -77,5 +89,27 @@ export class SessionManager {
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const archiveFile = join(archiveDir, `${timestamp}_${sessionId}.session`);
     await writeFile(archiveFile, sessionId + "\n", "utf-8");
+  }
+
+  // --- Workspace session management (memory.db backed) ---
+
+  /** Get workspace session ID from memory.db. */
+  getWorkspaceSession(): string | null {
+    return this.memoryStore?.getSystemState("workspace_session") ?? null;
+  }
+
+  /** Save workspace session ID to memory.db. */
+  saveWorkspaceSession(sessionId: string): void {
+    this.memoryStore?.setSystemState("workspace_session", sessionId);
+  }
+
+  /** Archive workspace session and clear it. */
+  async rotateWorkspaceSession(): Promise<string | null> {
+    const old = this.getWorkspaceSession();
+    if (old) {
+      await this.archive(old);
+    }
+    this.memoryStore?.setSystemState("workspace_session", "");
+    return old;
   }
 }

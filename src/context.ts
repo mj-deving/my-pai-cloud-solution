@@ -182,11 +182,24 @@ export class ContextBuilder {
       parts.push(`\nPrevious conversation summary:\n${summaryText}`);
     }
 
-    // Whiteboard (running project summary)
+    // Whiteboard (running project summary or workspace cross-project)
     if (project) {
       const whiteboard = this.memory.getWhiteboard(project);
       if (whiteboard) {
         parts.push(`\nProject whiteboard (${project}):\n${whiteboard.slice(0, whiteboardBudget)}`);
+      }
+    } else {
+      // Workspace mode: inject cross-project whiteboards (most recent projects)
+      const recentProjects = this.memory.getRecentProjectNames(
+        Math.max(0, this.memory.getLastEpisodeId() - 100),
+      );
+      let wbChars = 0;
+      for (const proj of recentProjects.slice(0, 3)) {
+        const wb = this.memory.getWhiteboard(proj);
+        if (wb && wbChars + wb.length < whiteboardBudget) {
+          parts.push(`\nWhiteboard (${proj}):\n${wb.slice(0, Math.floor(whiteboardBudget / 3))}`);
+          wbChars += wb.length;
+        }
       }
     }
 

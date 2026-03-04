@@ -148,6 +148,14 @@ const EnvSchema = z.object({
   // Phase D: Project Whiteboards
   WHITEBOARD_ENABLED: envBool(false),
 
+  // Workspace mode
+  WORKSPACE_DIR: z.string().optional(),
+  WORKSPACE_SESSION_TOKEN_THRESHOLD: optionalInt(10_000, 500_000, 120_000),
+  WORKSPACE_SESSION_MAX_MESSAGES: optionalInt(5, 200, 30),
+  WORKSPACE_GIT_ENABLED: envBool(true),
+  WORKSPACE_DAILY_MEMORY_CRON: z.string().optional(),
+  WORKSPACE_IMPORTANCE_FLUSH_THRESHOLD: optionalInt(10, 500, 50),
+
   // Live status messages
   STATUS_EDIT_INTERVAL_MS: optionalInt(1000, 10_000, 2_500),
 });
@@ -275,6 +283,14 @@ export interface Config {
 
   // Phase D: Project Whiteboards
   whiteboardEnabled: boolean;
+
+  // Workspace mode
+  workspaceDir: string;
+  workspaceSessionTokenThreshold: number;
+  workspaceSessionMaxMessages: number;
+  workspaceGitEnabled: boolean;
+  workspaceDailyMemoryCron: string;
+  workspaceImportanceFlushThreshold: number;
 
   // Live status messages
   statusEditIntervalMs: number;
@@ -406,6 +422,14 @@ export function loadConfig(): Config {
 
     // Phase D: Project Whiteboards
     whiteboardEnabled: env.WHITEBOARD_ENABLED,
+
+    // Workspace mode
+    workspaceDir: env.WORKSPACE_DIR || `${home}/workspace`,
+    workspaceSessionTokenThreshold: env.WORKSPACE_SESSION_TOKEN_THRESHOLD,
+    workspaceSessionMaxMessages: env.WORKSPACE_SESSION_MAX_MESSAGES,
+    workspaceGitEnabled: env.WORKSPACE_GIT_ENABLED,
+    workspaceDailyMemoryCron: env.WORKSPACE_DAILY_MEMORY_CRON || "55 22 * * *",
+    workspaceImportanceFlushThreshold: env.WORKSPACE_IMPORTANCE_FLUSH_THRESHOLD,
 
     // Live status messages
     statusEditIntervalMs: env.STATUS_EDIT_INTERVAL_MS,

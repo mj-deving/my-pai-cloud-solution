@@ -70,6 +70,8 @@ export class PipelineWatcher {
   private memoryStore: MemoryStore | null = null;
   // Phase C: optional synthesis loop for type:"synthesis" tasks
   private synthesisLoop: { run(): Promise<unknown> } | null = null;
+  // Workspace: optional daily memory writer for type:"daily-memory" tasks
+  private dailyMemoryWriter: { writeDailyMemory(): Promise<unknown> } | null = null;
   // Live status: optional messenger for Telegram status updates
   private messenger: import("./messenger-adapter").MessengerAdapter | null = null;
 
@@ -138,6 +140,11 @@ export class PipelineWatcher {
   // Phase C: Set memory store for outcome recording
   setMemoryStore(store: MemoryStore): void {
     this.memoryStore = store;
+  }
+
+  // Workspace: Set daily memory writer for type:"daily-memory" tasks
+  setDailyMemoryWriter(writer: { writeDailyMemory(): Promise<unknown> }): void {
+    this.dailyMemoryWriter = writer;
   }
 
   // Phase C: Set synthesis loop for type:"synthesis" tasks
@@ -466,6 +473,13 @@ export class PipelineWatcher {
       if (this.synthesisLoop && task.type === "synthesis") {
         this.synthesisLoop.run().catch((err) => {
           console.error(`[pipeline] Synthesis loop hook error for ${task.id}: ${err}`);
+        });
+      }
+
+      // Workspace: Daily memory hook — type:"daily-memory" tasks route to DailyMemoryWriter
+      if (this.dailyMemoryWriter && task.type === "daily-memory") {
+        this.dailyMemoryWriter.writeDailyMemory().catch((err) => {
+          console.error(`[pipeline] Daily memory hook error for ${task.id}: ${err}`);
         });
       }
 

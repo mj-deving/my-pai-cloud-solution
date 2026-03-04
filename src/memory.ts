@@ -267,10 +267,12 @@ export class MemoryStore {
     const maxResults = params.maxResults ?? 10;
     const maxTokens = params.maxTokens ?? 2000;
 
-    const ftsQuery = params.query.replace(/[^\w\s]/g, "").trim();
-    if (!ftsQuery) {
+    const words = params.query.replace(/[^\w\s]/g, "").trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) {
       return { episodes: [], knowledge: [], totalTokens: 0 };
     }
+    // Use OR semantics so partial matches surface; scoring handles ranking
+    const ftsQuery = words.join(" OR ");
 
     const conditions: string[] = ["episodes_fts MATCH ?"];
     const bindings: (string | number)[] = [ftsQuery];
@@ -518,6 +520,32 @@ export class MemoryStore {
       content: row.content as string,
       confidence: row.confidence as number,
     }));
+  }
+
+  /** Get sum of importance for episodes not yet synthesized (id > lastSynthesizedId). */
+  getUnsynthesizedImportanceSum(): number {
+    // Get last synthesized episode id from knowledge table
+    const lastSynth = this.getSystemState("last_synthesized_episode_id");
+    const sinceId = lastSynth ? parseInt(lastSynth, 10) : 0;
+    const row = this.db
+      .query("SELECT COALESCE(SUM(importance), 0) as total FROM episodes WHERE id > ?")
+      .get(sinceId) as { total: number } | null;
+    return row?.total ?? 0;
+  }
+
+  /** Get today's episodes (optionally filtered by project). */
+  getTodaysEpisodes(project?: string): Episode[] {
+    const today = new Date().toISOString().slice(0, 10);
+    const conditions = ["timestamp >= ?"];
+    const bindings: string[] = [`${today}T00:00:00`];
+    if (project) {
+      conditions.push("project = ?");
+      bindings.push(project);
+    }
+    const rows = this.db
+      .query(`SELECT * FROM episodes WHERE ${conditions.join(" AND ")} ORDER BY id ASC`)
+      .all(...bindings) as Array<Record<string, unknown>>;
+    return rows.map(row => this.rowToEpisode(row));
   }
 
   /** Close the database connection. */

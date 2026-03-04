@@ -436,6 +436,19 @@ export class ClaudeInvoker {
         if (isRateLimitError(stderr)) {
           this.rateLimiter?.recordFailure();
         }
+        // Hook failures cause exit code 1 but Claude may still produce valid output.
+        // Try parsing stdout before giving up.
+        if (stdout.trim()) {
+          const rescueParse = safeParse(ClaudeJsonOutputSchema, stdout, "claude/oneShot-rescue");
+          if (rescueParse.success && rescueParse.data.result) {
+            console.warn(`[claude] oneShot exited ${exitCode} but rescued output (hook failure?)`);
+            return {
+              sessionId: rescueParse.data.session_id || "",
+              result: rescueParse.data.result,
+              usage: rescueParse.data.usage,
+            };
+          }
+        }
         return {
           sessionId: "",
           result: "",
@@ -501,6 +514,19 @@ export class ClaudeInvoker {
       if (exitCode !== 0) {
         if (isRateLimitError(stderr)) {
           this.rateLimiter?.recordFailure();
+        }
+        // Hook failures cause exit code 1 but Claude may still produce valid output.
+        // Try parsing stdout before giving up.
+        if (stdout.trim()) {
+          const rescueParse = safeParse(ClaudeJsonOutputSchema, stdout, "claude/quickShot-rescue");
+          if (rescueParse.success && rescueParse.data.result) {
+            console.warn(`[claude] quickShot exited ${exitCode} but rescued output (hook failure?)`);
+            return {
+              sessionId: rescueParse.data.session_id || "",
+              result: rescueParse.data.result,
+              usage: rescueParse.data.usage,
+            };
+          }
         }
         return {
           sessionId: "",

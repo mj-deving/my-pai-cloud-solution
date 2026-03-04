@@ -19,8 +19,11 @@ import type {
   MessageHandler,
 } from "./messenger-adapter";
 import { createTelegramBot } from "./telegram";
+import type { SynthesisLoopLike } from "./telegram";
 import type { MemoryStore } from "./memory";
 import type { Scheduler } from "./scheduler";
+import type { ModeManager } from "./mode";
+
 export class TelegramAdapter implements MessengerAdapter {
   private bot: Bot;
   private userId: number;
@@ -37,6 +40,8 @@ export class TelegramAdapter implements MessengerAdapter {
     rateLimiter?: RateLimiter | null,
     memoryStore?: MemoryStore | null,
     scheduler?: Scheduler | null,
+    modeManager?: ModeManager | null,
+    synthesisLoop?: SynthesisLoopLike | null,
   ) {
     this.bot = createTelegramBot(
       config,
@@ -49,6 +54,8 @@ export class TelegramAdapter implements MessengerAdapter {
       rateLimiter,
       memoryStore,
       scheduler,
+      modeManager,
+      synthesisLoop,
     );
     this.userId = config.telegramAllowedUserId;
     this.maxChunkSize = config.telegramMaxChunkSize;

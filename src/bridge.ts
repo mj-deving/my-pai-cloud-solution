@@ -26,6 +26,8 @@ import { Scheduler } from "./scheduler";
 import { PolicyEngine } from "./policy";
 import { SynthesisLoop } from "./synthesis";
 import { AgentLoader } from "./agent-loader";
+import { ModeManager } from "./mode";
+import { DailyMemoryWriter } from "./daily-memory";
 
 async function main() {
   console.log("[bridge] Starting Isidore Cloud communication bridge...");
@@ -59,6 +61,34 @@ async function main() {
       claude.setWorkingDirectory(path);
     }
     console.log(`[bridge] Restored project: ${activeProject.displayName} (${path || "no local path"})`);
+  }
+
+  // Initialize ModeManager (default: workspace mode)
+  const modeManager = new ModeManager();
+  if (activeProject) {
+    modeManager.switchToProject(activeProject.name);
+  }
+  console.log(`[bridge] Mode: ${modeManager.getCurrentMode().type === "workspace" ? "workspace" : `project (${activeProject?.name})`}`);
+
+  // Create workspace directory if needed
+  {
+    const { mkdir: mkdirFs } = await import("node:fs/promises");
+    const { existsSync } = await import("node:fs");
+    await mkdirFs(config.workspaceDir, { recursive: true });
+
+    // Initialize workspace git repo if enabled and no .git
+    if (config.workspaceGitEnabled && !existsSync(`${config.workspaceDir}/.git`)) {
+      const initProc = Bun.spawn(["git", "init"], {
+        cwd: config.workspaceDir,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const exitCode = await initProc.exited;
+      if (exitCode === 0) {
+        console.log(`[bridge] Initialized workspace git repo: ${config.workspaceDir}`);
+      }
+    }
+    console.log(`[bridge] Workspace dir: ${config.workspaceDir}`);
   }
 
   // Initialize reverse pipeline watcher (Isidore → Gregor delegation)
@@ -158,6 +188,11 @@ async function main() {
     console.log("[bridge] Memory store disabled (MEMORY_ENABLED=0)");
   }
 
+  // Wire memory store to session manager for workspace session persistence
+  if (memoryStore) {
+    sessions.setMemoryStore(memoryStore);
+  }
+
   // Load project state (after memory store is wired, so it can use memory.db)
   await projectManager.loadState();
 
@@ -199,6 +234,12 @@ async function main() {
       prompt: "System health review: check memory stats, pipeline throughput, error rates, disk usage. Report anomalies.",
       timeout_minutes: 10,
       max_turns: 15,
+    });
+    scheduler.upsert("daily-memory", config.workspaceDailyMemoryCron, {
+      type: "daily-memory",
+      prompt: "Write daily memory summary",
+      timeout_minutes: 5,
+      max_turns: 5,
     });
     console.log(`[bridge] Scheduler enabled (db: ${config.schedulerDbPath})`);
   } else {
@@ -252,6 +293,8 @@ async function main() {
       rateLimiter,
       memoryStore,
       scheduler,
+      modeManager,
+      synthesisLoop,
     );
   } else {
     throw new Error(`Unsupported messenger type: ${config.messengerType}`);
@@ -404,6 +447,14 @@ async function main() {
     if (synthesisLoop) {
       pipeline.setSynthesisLoop(synthesisLoop);
     }
+    // Workspace: Wire daily memory writer to pipeline for type:"daily-memory" tasks
+    if (memoryStore) {
+      const dailyMemoryWriter = new DailyMemoryWriter(
+        memoryStore, claude, config.workspaceDir, config.workspaceGitEnabled,
+      );
+      pipeline.setDailyMemoryWriter(dailyMemoryWriter);
+      console.log(`[bridge] Daily memory writer enabled (workspace: ${config.workspaceDir})`);
+    }
     pipeline.setMessenger(messenger);
     pipeline.start();
   } else {
@@ -483,6 +534,7 @@ async function main() {
     console.log("[bridge] Shutting down...");
 
     // Generate session summary before shutdown (best-effort, non-blocking)
+    // Note: works for both workspace and project modes
     if (memoryStore) {
       try {
         const recentEpisodes = memoryStore.getEpisodesSince(
