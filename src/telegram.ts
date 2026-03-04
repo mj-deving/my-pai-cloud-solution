@@ -47,12 +47,10 @@ export function createTelegramBot(
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
     const episodeCount = memoryStore?.getStats().episodeCount ?? 0;
-    const contextPercent = modeManager.getContextPercent(config);
-    const maxMessages = mode.type === "workspace" ? config.workspaceSessionMaxMessages : undefined;
+    const contextPercent = modeManager.getContextPercent();
     return formatStatusline(mode, {
       time,
       messageCount: modeManager.getMessageCount(),
-      maxMessages,
       contextPercent,
       episodeCount,
     });
@@ -361,8 +359,14 @@ export function createTelegramBot(
     msg += `**Session:** ${current ? current.slice(0, 8) + "..." : "none"}\n`;
     if (modeManager) {
       msg += `**Messages:** ${modeManager.getMessageCount()}\n`;
-      msg += `**Tokens (est):** ${modeManager.getCumulativeTokens()}\n`;
-      const ctxPct = modeManager.getContextPercent(config);
+      const usage = modeManager.getLastUsage();
+      if (usage) {
+        const totalInput = (usage.input_tokens || 0) +
+          (usage.cache_creation_input_tokens || 0) +
+          (usage.cache_read_input_tokens || 0);
+        msg += `**Tokens:** ${totalInput.toLocaleString()} input, ${usage.output_tokens.toLocaleString()} output\n`;
+      }
+      const ctxPct = modeManager.getContextPercent();
       if (ctxPct != null) msg += `**Context:** ${ctxPct}%\n`;
     }
     msg += `**Archived:** ${archived.length} sessions`;
@@ -380,6 +384,7 @@ export function createTelegramBot(
     // Generate session summary before clearing (non-blocking on failure)
     if (memoryStore) {
       try {
+        await ctx.reply("Generating session summary...");
         await ctx.replyWithChatAction("typing");
         const recentEpisodes = memoryStore.getEpisodesSince(
           Math.max(0, memoryStore.getLastEpisodeId() - 20), 20
@@ -743,13 +748,14 @@ export function createTelegramBot(
       return;
     }
 
-    // If in project mode, auto-push before switching
+    // If in project mode, auto-push before switching and clear active project
     const currentProject = projects.getActiveProject();
     if (currentProject) {
       const pushResult = await projects.syncPush(currentProject);
       if (pushResult.ok) {
         console.log(`[telegram] Auto-pushed ${currentProject.name} before workspace switch`);
       }
+      await projects.clearActiveProject();
     }
 
     modeManager.switchToWorkspace();
@@ -765,19 +771,15 @@ export function createTelegramBot(
     await ctx.reply(`Switched to workspace mode.\n\n\`\`\`\n${statusline}\n\`\`\``);
   });
 
-  // /wrapup — Manual workspace session wrapup
+  // /wrapup — Manual session wrapup (both modes)
   bot.command("wrapup", async (ctx) => {
     if (!modeManager) {
       await ctx.reply("Mode manager not available.");
       return;
     }
-    if (modeManager.getCurrentMode().type !== "workspace") {
-      await ctx.reply("Wrapup is for workspace mode. Use /clear for project sessions.");
-      return;
-    }
 
     await ctx.replyWithChatAction("typing");
-    await performWorkspaceWrapup(ctx.chat.id);
+    await performWrapup(ctx.chat.id);
     const statusline = buildStatusline();
     await ctx.reply(`Session wrapped up. Fresh context started.\n\n\`\`\`\n${statusline}\n\`\`\``);
   });
@@ -789,11 +791,11 @@ export function createTelegramBot(
       return;
     }
     modeManager.requestKeep();
-    await ctx.reply("Got it — extending session. Threshold raised by 50%.");
+    await ctx.reply("Got it — wrapup suggestion dismissed.");
   });
 
-  // Helper: perform workspace wrapup (shared between auto and manual)
-  async function performWorkspaceWrapup(chatId?: number): Promise<void> {
+  // Helper: perform session wrapup (shared between suggestion and manual)
+  async function performWrapup(chatId?: number): Promise<void> {
     if (!memoryStore || !modeManager) return;
 
     try {
@@ -814,7 +816,7 @@ export function createTelegramBot(
             session_id: (await sessions.current()) ?? undefined,
             role: "system",
             content: summaryResponse.result.slice(0, 1000),
-            summary: "Workspace session summary (auto-wrapup)",
+            summary: "Session summary (wrapup)",
             importance: 9,
           });
         }
@@ -935,24 +937,17 @@ export function createTelegramBot(
       await ctx.reply(chunk);
     }
 
-    // Track message in mode manager
+    // Track message in mode manager (pass usage + contextWindow)
     if (modeManager) {
-      modeManager.recordMessage(response.usage);
+      modeManager.recordMessage(response.usage, response.contextWindow);
     }
 
-    // Auto-wrapup check (workspace mode only)
-    if (modeManager && modeManager.getCurrentMode().type === "workspace") {
-      const wrapupCheck = modeManager.shouldAutoWrapup(config);
-
-      if (wrapupCheck.warning && !modeManager.isWarningSent()) {
-        // Send warning
-        modeManager.markWarningSent();
-        await ctx.reply(`\u26A0\uFE0F ${wrapupCheck.reason}`);
-      } else if (wrapupCheck.trigger && !modeManager.isKeepRequested()) {
-        // Execute auto-wrapup
-        await ctx.reply("Auto-freshening session...");
-        await performWorkspaceWrapup(chatId);
-        await ctx.reply(`Session freshened. Conversation continues seamlessly.\n\n\`\`\`\n${buildStatusline()}\n\`\`\``);
+    // Suggest-only wrapup check (both modes)
+    if (modeManager) {
+      const suggestion = modeManager.shouldSuggestWrapup();
+      if (suggestion.suggest) {
+        modeManager.markSuggestionSent();
+        await ctx.reply(`\u26A0\uFE0F ${suggestion.reason}`);
       }
 
       // Importance-triggered synthesis flush

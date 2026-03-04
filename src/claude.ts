@@ -12,7 +12,10 @@ export interface ClaudeResponse {
   usage?: {
     input_tokens: number;
     output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
   };
+  contextWindow?: number;
   error?: string;
 }
 
@@ -156,10 +159,20 @@ export class ClaudeInvoker {
           await this.sessions.saveSession(realSessionId);
         }
 
+        // Extract contextWindow from modelUsage
+        let contextWindow: number | undefined;
+        if (parsed.modelUsage) {
+          const firstModel = Object.values(parsed.modelUsage)[0];
+          if (firstModel?.contextWindow) {
+            contextWindow = firstModel.contextWindow;
+          }
+        }
+
         return {
           sessionId: realSessionId,
           result: parsed.result || stdout,
           usage: parsed.usage,
+          contextWindow,
         };
       } else {
         // Parse failed — return raw stdout
@@ -208,7 +221,8 @@ export class ClaudeInvoker {
       // Read NDJSON stream line by line
       let accumulatedText = "";
       let extractedSessionId = "";
-      let extractedUsage: { input_tokens: number; output_tokens: number } | undefined;
+      let extractedUsage: ClaudeResponse["usage"] | undefined;
+      let extractedContextWindow: number | undefined;
       const toolBlocks = new Map<number, string>(); // index → tool name
       const decoder = new TextDecoder();
       let buffer = "";
@@ -232,7 +246,8 @@ export class ClaudeInvoker {
                 getText: () => accumulatedText,
                 appendText: (t: string) => { accumulatedText += t; },
                 setSessionId: (id: string) => { extractedSessionId = id; },
-                setUsage: (u: { input_tokens: number; output_tokens: number }) => { extractedUsage = u; },
+                setUsage: (u: ClaudeResponse["usage"]) => { extractedUsage = u; },
+                setContextWindow: (cw: number) => { extractedContextWindow = cw; },
               });
             } catch {
               // Unparseable line — ignore
@@ -251,7 +266,8 @@ export class ClaudeInvoker {
             getText: () => accumulatedText,
             appendText: (t: string) => { accumulatedText += t; },
             setSessionId: (id: string) => { extractedSessionId = id; },
-            setUsage: (u: { input_tokens: number; output_tokens: number }) => { extractedUsage = u; },
+            setUsage: (u: ClaudeResponse["usage"]) => { extractedUsage = u; },
+            setContextWindow: (cw: number) => { extractedContextWindow = cw; },
           });
         } catch { /* ignore */ }
       }
@@ -286,6 +302,7 @@ export class ClaudeInvoker {
         sessionId: realSessionId,
         result: accumulatedText || "",
         usage: extractedUsage,
+        contextWindow: extractedContextWindow,
       };
     } catch (err) {
       return {
@@ -310,13 +327,50 @@ export class ClaudeInvoker {
       getText: () => string;
       appendText: (t: string) => void;
       setSessionId: (id: string) => void;
-      setUsage: (u: { input_tokens: number; output_tokens: number }) => void;
+      setUsage: (u: ClaudeResponse["usage"]) => void;
+      setContextWindow: (cw: number) => void;
     },
   ): void {
     if (typeof parsed !== "object" || parsed === null) return;
     const obj = parsed as Record<string, unknown>;
 
-    // Handle top-level result objects (session_id, result)
+    // Handle CLI result event (final event in stream-json output)
+    if (obj.type === "result") {
+      if (typeof obj.session_id === "string") state.setSessionId(obj.session_id);
+      if (typeof obj.result === "string") state.appendText(obj.result);
+
+      // Extract full usage with cache tokens
+      const usage = obj.usage as Record<string, unknown> | undefined;
+      if (usage) {
+        state.setUsage({
+          input_tokens: (usage.input_tokens as number) || 0,
+          output_tokens: (usage.output_tokens as number) || 0,
+          cache_creation_input_tokens: (usage.cache_creation_input_tokens as number) || 0,
+          cache_read_input_tokens: (usage.cache_read_input_tokens as number) || 0,
+        });
+      }
+
+      // Extract contextWindow from modelUsage
+      const modelUsage = obj.modelUsage as Record<string, Record<string, unknown>> | undefined;
+      if (modelUsage) {
+        const firstModel = Object.values(modelUsage)[0];
+        if (firstModel?.contextWindow) {
+          state.setContextWindow(firstModel.contextWindow as number);
+        }
+      }
+      return; // Don't fall through to stream_event handling
+    }
+
+    // Handle top-level assistant events (session_id, content)
+    if (obj.type === "assistant") {
+      if (typeof obj.session_id === "string" && obj.session_id) {
+        state.setSessionId(obj.session_id);
+      }
+      // assistant events may contain message.usage — but result event has the full picture
+      return;
+    }
+
+    // Handle top-level result objects (session_id, result) — legacy fallback
     if (typeof obj.session_id === "string" && obj.session_id) {
       state.setSessionId(obj.session_id);
     }

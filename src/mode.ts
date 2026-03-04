@@ -1,7 +1,7 @@
 // mode.ts — Dual-mode system: workspace vs project mode
-// Tracks current mode, message counts, cumulative tokens for auto-wrapup logic.
+// Tracks current mode, real context window fill via CLI usage data.
 
-import type { Config } from "./config";
+import type { ClaudeResponse } from "./claude";
 
 export type BridgeMode =
   | { type: "workspace" }
@@ -10,10 +10,11 @@ export type BridgeMode =
 export class ModeManager {
   private mode: BridgeMode = { type: "workspace" };
   private messageCount = 0;
-  private cumulativeTokens = 0;
+  private lastUsage: ClaudeResponse["usage"] | undefined;
+  private contextWindowSize: number = 200_000; // default, updated from CLI
   private listeners: Array<(mode: BridgeMode) => void> = [];
-  private keepRequested = false;
-  private warningSent = false;
+  private suggestionSent = false;
+  private suggestionDismissed = false;
 
   getCurrentMode(): BridgeMode {
     return this.mode;
@@ -23,16 +24,8 @@ export class ModeManager {
     return this.messageCount;
   }
 
-  getCumulativeTokens(): number {
-    return this.cumulativeTokens;
-  }
-
-  isKeepRequested(): boolean {
-    return this.keepRequested;
-  }
-
-  isWarningSent(): boolean {
-    return this.warningSent;
+  getLastUsage(): ClaudeResponse["usage"] | undefined {
+    return this.lastUsage;
   }
 
   switchToProject(name: string): void {
@@ -46,90 +39,66 @@ export class ModeManager {
   }
 
   /** Called after each message response to track session metrics. */
-  recordMessage(usage?: { input_tokens: number; output_tokens: number }): void {
+  recordMessage(usage?: ClaudeResponse["usage"], contextWindow?: number): void {
     this.messageCount++;
     if (usage) {
-      this.cumulativeTokens += usage.input_tokens + usage.output_tokens;
+      // Store latest snapshot — NOT cumulative. Each CLI invocation's input_tokens
+      // includes all prior context, so the latest value IS the total.
+      this.lastUsage = usage;
+    }
+    if (contextWindow) {
+      this.contextWindowSize = contextWindow;
     }
   }
 
-  /** Reset on session rotation (auto-wrapup or manual). */
+  /** Reset on session rotation (wrapup or manual). */
   resetSessionMetrics(): void {
     this.messageCount = 0;
-    this.cumulativeTokens = 0;
-    this.keepRequested = false;
-    this.warningSent = false;
+    this.lastUsage = undefined;
+    this.suggestionSent = false;
+    this.suggestionDismissed = false;
   }
 
-  /** User sent /keep — extend threshold. */
+  /** User sent /keep — dismiss the wrapup suggestion. */
   requestKeep(): void {
-    this.keepRequested = true;
-    this.warningSent = false;
+    this.suggestionDismissed = true;
   }
 
-  /** Mark that a warning was sent to the user. */
-  markWarningSent(): void {
-    this.warningSent = true;
+  /** Mark that a suggestion was sent to the user. */
+  markSuggestionSent(): void {
+    this.suggestionSent = true;
   }
 
   /**
-   * Check if auto-wrapup should trigger (workspace mode only).
-   * Returns { trigger, warning, reason } where:
-   * - trigger: true if wrapup should execute now
-   * - warning: true if we should warn the user (approaching threshold)
-   * - reason: human-readable explanation
+   * Get real context usage percentage from CLI usage data.
+   * Works for BOTH modes — no mode check needed.
+   * Returns undefined if no usage data yet.
    */
-  shouldAutoWrapup(config: Config): { trigger: boolean; warning: boolean; reason: string } {
-    if (this.mode.type !== "workspace") {
-      return { trigger: false, warning: false, reason: "project mode" };
-    }
-
-    const maxMessages = this.keepRequested
-      ? Math.ceil(config.workspaceSessionMaxMessages * 1.5)
-      : config.workspaceSessionMaxMessages;
-    const tokenThreshold = this.keepRequested
-      ? Math.ceil(config.workspaceSessionTokenThreshold * 1.5)
-      : config.workspaceSessionTokenThreshold;
-
-    // Check token threshold
-    if (this.cumulativeTokens >= tokenThreshold) {
-      return { trigger: true, warning: false, reason: `token limit reached (${this.cumulativeTokens}/${tokenThreshold})` };
-    }
-
-    // Check message count threshold
-    if (this.messageCount >= maxMessages) {
-      return { trigger: true, warning: false, reason: `message limit reached (${this.messageCount}/${maxMessages})` };
-    }
-
-    // Warning at 80% of either threshold
-    const tokenPercent = this.cumulativeTokens / tokenThreshold;
-    const messagePercent = this.messageCount / maxMessages;
-
-    if (!this.warningSent && (tokenPercent >= 0.8 || messagePercent >= 0.8)) {
-      const contextPercent = Math.round(Math.max(tokenPercent, messagePercent) * 100);
-      const remaining = Math.max(1, maxMessages - this.messageCount);
-      return {
-        trigger: false,
-        warning: true,
-        reason: `context at ${contextPercent}%, auto-freshening in ~${remaining} messages. /keep to stay.`,
-      };
-    }
-
-    return { trigger: false, warning: false, reason: "within limits" };
+  getContextPercent(): number | undefined {
+    if (!this.lastUsage) return undefined;
+    const total = (this.lastUsage.input_tokens || 0) +
+                  (this.lastUsage.cache_creation_input_tokens || 0) +
+                  (this.lastUsage.cache_read_input_tokens || 0);
+    return Math.round((total / this.contextWindowSize) * 100);
   }
 
-  /** Get estimated context usage percentage for statusline. */
-  getContextPercent(config: Config): number | undefined {
-    if (this.mode.type !== "workspace") return undefined;
-    const maxMessages = this.keepRequested
-      ? Math.ceil(config.workspaceSessionMaxMessages * 1.5)
-      : config.workspaceSessionMaxMessages;
-    const tokenThreshold = this.keepRequested
-      ? Math.ceil(config.workspaceSessionTokenThreshold * 1.5)
-      : config.workspaceSessionTokenThreshold;
-    const tokenPercent = this.cumulativeTokens / tokenThreshold;
-    const messagePercent = this.messageCount / maxMessages;
-    return Math.round(Math.max(tokenPercent, messagePercent) * 100);
+  /**
+   * Check if we should suggest a wrapup to the user.
+   * Suggest-only — never force-rotates. Single suggestion at 70% context fill.
+   * Works for both modes.
+   */
+  shouldSuggestWrapup(): { suggest: boolean; reason: string } {
+    const pct = this.getContextPercent();
+    if (pct == null) return { suggest: false, reason: "no data" };
+    if (this.suggestionDismissed) return { suggest: false, reason: "dismissed" };
+    if (this.suggestionSent) return { suggest: false, reason: "already suggested" };
+    if (pct >= 70) {
+      return {
+        suggest: true,
+        reason: `Context at ${pct}%. /compact to compress, /wrapup to start fresh, /keep to dismiss.`,
+      };
+    }
+    return { suggest: false, reason: "within limits" };
   }
 
   onChange(listener: (mode: BridgeMode) => void): void {

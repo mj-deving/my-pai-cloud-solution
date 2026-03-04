@@ -149,6 +149,20 @@ export class ProjectManager {
     return this.registry.projects.filter((p) => p.active);
   }
 
+  // Clear active project (used when switching back to workspace mode)
+  async clearActiveProject(): Promise<void> {
+    if (this.state.activeProject) {
+      // Save current session before clearing
+      const currentSession = await this.sessions.current();
+      if (currentSession) {
+        this.state.sessions[this.state.activeProject] = currentSession;
+      }
+      this.state.activeProject = null;
+      this.state.lastSwitch = new Date().toISOString();
+      await this.saveState();
+    }
+  }
+
   // Get the currently active project name
   getActiveProjectName(): string | null {
     return this.state.activeProject;

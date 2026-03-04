@@ -131,7 +131,15 @@ export const ClaudeJsonOutputSchema = z.object({
   usage: z.object({
     input_tokens: z.number(),
     output_tokens: z.number(),
+    cache_creation_input_tokens: z.number().optional(),
+    cache_read_input_tokens: z.number().optional(),
   }).optional(),
+  modelUsage: z.record(z.string(), z.object({
+    contextWindow: z.number().optional(),
+    inputTokens: z.number().optional(),
+    cacheReadInputTokens: z.number().optional(),
+    cacheCreationInputTokens: z.number().optional(),
+  }).passthrough()).optional(),
 }).passthrough();
 
 export type ClaudeJsonOutput = z.infer<typeof ClaudeJsonOutputSchema>;
