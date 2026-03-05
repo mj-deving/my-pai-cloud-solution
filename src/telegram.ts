@@ -20,7 +20,7 @@ import { StatusMessage } from "./status-message";
 import type { ProgressEvent } from "./claude";
 import type { MessengerAdapter } from "./messenger-adapter";
 import type { ModeManager } from "./mode";
-import { formatStatusline } from "./statusline";
+import { formatStatusline, type GitInfo } from "./statusline";
 
 export interface SynthesisLoopLike {
   run(): Promise<unknown>;
@@ -42,26 +42,73 @@ export function createTelegramBot(
 ): Bot {
   const bot = new Bot(config.telegramBotToken);
 
+  // Cached git info to avoid running git on every message
+  let cachedGitInfo: { info: GitInfo; ts: number } | null = null;
+  const GIT_CACHE_TTL = 30_000; // 30s
+
+  async function getGitInfo(): Promise<GitInfo | undefined> {
+    const mode = modeManager?.getCurrentMode();
+    if (!mode || mode.type !== "project") return undefined;
+    const activeProject = projects.getActiveProject();
+    if (!activeProject) return undefined;
+    const dir = projects.getProjectPath(activeProject);
+    if (!dir) return undefined;
+
+    // Return cached if fresh
+    if (cachedGitInfo && Date.now() - cachedGitInfo.ts < GIT_CACHE_TTL) {
+      return cachedGitInfo.info;
+    }
+
+    try {
+      const [branchProc, statusProc] = [
+        Bun.spawn(["git", "branch", "--show-current"], { cwd: dir, stdout: "pipe", stderr: "pipe" }),
+        Bun.spawn(["git", "status", "--porcelain"], { cwd: dir, stdout: "pipe", stderr: "pipe" }),
+      ];
+      const [branchOut, statusOut] = await Promise.all([
+        new Response(branchProc.stdout).text(),
+        new Response(statusProc.stdout).text(),
+      ]);
+      const branch = branchOut.trim() || "detached";
+      const lines = statusOut.trim().split("\n").filter(Boolean);
+      let changed = 0;
+      let untracked = 0;
+      for (const line of lines) {
+        if (line.startsWith("??")) untracked++;
+        else changed++;
+      }
+      const info: GitInfo = { branch, changed, untracked };
+      cachedGitInfo = { info, ts: Date.now() };
+      return info;
+    } catch {
+      return undefined;
+    }
+  }
+
+  // Invalidate git cache on mode switch
+  modeManager?.onChange(() => { cachedGitInfo = null; });
+
   // Helper: build statusline for current state
-  const buildStatusline = (): string => {
+  const buildStatusline = async (): Promise<string> => {
     if (!modeManager) return "";
     const mode = modeManager.getCurrentMode();
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
     const episodeCount = memoryStore?.getStats().episodeCount ?? 0;
     const contextPercent = modeManager.getContextPercent();
+    const git = await getGitInfo();
     return formatStatusline(mode, {
       time,
       messageCount: modeManager.getMessageCount(),
       contextPercent,
       episodeCount,
+      git,
     });
   };
 
   // Helper: append statusline to last chunk
-  const appendStatusline = (chunks: string[]): string[] => {
+  const appendStatusline = async (chunks: string[]): Promise<string[]> => {
     if (!modeManager || chunks.length === 0) return chunks;
-    const statusline = buildStatusline();
+    const statusline = await buildStatusline();
     const result = [...chunks];
     result[result.length - 1] += `\n\n\`\`\`\n${statusline}\n\`\`\``;
     return result;
@@ -261,7 +308,7 @@ export function createTelegramBot(
     msg += pullResult.ok ? "Git: pulled latest" : `Git: ${pullResult.output}`;
 
     if (modeManager) {
-      msg += `\n\n\`\`\`\n${buildStatusline()}\n\`\`\``;
+      msg += `\n\n\`\`\`\n${await buildStatusline()}\n\`\`\``;
     }
 
     await ctx.reply(msg, { parse_mode: "Markdown" });
@@ -424,7 +471,7 @@ export function createTelegramBot(
       msg += `\nMost recent: ${archived[0]?.slice(0, 20)}...`;
     }
     if (modeManager) {
-      msg += `\n\n\`\`\`\n${buildStatusline()}\n\`\`\``;
+      msg += `\n\n\`\`\`\n${await buildStatusline()}\n\`\`\``;
     }
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
@@ -817,7 +864,7 @@ export function createTelegramBot(
       await sessions.saveSession(wsSession);
     }
 
-    const statusline = buildStatusline();
+    const statusline = await buildStatusline();
     await ctx.reply(`Switched to workspace mode.\n\n\`\`\`\n${statusline}\n\`\`\``);
   });
 
@@ -830,7 +877,7 @@ export function createTelegramBot(
 
     await ctx.replyWithChatAction("typing");
     await performWrapup(ctx.chat.id);
-    const statusline = buildStatusline();
+    const statusline = await buildStatusline();
     await ctx.reply(`Session wrapped up. Fresh context started.\n\n\`\`\`\n${statusline}\n\`\`\``);
   });
 
@@ -1141,7 +1188,7 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
 
     const formatted = compactFormat(response.result);
     const rawChunks = chunkMessage(formatted, config.telegramMaxChunkSize);
-    const chunks = appendStatusline(rawChunks);
+    const chunks = await appendStatusline(rawChunks);
 
     for (const chunk of chunks) {
       await ctx.reply(chunk);

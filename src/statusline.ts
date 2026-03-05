@@ -1,32 +1,58 @@
-// statusline.ts — Two-line statusline appended to every Telegram reply
-// Shows mode, time, message count, context %, and episode count.
+// statusline.ts — Statusline appended to every Telegram reply
+// Shows mode, time, context bar, message count, git info, and episode count.
 
 import type { BridgeMode } from "./mode";
+
+export interface GitInfo {
+  branch: string;
+  changed: number;   // modified/deleted
+  untracked: number;  // new files
+}
+
+/** Build a text-based context bar: ████░░░░░░ 17% */
+function contextBar(percent: number, width = 10): string {
+  const clamped = Math.max(0, Math.min(100, percent));
+  const filled = Math.round((clamped / 100) * width);
+  const empty = width - filled;
+  const filledStr = "\u2588".repeat(filled);   // █
+  const emptyStr = "\u2591".repeat(empty);      // ░
+  return `${filledStr}${emptyStr} ${clamped}%`;
+}
 
 export function formatStatusline(
   mode: BridgeMode,
   stats: {
     time: string;           // HH:MM
     messageCount: number;
-    maxMessages?: number;   // workspace only
     contextPercent?: number; // if available
     episodeCount: number;
+    git?: GitInfo;          // project mode only
   },
 ): string {
   const modeIcon = mode.type === "workspace" ? "\u{1F3E0}" : "\u{1F4C1}";
   const modeName = mode.type === "workspace" ? "workspace" : mode.name;
-  const msgStr = stats.maxMessages
-    ? `msg ${stats.messageCount}/${stats.maxMessages}`
-    : `msg ${stats.messageCount}`;
-  const ctxStr = stats.contextPercent != null
-    ? `ctx ${stats.contextPercent}%`
-    : "";
 
-  const line2Parts = [msgStr, ctxStr, `${stats.episodeCount}ep`].filter(Boolean);
+  // Line 1: mode · git info · time
+  const line1Parts = [`${modeIcon} ${modeName}`];
+  if (stats.git) {
+    const gitStr = `${stats.git.branch} ~${stats.git.changed} +${stats.git.untracked}`;
+    line1Parts.push(gitStr);
+  }
+  line1Parts.push(stats.time);
+
+  // Line 2: CTX bar · msg count · episode count
+  const ctxStr = stats.contextPercent != null
+    ? `CTX ${contextBar(stats.contextPercent)}`
+    : "";
+  const line2Parts = [
+    ctxStr,
+    `msg ${stats.messageCount}`,
+    `${stats.episodeCount}ep`,
+  ].filter(Boolean);
 
   return [
     "\u2550\u2550 PAI \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
-    `${modeIcon} ${modeName} \u00B7 ${stats.time}`,
+    line1Parts.join(" \u00B7 "),
     line2Parts.join(" \u00B7 "),
   ].join("\n");
 }
