@@ -232,6 +232,7 @@ export class ClaudeInvoker {
       let extractedUsage: ClaudeResponse["usage"] | undefined;
       let extractedLastTurnUsage: ClaudeResponse["usage"] | undefined;
       let extractedContextWindow: number | undefined;
+      let authError = "";
       const toolBlocks = new Map<number, string>(); // index → tool name
       const decoder = new TextDecoder();
       let buffer = "";
@@ -258,6 +259,7 @@ export class ClaudeInvoker {
                 setUsage: (u: ClaudeResponse["usage"]) => { extractedUsage = u; },
                 setLastTurnUsage: (u: ClaudeResponse["usage"]) => { extractedLastTurnUsage = u; },
                 setContextWindow: (cw: number) => { extractedContextWindow = cw; },
+                setAuthError: (err: string) => { authError = err; },
               });
             } catch {
               // Unparseable line — ignore
@@ -279,6 +281,7 @@ export class ClaudeInvoker {
             setUsage: (u: ClaudeResponse["usage"]) => { extractedUsage = u; },
             setLastTurnUsage: (u: ClaudeResponse["usage"]) => { extractedLastTurnUsage = u; },
             setContextWindow: (cw: number) => { extractedContextWindow = cw; },
+            setAuthError: (err: string) => { authError = err; },
           });
         } catch { /* ignore */ }
       }
@@ -296,10 +299,17 @@ export class ClaudeInvoker {
           await this.sessions.newSession();
           return this.sendStreaming(prompt, null, onProgress);
         }
+        // Use auth error from stream-json if detected, or fall back to accumulated text
+        // when stderr is empty (verbose mode sends all output to stdout as JSON)
+        const errorDetail = authError
+          ? `authentication_failed: ${authError}`
+          : stderr.trim()
+            ? stderr.slice(0, 500)
+            : accumulatedText.slice(0, 500);
         return {
           sessionId: sessionId || "",
           result: "",
-          error: `Claude exited with code ${exitCode}: ${stderr.slice(0, 500)}`,
+          error: `Claude exited with code ${exitCode}: ${errorDetail}`,
         };
       }
 
@@ -342,6 +352,7 @@ export class ClaudeInvoker {
       setUsage: (u: ClaudeResponse["usage"]) => void;
       setLastTurnUsage: (u: ClaudeResponse["usage"]) => void;
       setContextWindow: (cw: number) => void;
+      setAuthError?: (err: string) => void;
     },
   ): void {
     if (typeof parsed !== "object" || parsed === null) return;
@@ -378,6 +389,10 @@ export class ClaudeInvoker {
     if (obj.type === "assistant") {
       if (typeof obj.session_id === "string" && obj.session_id) {
         state.setSessionId(obj.session_id);
+      }
+      // Detect auth errors (returned as error field on assistant events)
+      if (typeof obj.error === "string" && obj.error) {
+        state.setAuthError?.(obj.error);
       }
       // Extract per-turn usage from message.usage — this represents actual context
       // window fill for THIS turn (not accumulated across agentic tool-use loops).

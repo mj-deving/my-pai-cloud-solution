@@ -21,6 +21,7 @@ import type { ProgressEvent } from "./claude";
 import type { MessengerAdapter } from "./messenger-adapter";
 import type { ModeManager } from "./mode";
 import { formatStatusline, type GitInfo } from "./statusline";
+import { AuthManager } from "./auth";
 
 export interface SynthesisLoopLike {
   run(): Promise<unknown>;
@@ -41,6 +42,7 @@ export function createTelegramBot(
   synthesisLoop?: SynthesisLoopLike | null,
 ): Bot {
   const bot = new Bot(config.telegramBotToken);
+  const authManager = new AuthManager();
 
   // Cached git info to avoid running git on every message
   let cachedGitInfo: { info: GitInfo; ts: number } | null = null;
@@ -50,6 +52,9 @@ export function createTelegramBot(
   function friendlyError(raw: string): string {
     if (raw.includes("No conversation found with session ID")) {
       return "Session expired. Send another message to start fresh.";
+    }
+    if (raw.includes("authentication_failed") || raw.includes("OAuth token has expired") || raw.includes("authentication_error")) {
+      return "OAuth token expired. Use /reauth to re-authenticate from your phone.";
     }
     if (raw.includes("bun': No such file") || (raw.includes("hook") && raw.includes("failed"))) {
       return "Hook failure on VPS — check bun symlink and hook paths.";
@@ -1108,6 +1113,29 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
     }
   }
 
+  // /reauth — Re-authenticate Claude CLI via OAuth from mobile
+  bot.command("reauth", async (ctx) => {
+    const status = await authManager.checkStatus();
+    const statusText = status.valid
+      ? `Current token valid until ${status.expiresAt!.toISOString().slice(0, 16).replace("T", " ")} UTC`
+      : "Current token is expired or missing";
+
+    const url = authManager.startAuth();
+
+    await ctx.reply(
+      `🔐 **OAuth Re-authentication**\n\n` +
+      `${statusText}\n\n` +
+      `**Steps:**\n` +
+      `1. Tap the link below\n` +
+      `2. Sign in to claude.ai\n` +
+      `3. Copy the authorization code shown\n` +
+      `4. Paste it here as your next message\n\n` +
+      `⏱ You have 5 minutes.\n\n` +
+      `[Authenticate →](${url})`,
+      { parse_mode: "Markdown", link_preview_options: { is_disabled: true } },
+    );
+  });
+
   // /schedule — Manage scheduled tasks
   bot.command("schedule", async (ctx) => {
     if (!scheduler) {
@@ -1151,6 +1179,17 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
   bot.on("message:text", async (ctx) => {
     const message = ctx.message.text;
     const chatId = ctx.chat.id;
+
+    // Intercept auth code if we're in the /reauth flow
+    if (authManager.isAwaitingCode()) {
+      const result = await authManager.exchangeCode(message);
+      if (result.ok) {
+        await ctx.reply("✅ Re-authenticated successfully. Claude CLI is ready.");
+      } else {
+        await ctx.reply(`❌ Auth failed: ${result.error}`);
+      }
+      return;
+    }
 
     // Typing indicator
     await ctx.replyWithChatAction("typing");

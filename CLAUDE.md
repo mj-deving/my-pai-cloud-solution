@@ -108,7 +108,7 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 - **Session:** `/clear` (summary + reset), `/compact`, `/new`, `/oneshot`, `/quick`
 - **Git:** `/sync` (commit+push), `/pull`
 - **Pipeline:** `/delegate`, `/workflow create`, `/workflows`, `/cancel`, `/branches`, `/pipeline`
-- **Admin:** `/schedule`, `/newproject`, `/deleteproject`
+- **Admin:** `/schedule`, `/newproject`, `/deleteproject`, `/reauth` (mobile OAuth re-auth)
 
 ## Conventions
 
