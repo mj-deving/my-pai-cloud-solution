@@ -93,7 +93,8 @@ export function createTelegramBot(
     const mode = modeManager.getCurrentMode();
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-    const episodeCount = memoryStore?.getStats().episodeCount ?? 0;
+    const projectName = mode.type === "project" ? mode.name : undefined;
+    const episodeCount = memoryStore?.getEpisodeCount(projectName) ?? 0;
     const contextPercent = modeManager.getContextPercent();
     const git = await getGitInfo();
     return formatStatusline(mode, {

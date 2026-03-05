@@ -41,9 +41,7 @@ export function formatStatusline(
   line1Parts.push(stats.time);
 
   // Line 2: CTX bar · msg count · episode count
-  const ctxStr = stats.contextPercent != null
-    ? `CTX ${contextBar(stats.contextPercent)}`
-    : "";
+  const ctxStr = `CTX ${contextBar(stats.contextPercent ?? 0)}`;
   const line2Parts = [
     ctxStr,
     `msg ${stats.messageCount}`,

@@ -405,6 +405,16 @@ export class MemoryStore {
     };
   }
 
+  /** Get episode count, optionally filtered by project. */
+  getEpisodeCount(project?: string): number {
+    if (project) {
+      const row = this.db.query("SELECT COUNT(*) as cnt FROM episodes WHERE project = ?").get(project) as { cnt: number } | null;
+      return row?.cnt ?? 0;
+    }
+    const row = this.db.query("SELECT COUNT(*) as cnt FROM episodes").get() as { cnt: number } | null;
+    return row?.cnt ?? 0;
+  }
+
   /** Get the last episode ID (for handoff sync pointer). */
   getLastEpisodeId(): number {
     const row = this.db.query("SELECT MAX(id) as maxId FROM episodes").get() as { maxId: number | null } | null;
