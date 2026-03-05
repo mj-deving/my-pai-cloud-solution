@@ -42,6 +42,7 @@ echo "Installing dependencies on VPS..."
 ssh "$VPS_HOST" "cd $PROJECT_DIR && ~/.bun/bin/bun install"
 
 # 5. Deploy PAI installation (skills, config, memory structure)
+# Exit 23 = partial transfer (some files vanish or have permission issues) — tolerable
 echo "Deploying PAI installation..."
 rsync -avz \
     --exclude='debug/' \
@@ -51,7 +52,19 @@ rsync -avz \
     --exclude='MEMORY/WORK/' \
     --exclude='MEMORY/VOICE/' \
     --exclude='MEMORY/STATE/' \
-    ~/.claude/ "$VPS_HOST:~/.claude/"
+    --exclude='settings.json' \
+    --exclude='history.jsonl' \
+    --exclude='.credentials.json' \
+    --exclude='*.jsonl' \
+    ~/.claude/ "$VPS_HOST:~/.claude/" || {
+    rc=$?
+    if [ "$rc" -eq 23 ]; then
+        echo "PAI rsync: partial transfer (exit 23) — non-critical, continuing"
+    else
+        echo "PAI rsync failed with exit $rc"
+        exit "$rc"
+    fi
+}
 
 # 6. Create config directory and copy env template
 echo "Setting up config..."

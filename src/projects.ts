@@ -506,32 +506,52 @@ ${displayName}
     let dir = this.getProjectPath(project);
     let autoDetected = false;
     if (!dir) {
-      // Try auto-detection before giving up
+      // Try auto-detection (finds existing clones at ~/projects/<name>)
       dir = await this.autoDetectPath(project);
-      if (!dir) {
-        return { ok: false, output: "Project has no path configured for this instance" };
+      if (dir) {
+        autoDetected = true;
       }
-      autoDetected = true;
     }
 
-    try {
-      // Check if directory exists
-      const stat = await Bun.file(dir + "/.git/HEAD").exists();
-      if (stat) {
-        return { ok: true, output: "Already cloned", autoDetected };
+    // Already cloned?
+    if (dir) {
+      try {
+        const stat = await Bun.file(dir + "/.git/HEAD").exists();
+        if (stat) {
+          return { ok: true, output: "Already cloned", autoDetected };
+        }
+      } catch {
+        // Directory doesn't exist — fall through to clone
       }
-    } catch {
-      // Directory doesn't exist
     }
 
     if (!project.autoClone) {
       return {
         ok: false,
-        output: `Project directory missing: ${dir} (autoClone is disabled)`,
+        output: `Project directory missing: ${dir || "no path"} (autoClone is disabled)`,
       };
     }
 
-    return this.runSyncScript("clone", project.git, dir);
+    // Derive conventional clone target if no path configured
+    if (!dir) {
+      const home = process.env.HOME || "";
+      dir = `${home}/projects/${project.name}`;
+    }
+
+    const result = await this.runSyncScript("clone", project.git, dir);
+    if (result.ok) {
+      // Persist the path in registry so future switches skip cloning
+      const home = process.env.HOME || "";
+      const isVps = home.includes("isidore_cloud");
+      if (isVps) {
+        project.paths.vps = dir;
+      } else {
+        project.paths.local = dir;
+      }
+      await this.saveRegistry();
+      console.log(`[projects] Cloned and registered: ${dir}`);
+    }
+    return { ...result, autoDetected: true };
   }
 
   // Run the project-sync.sh script with given args

@@ -66,6 +66,127 @@
       },
       "autoClone": true,
       "active": true
+    },
+    {
+      "name": "DEMOS-Work",
+      "displayName": "DEMOS Work",
+      "git": "https://github.com/mj-deving/DEMOS-Work.git",
+      "paths": {
+        "local": null,
+        "vps": null
+      },
+      "autoClone": true,
+      "active": true
+    },
+    {
+      "name": "pai-knowledge",
+      "displayName": "PAI Knowledge",
+      "git": "https://github.com/mj-deving/pai-knowledge.git",
+      "paths": {
+        "local": null,
+        "vps": null
+      },
+      "autoClone": true,
+      "active": true
+    },
+    {
+      "name": "claude-skills",
+      "displayName": "Claude Skills",
+      "git": "https://github.com/mj-deving/claude-skills.git",
+      "paths": {
+        "local": null,
+        "vps": null
+      },
+      "autoClone": true,
+      "active": true
+    },
+    {
+      "name": "mj-deving.github.io",
+      "displayName": "Portfolio Landing Page",
+      "git": "https://github.com/mj-deving/mj-deving.github.io.git",
+      "paths": {
+        "local": null,
+        "vps": null
+      },
+      "autoClone": true,
+      "active": true
+    },
+    {
+      "name": "portfolio-docker",
+      "displayName": "Portfolio Docker",
+      "git": "https://github.com/mj-deving/portfolio-docker.git",
+      "paths": {
+        "local": null,
+        "vps": null
+      },
+      "autoClone": true,
+      "active": true
+    },
+    {
+      "name": "arcade-hub",
+      "displayName": "Arcade Hub",
+      "git": "https://github.com/mj-deving/arcade-hub.git",
+      "paths": {
+        "local": null,
+        "vps": null
+      },
+      "autoClone": true,
+      "active": true
+    },
+    {
+      "name": "device-manager",
+      "displayName": "Device Manager",
+      "git": "https://github.com/mj-deving/device-manager.git",
+      "paths": {
+        "local": null,
+        "vps": null
+      },
+      "autoClone": true,
+      "active": true
+    },
+    {
+      "name": "device-manager-web",
+      "displayName": "Device Manager Web",
+      "git": "https://github.com/mj-deving/device-manager-web.git",
+      "paths": {
+        "local": null,
+        "vps": null
+      },
+      "autoClone": true,
+      "active": true
+    },
+    {
+      "name": "device-inventory-cli",
+      "displayName": "Device Inventory CLI",
+      "git": "https://github.com/mj-deving/device-inventory-cli.git",
+      "paths": {
+        "local": null,
+        "vps": null
+      },
+      "autoClone": true,
+      "active": true
+    },
+    {
+      "name": "RechnungsTool",
+      "displayName": "RechnungsTool",
+      "git": "https://github.com/mj-deving/RechnungsTool.git",
+      "paths": {
+        "local": null,
+        "vps": null
+      },
+      "autoClone": true,
+      "active": true
+    },
+    {
+      "name": "agentskills",
+      "displayName": "Agent Skills",
+      "git": "https://github.com/mj-deving/agentskills.git",
+      "paths": {
+        "local": null,
+        "vps": null
+      },
+      "autoClone": true,
+      "active": true
     }
   ]
 }
