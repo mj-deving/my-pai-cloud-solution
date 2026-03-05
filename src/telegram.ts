@@ -46,6 +46,23 @@ export function createTelegramBot(
   let cachedGitInfo: { info: GitInfo; ts: number } | null = null;
   const GIT_CACHE_TTL = 30_000; // 30s
 
+  /** Turn raw Claude CLI errors into actionable Telegram messages. */
+  function friendlyError(raw: string): string {
+    if (raw.includes("No conversation found with session ID")) {
+      return "Session expired. Send another message to start fresh.";
+    }
+    if (raw.includes("bun': No such file") || (raw.includes("hook") && raw.includes("failed"))) {
+      return "Hook failure on VPS — check bun symlink and hook paths.";
+    }
+    if (raw.includes("rate_limit") || raw.includes("429") || raw.includes("overloaded")) {
+      return "Rate limited by Anthropic. Wait a few minutes and retry.";
+    }
+    if (/exited with code \d+:\s*$/.test(raw)) {
+      return "Claude crashed with no output. Likely a hook failure — check VPS logs.";
+    }
+    return raw;
+  }
+
   async function getGitInfo(): Promise<GitInfo | undefined> {
     const mode = modeManager?.getCurrentMode();
     if (!mode || mode.type !== "project") return undefined;
@@ -523,7 +540,7 @@ export function createTelegramBot(
     await ctx.reply("Compacting context...");
     const response = await claude.send("/compact");
     if (response.error) {
-      await ctx.reply(`Error: ${response.error}`);
+      await ctx.reply(`⚠️ ${friendlyError(response.error)}`);
       return;
     }
     await ctx.reply("Context compacted.");
@@ -539,7 +556,7 @@ export function createTelegramBot(
     await ctx.reply("Processing (one-shot)...");
     const response = await claude.oneShot(message);
     if (response.error) {
-      await ctx.reply(`Error: ${response.error}`);
+      await ctx.reply(`⚠️ ${friendlyError(response.error)}`);
       return;
     }
     const formatted = compactFormat(response.result);
@@ -559,7 +576,7 @@ export function createTelegramBot(
     await ctx.replyWithChatAction("typing");
     const response = await claude.quickShot(message);
     if (response.error) {
-      await ctx.reply(`Error: ${response.error}`);
+      await ctx.reply(`⚠️ ${friendlyError(response.error)}`);
       return;
     }
     const formatted = compactFormat(response.result);
@@ -1183,7 +1200,7 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
     }
 
     if (response.error) {
-      await ctx.reply(`Error: ${response.error}`);
+      await ctx.reply(`⚠️ ${friendlyError(response.error)}`);
       return;
     }
 
