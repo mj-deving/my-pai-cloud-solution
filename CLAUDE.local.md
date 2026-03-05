@@ -1,22 +1,25 @@
 # Session Continuity
 
-**Last wrapup:** 2026-03-04T17:18:00+01:00
-**Current focus:** Dual-mode bug fixes complete + cloud wrapup file writing implemented. All deployed. Ready for cloud /wrapup Telegram testing.
+**Last wrapup:** 2026-03-05T00:15:00+01:00
+**Current focus:** Two-file wrapup system deployed, PAI hooks fixed on VPS, 4 Telegram bugs fixed. Ready for Telegram testing.
 
 ## Completed This Session
-- Fixed 6 dual-mode bugs: tokens=0 (stream parser), auto-wrapup (suggest-only), /workspace (clear project), /wrapup (both modes), /clear (visible summary), startup (clean workspace)
-- Implemented cloud wrapup file writing: /wrapup in project mode synthesizes MEMORY.md + CLAUDE.local.md via quickShot
-- Three commits deployed: real context tracking, clean workspace startup, cloud wrapup file writing
+- CLAUDE.md hygiene synthesis added to cloud wrapup
+- Removed CLAUDE.local.md from cloud wrapup — two-file system (MEMORY.md + CLAUDE.md)
+- Fixed project registry (6 projects), context % (lastTurnUsage), /help command, /start text
+- Fixed VPS PAI_DIR + PAI_CONFIG_DIR in settings.json
+- Disabled 7 headless-incompatible hooks, 16 remain active
+- Created `.ai/guides/bridge-mechanics.md` reference manual
 
 ## In Progress
 - None — clean stopping point
 
 ## Next Steps
-1. Test cloud /wrapup file writing on Telegram (deployed but untested)
-2. Remove dead SKIP_KNOWLEDGE_SYNC env vars from claude.ts, verifier.ts, pipeline.ts
-3. Enable PRD_EXECUTOR_ENABLED on VPS bridge.env
-4. Add WORKSPACE_* env vars to VPS bridge.env (currently using defaults)
-5. Test Gregor pipeline end-to-end (forward + reverse + workflows)
+1. Test cloud `/wrapup` on Telegram (MEMORY.md + CLAUDE.md synthesis)
+2. Test `/help`, `/projects`, project switching on Telegram
+3. Verify PAI hooks fire on VPS (journalctl for hook output)
+4. Guard deploy.sh from overwriting VPS settings.json
+5. Enable PRD_EXECUTOR_ENABLED on VPS bridge.env
 
 ## Blockers
 - None
