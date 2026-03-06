@@ -343,41 +343,60 @@ export class PipelineWatcher {
           result.decision_traces = traces.getTraces();
           const resultPath = join(this.resultsDir, filename);
           const tmpPath = join(this.resultsDir, `${filename}.tmp`);
-          await writeFile(tmpPath, JSON.stringify(result, null, 2) + "\n", "utf-8");
-          await rename(tmpPath, resultPath);
+          try {
+            await writeFile(tmpPath, JSON.stringify(result, null, 2) + "\n", "utf-8");
+            await rename(tmpPath, resultPath);
+          } catch (writeErr) {
+            console.error(`[pipeline] Failed to write policy-denied result for ${task.id}: ${writeErr}`);
+            try { await unlink(tmpPath); } catch { /* ignore */ }
+            return;
+          }
           const ackPath = join(this.ackDir, filename);
           try { await rename(join(this.tasksDir, filename), ackPath); } catch { /* ignore */ }
           return;
         }
       }
 
-      // Phase 6A: Resource guard check
+      // Phase 6A: Resource guard check — defer if memory dropped since poll()
       if (this.resourceGuard && !this.resourceGuard.canDispatch()) {
         traces.emit({
           phase: "dispatch",
           decision: `Deferred task ${task.id} — low memory`,
           reason_code: "memory_low",
         });
+        console.log(`[pipeline] Deferring task ${task.id}: low memory`);
+        return;
       }
 
-      // Phase 6A: Rate limiter check
+      // Phase 6A: Rate limiter check — defer if cooldown activated since poll()
       if (this.rateLimiter?.isPaused()) {
         traces.emit({
           phase: "dispatch",
           decision: `Deferred task ${task.id} — rate limited`,
           reason_code: "rate_limited",
         });
+        console.log(`[pipeline] Deferring task ${task.id}: rate limited`);
+        return;
       }
 
       // Phase 5C: Create task-specific branch before dispatch
       if (this.branchManager && task.project) {
-        const { cwd } = await this.resolveCwd(task);
-        if (cwd) {
-          taskBranch = await this.branchManager.checkout(cwd, task.id, "pipeline");
-          if (taskBranch) {
-            updateStatus(`Pipeline ${task.id.slice(0, 8)} ...branch: ${taskBranch.slice(0, 20)}`);
-            console.log(`[pipeline] Task ${task.id} running on branch ${taskBranch}`);
+        try {
+          const { cwd } = await this.resolveCwd(task);
+          if (cwd) {
+            taskBranch = await this.branchManager.checkout(cwd, task.id, "pipeline");
+            if (taskBranch) {
+              updateStatus(`Pipeline ${task.id.slice(0, 8)} ...branch: ${taskBranch.slice(0, 20)}`);
+              console.log(`[pipeline] Task ${task.id} running on branch ${taskBranch}`);
+            }
           }
+        } catch (err) {
+          console.warn(`[pipeline] Branch checkout failed for ${task.id}, proceeding without isolation: ${err}`);
+          traces.emit({
+            phase: "dispatch",
+            decision: `Branch checkout failed for ${task.id}: ${err}`,
+            reason_code: "branch_checkout_error",
+          });
         }
       }
 
@@ -416,19 +435,29 @@ export class PipelineWatcher {
       const skipVerifyTypes = new Set(["synthesis", "prd"]);
       if (this.verifier && result.status === "completed" && !skipVerifyTypes.has(task.type || "")) {
         updateStatus(`Pipeline ${task.id.slice(0, 8)} ...verifying`);
-        const { cwd } = await this.resolveCwd(task);
-        const verification = await this.verifier.verify(task.prompt, result.result || "", cwd);
-        if (!verification.passed) {
-          console.warn(`[pipeline] Verification failed for ${task.id}: ${verification.concerns}`);
+        try {
+          const { cwd } = await this.resolveCwd(task);
+          const verification = await this.verifier.verify(task.prompt, result.result || "", cwd);
+          if (!verification.passed) {
+            console.warn(`[pipeline] Verification failed for ${task.id}: ${verification.concerns}`);
+            traces.emit({
+              phase: "verify",
+              decision: `Verification failed for ${task.id}`,
+              reason_code: "verification_failed",
+              context: { verdict: verification.verdict },
+            });
+            result.status = "error";
+            result.error = `Verification failed: ${verification.concerns || verification.verdict}`;
+            result.warnings = [...(result.warnings || []), `Verifier: ${verification.verdict}`];
+          }
+        } catch (err) {
+          console.warn(`[pipeline] Verifier crashed for ${task.id}: ${err}`);
           traces.emit({
             phase: "verify",
-            decision: `Verification failed for ${task.id}`,
-            reason_code: "verification_failed",
-            context: { verdict: verification.verdict },
+            decision: `Verifier error for ${task.id}: ${err}`,
+            reason_code: "verification_error",
           });
-          result.status = "error";
-          result.error = `Verification failed: ${verification.concerns || verification.verdict}`;
-          result.warnings = [...(result.warnings || []), `Verifier: ${verification.verdict}`];
+          result.warnings = [...(result.warnings || []), `Verifier error: ${err}`];
         }
       } else if (this.verifier && result.status === "completed" && skipVerifyTypes.has(task.type || "")) {
         console.log(`[pipeline] Skipping verification for ${task.type} task ${task.id}`);
@@ -555,15 +584,20 @@ export class PipelineWatcher {
       }
     } finally {
       // Phase 5C: Release branch lock and return to base branch
-      if (this.branchManager && taskBranch && task.project) {
-        const { cwd } = await this.resolveCwd(task);
-        if (cwd) {
-          await this.branchManager.release(cwd, task.id).catch((err) => {
-            console.warn(`[pipeline] Branch release error for ${task.id}: ${err}`);
-          });
+      // Wrapped in try/catch so a throw here cannot skip counter cleanup below
+      try {
+        if (this.branchManager && taskBranch && task.project) {
+          const { cwd } = await this.resolveCwd(task);
+          if (cwd) {
+            await this.branchManager.release(cwd, task.id).catch((err) => {
+              console.warn(`[pipeline] Branch release error for ${task.id}: ${err}`);
+            });
+          }
         }
+      } catch (err) {
+        console.warn(`[pipeline] Branch cleanup failed for ${task.id}: ${err}`);
       }
-      // Phase 4: Release concurrency resources — always runs, even on crash
+      // Phase 4: Release concurrency resources — MUST run unconditionally
       this.inFlight.delete(filename);
       this.activeCount--;
       if (task.project) this.activeProjects.delete(task.project);
@@ -576,6 +610,12 @@ export class PipelineWatcher {
     task: PipelineTask,
   ): Promise<{ cwd: string | undefined; warnings: string[] }> {
     if (!task.project) return { cwd: undefined, warnings: [] };
+
+    // Reject path traversal attempts — project names must be simple directory names
+    if (task.project.includes("..") || task.project.includes("/") || task.project.includes("\\")) {
+      console.warn(`[pipeline] Task ${task.id}: rejected project name "${task.project}" — path traversal`);
+      return { cwd: undefined, warnings: [`cwd rejected: project "${task.project}" contains path traversal`] };
+    }
 
     const warnings: string[] = [];
     const projectDir = `/home/isidore_cloud/projects/${task.project}`;
@@ -679,10 +719,14 @@ export class PipelineWatcher {
         ? task.timeout_minutes * 60 * 1000
         : this.config.maxClaudeTimeoutMs;
       const timeout = setTimeout(() => proc.kill(), timeoutMs);
-      const stdout = await new Response(proc.stdout).text();
-      const stderr = await new Response(proc.stderr).text();
-      const exitCode = await proc.exited;
-      clearTimeout(timeout);
+      let stdout: string, stderr: string, exitCode: number;
+      try {
+        stdout = await new Response(proc.stdout).text();
+        stderr = await new Response(proc.stderr).text();
+        exitCode = await proc.exited;
+      } finally {
+        clearTimeout(timeout);
+      }
 
       // Handle bad/stale session — retry without --resume
       // Catches: invalid UUID format, expired session, unknown session ID
@@ -699,6 +743,10 @@ export class PipelineWatcher {
       }
 
       if (exitCode !== 0) {
+        // Feed rate limiter on API overload errors (matches claude.ts RATE_LIMIT_PATTERNS)
+        if (this.rateLimiter && /rate_limit|429|overloaded|Too many requests/.test(stderr)) {
+          this.rateLimiter.recordFailure();
+        }
         return this.buildResult(task, "error", undefined, undefined, `Exit ${exitCode}: ${stderr.slice(0, 500)}`, warnings);
       }
 
@@ -711,6 +759,11 @@ export class PipelineWatcher {
         // Phase 2: Record session-project affinity for future mismatch detection
         if (sessionId && task.project) {
           this.sessionProjectMap.set(sessionId, task.project);
+          // Evict oldest entry when map exceeds cap to prevent unbounded growth
+          if (this.sessionProjectMap.size > 10_000) {
+            const oldest = this.sessionProjectMap.keys().next().value;
+            if (oldest) this.sessionProjectMap.delete(oldest);
+          }
         }
 
         const pipelineResult = this.buildResult(
