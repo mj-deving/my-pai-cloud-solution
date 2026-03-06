@@ -132,6 +132,7 @@ export function createTelegramBot(
       messageCount: modeManager.getMessageCount(),
       contextPercent,
       episodeCount,
+      formatMode: getFormatMode(),
       git,
     });
   };
@@ -1231,30 +1232,68 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
     } catch { /* status message is optional */ }
 
     let lastEditTime = 0;
+    let lastEditText = "";
     const editInterval = config.statusEditIntervalMs;
+    const maxStatusLen = 3000; // Leave room under Telegram's 4096 limit
 
     const editStatus = (text: string) => {
       if (!statusMsgId) return;
+      // Skip if text hasn't changed
+      if (text === lastEditText) return;
       const now = Date.now();
       if (now - lastEditTime < editInterval) return;
       lastEditTime = now;
+      lastEditText = text;
       ctx.api.editMessageText(chatId, statusMsgId, text).catch(() => {});
+    };
+
+    // Rolling content buffer for live preview
+    let contentBuffer = "";
+    let toolLog: string[] = [];
+
+    const buildStatusView = (): string => {
+      const header = `━━━ ${currentPhase || "processing"} ━━━`;
+      const tools = toolLog.length > 0 ? toolLog.slice(-5).join("\n") : "";
+      // Trim content to fit, keeping the tail (most recent)
+      let content = contentBuffer;
+      const overhead = header.length + tools.length + 10;
+      if (content.length + overhead > maxStatusLen) {
+        content = "…" + content.slice(-(maxStatusLen - overhead));
+      }
+      const parts = [header];
+      if (tools) parts.push(tools);
+      if (content) parts.push(content);
+      return parts.join("\n\n");
     };
 
     const onProgress = (event: ProgressEvent) => {
       switch (event.type) {
         case "phase":
           currentPhase = event.phase;
-          editStatus(`━━━ ${event.phase} ━━━`);
+          editStatus(buildStatusView());
           break;
-        case "tool_start":
-          editStatus(`━━━ ${currentPhase || "..."} ━━━ [${event.tool}]...`);
+        case "tool_start": {
+          const detail = event.detail ? `: ${event.detail}` : "";
+          toolLog.push(`▸ ${event.tool}${detail}`);
+          editStatus(buildStatusView());
           break;
+        }
         case "tool_end":
-          if (currentPhase) editStatus(`━━━ ${currentPhase} ━━━`);
+          // Mark last matching tool as done
+          for (let i = toolLog.length - 1; i >= 0; i--) {
+            if (toolLog[i]!.startsWith(`▸ ${event.tool}`)) {
+              toolLog[i] = toolLog[i]!.replace("▸", "✓");
+              break;
+            }
+          }
+          editStatus(buildStatusView());
+          break;
+        case "content":
+          contentBuffer = event.text;
+          editStatus(buildStatusView());
           break;
         case "isc_progress":
-          editStatus(`━━━ ${currentPhase || "..."} ━━━ ISC ${event.done}/${event.total}`);
+          editStatus(buildStatusView() + `\n\nISC ${event.done}/${event.total}`);
           break;
       }
     };
@@ -1273,6 +1312,11 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
       return;
     }
 
+    // Track message BEFORE building statusline so CTX% and msg count are current
+    if (modeManager) {
+      modeManager.recordMessage(response.usage, response.contextWindow, response.lastTurnUsage);
+    }
+
     const retryNote = response.retried ? "↻ Recovered after retry\n\n" : "";
     const formatted = retryNote + formatResponse(response.result);
     const rawChunks = chunkMessage(formatted, config.telegramMaxChunkSize);
@@ -1280,11 +1324,6 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
 
     for (const chunk of chunks) {
       await ctx.reply(chunk);
-    }
-
-    // Track message in mode manager (pass usage + contextWindow)
-    if (modeManager) {
-      modeManager.recordMessage(response.usage, response.contextWindow, response.lastTurnUsage);
     }
 
     // Suggest-only wrapup check (both modes)

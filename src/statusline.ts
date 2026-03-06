@@ -2,6 +2,7 @@
 // Shows mode, time, context bar, message count, git info, and episode count.
 
 import type { BridgeMode } from "./mode";
+import type { FormatMode } from "./format";
 
 export interface GitInfo {
   branch: string;
@@ -26,14 +27,16 @@ export function formatStatusline(
     messageCount: number;
     contextPercent?: number; // if available
     episodeCount: number;
+    formatMode?: FormatMode; // light or raw
     git?: GitInfo;          // project mode only
   },
 ): string {
   const modeIcon = mode.type === "workspace" ? "\u{1F3E0}" : "\u{1F4C1}";
   const modeName = mode.type === "workspace" ? "workspace" : mode.name;
 
-  // Line 1: mode · git info · time
+  // Line 1: mode · format · git info · time
   const line1Parts = [`${modeIcon} ${modeName}`];
+  if (stats.formatMode === "raw") line1Parts.push("raw");
   if (stats.git) {
     const gitStr = `${stats.git.branch} ~${stats.git.changed} +${stats.git.untracked}`;
     line1Parts.push(gitStr);
