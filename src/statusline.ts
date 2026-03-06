@@ -36,7 +36,7 @@ export function formatStatusline(
 
   // Line 1: mode · format · git info · time
   const line1Parts = [`${modeIcon} ${modeName}`];
-  if (stats.formatMode === "raw") line1Parts.push("raw");
+  if (stats.formatMode) line1Parts.push(stats.formatMode);
   if (stats.git) {
     const gitStr = `${stats.git.branch} ~${stats.git.changed} +${stats.git.untracked}`;
     line1Parts.push(gitStr);
