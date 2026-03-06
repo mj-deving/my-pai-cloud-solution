@@ -26,7 +26,7 @@ fi
 
 # Stash any dirty tracked files (deploy.sh rsync can leave dirty state)
 STASHED=""
-if ! git diff --quiet 2>/dev/null; then
+if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
     git stash --quiet
     STASHED="1"
 fi

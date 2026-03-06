@@ -29,7 +29,7 @@ echo "Pre-deploy check passed (commit $LOCAL_HEAD)"
 
 # 0b. Guard: refuse to deploy if VPS has uncommitted tracked changes (could be cloud branch work)
 VPS_BRANCH=$(ssh "$VPS_HOST" "cd $PROJECT_DIR 2>/dev/null && git branch --show-current 2>/dev/null" || echo "")
-VPS_DIRTY=$(ssh "$VPS_HOST" "cd $PROJECT_DIR 2>/dev/null && git diff --quiet 2>/dev/null && echo clean || echo dirty" || echo "unknown")
+VPS_DIRTY=$(ssh "$VPS_HOST" "cd $PROJECT_DIR 2>/dev/null && git diff --quiet 2>/dev/null && git diff --cached --quiet 2>/dev/null && echo clean || echo dirty" || echo "unknown")
 
 if [ "$VPS_DIRTY" = "dirty" ]; then
     echo "ERROR: VPS has uncommitted changes on branch '$VPS_BRANCH'."
