@@ -446,10 +446,44 @@ export class ClaudeInvoker {
       if (typeof obj.error === "string" && obj.error) {
         state.setAuthError?.(obj.error);
       }
+
+      // Extract text + tool_use from message.content for live phase/tool detection
+      // CLI stream-json emits assistant events (not content_block_delta), so this is
+      // the only place we can detect phases and tools during processing.
+      const msg = obj.message as Record<string, unknown> | undefined;
+      const content = msg?.content as Array<Record<string, unknown>> | undefined;
+      if (content && Array.isArray(content)) {
+        let messageText = "";
+        for (const block of content) {
+          if (block.type === "text" && typeof block.text === "string") {
+            messageText += block.text;
+          }
+          if (block.type === "tool_use" && typeof block.name === "string") {
+            const idx = typeof block.index === "number" ? block.index : toolBlocks.size;
+            if (!toolBlocks.has(idx)) {
+              toolBlocks.set(idx, block.name as string);
+              onProgress({ type: "tool_start", tool: block.name as string });
+            }
+          }
+        }
+        if (messageText) {
+          // Detect Algorithm phase markers
+          const allPhases = [...messageText.matchAll(ClaudeInvoker.PHASE_RE_GLOBAL)];
+          if (allPhases.length > 0) {
+            onProgress({ type: "phase", phase: allPhases[allPhases.length - 1]![1]! });
+          }
+          // ISC progress
+          const checked = (messageText.match(ClaudeInvoker.ISC_CHECKED_RE) || []).length;
+          const unchecked = (messageText.match(ClaudeInvoker.ISC_UNCHECKED_RE) || []).length;
+          if (checked + unchecked > 0) {
+            onProgress({ type: "isc_progress", done: checked, total: checked + unchecked });
+          }
+        }
+      }
+
       // Extract per-turn usage from message.usage — this represents actual context
       // window fill for THIS turn (not accumulated across agentic tool-use loops).
       // The LAST assistant event's usage = current context fill.
-      const msg = obj.message as Record<string, unknown> | undefined;
       const usage = msg?.usage as Record<string, unknown> | undefined;
       if (usage && typeof usage.input_tokens === "number") {
         state.setLastTurnUsage({
