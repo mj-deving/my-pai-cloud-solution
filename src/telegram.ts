@@ -222,7 +222,7 @@ export function createTelegramBot(
     pull: "`/pull`\nPull latest from remote. Skips if uncommitted changes exist.\n`/pull --force` — discard all local changes and reset to origin/main.",
     review: "`/review [cloud/<name>]`\nReview a cloud/* branch using Codex. No argument lists available branches.\nExample: `/review cloud/pipeline-fixes`",
     merge: "`/merge cloud/<name>`\nMerge a reviewed cloud/* branch into main, push, and clean up the branch.",
-    deploy: "`/deploy`\nPull latest code from origin/main, validate build, and restart the bridge.\nIf build fails, rolls back automatically. Shows commit list on success.",
+    deploy: "`/deploy`\nPull latest code from origin/main and restart the bridge.\nWarns if uncommitted files will be overwritten — use `/deploy force` to proceed.\nShows commit list on success.",
     new: "`/new`\nStart a fresh conversation (new session ID). Does NOT persist context — use `/wrapup` first.",
     status: "`/status`\nShow current mode, session ID, message count, token usage, context %, and episode count.",
     clear: "`/clear`\nGenerate session summary, archive the session, and start fresh.",
@@ -710,11 +710,52 @@ export function createTelegramBot(
     }
   });
 
-  // /deploy — Pull latest code from origin/main and restart bridge
+  // /deploy [force] — Pull latest code from origin/main and restart bridge
   bot.command("deploy", async (ctx) => {
+    const force = ctx.match?.trim().toLowerCase() === "force";
     const stopTyping = startTypingLoop(ctx.chat.id);
+    const scriptPath = join(dirname(import.meta.dir), "scripts", "self-deploy.sh");
+
     try {
-      const scriptPath = join(dirname(import.meta.dir), "scripts", "self-deploy.sh");
+      // Step 1: Check for updates and dirty state
+      if (!force) {
+        const checkProc = Bun.spawn(["bash", scriptPath, "--check"], {
+          stdout: "pipe",
+          stderr: "pipe",
+          timeout: 30_000,
+        });
+        const checkOut = (await new Response(checkProc.stdout).text()).trim();
+        await checkProc.exited;
+
+        if (checkOut.startsWith("ALREADY_CURRENT")) {
+          stopTyping();
+          await ctx.reply("Already up to date. No changes to deploy.");
+          return;
+        }
+
+        // Parse dirty files warning
+        if (checkOut.includes("DIRTY_FILES")) {
+          const lines = checkOut.split("\n");
+          const dirtyStart = lines.indexOf("DIRTY_FILES");
+          const dirtyEnd = lines.indexOf("END_DIRTY");
+          const dirtyFiles = lines.slice(dirtyStart + 1, dirtyEnd).join("\n");
+
+          // Parse pending commits
+          const pendingIdx = lines.indexOf("PENDING");
+          const pendingCommits = pendingIdx >= 0 ? lines.slice(pendingIdx + 1).join("\n").trim() : "";
+
+          let msg = "**Deploy will overwrite uncommitted files:**\n";
+          msg += `\`\`\`\n${dirtyFiles}\n\`\`\`\n`;
+          if (pendingCommits) msg += `\n**Pending commits:**\n\`\`\`\n${pendingCommits}\n\`\`\`\n`;
+          msg += "\nSend `/deploy force` to proceed, or `/sync` first to save changes.";
+
+          stopTyping();
+          await ctx.reply(msg, { parse_mode: "Markdown" });
+          return;
+        }
+      }
+
+      // Step 2: Actually deploy
       const proc = Bun.spawn(["bash", scriptPath], {
         stdout: "pipe",
         stderr: "pipe",
@@ -740,9 +781,10 @@ export function createTelegramBot(
       if (stdout.includes("UPDATED")) {
         const lines = stdout.split("\n");
         const depsUpdated = lines.includes("DEPS_UPDATED");
-        // Everything after "UPDATED" line is the commit log (filter out DEPS_UPDATED marker)
         const updatedIdx = lines.indexOf("UPDATED");
-        const commits = lines.slice(updatedIdx + 1).filter(l => l !== "DEPS_UPDATED").join("\n").trim();
+        const commits = lines.slice(updatedIdx + 1)
+          .filter(l => l !== "DEPS_UPDATED" && !l.startsWith("DIRTY_FILES") && l !== "END_DIRTY")
+          .join("\n").trim();
 
         let msg = "Deploy successful.";
         if (commits) msg += `\n\n**Commits:**\n\`\`\`\n${commits}\n\`\`\``;
@@ -752,7 +794,6 @@ export function createTelegramBot(
         stopTyping();
         await ctx.reply(msg, { parse_mode: "Markdown" });
 
-        // Give Telegram time to deliver the reply, then restart
         setTimeout(() => {
           Bun.spawn(["sudo", "systemctl", "restart", "isidore-cloud-bridge"], {
             stdout: "ignore",
@@ -762,7 +803,6 @@ export function createTelegramBot(
         return;
       }
 
-      // Unexpected output
       stopTyping();
       await ctx.reply(`Deploy returned unexpected output:\n\`\`\`\n${stdout.slice(0, 500)}\n\`\`\``, { parse_mode: "Markdown" });
     } catch (err) {
