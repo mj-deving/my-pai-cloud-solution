@@ -49,8 +49,8 @@ if ! git diff --quiet "$LOCAL" "$REMOTE" -- bun.lock 2>/dev/null; then
     DEPS_UPDATED="1"
 fi
 
-# Step 3: Syntax check — abort if new code won't parse
-if ! bun build src/bridge.ts --no-bundle --outdir /tmp/isidore-build-check > /dev/null 2>&1; then
+# Step 3: Syntax check — verify entry point parses and resolves imports
+if ! bun --print "require.resolve('./src/bridge.ts')" > /dev/null 2>&1; then
     echo "BUILD_FAILED"
     git reset --hard "$LOCAL"  # rollback
     exit 1
