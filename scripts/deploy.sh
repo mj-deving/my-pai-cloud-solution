@@ -100,6 +100,10 @@ ssh "$VPS_HOST" "sudo cp $PROJECT_DIR/systemd/isidore-cloud-bridge.service /etc/
 # 8. Make scripts executable
 ssh "$VPS_HOST" "chmod +x $PROJECT_DIR/scripts/*.sh"
 
+# 8b. Set up sudoers for self-deploy (passwordless systemctl restart)
+echo "Setting up sudoers for self-deploy..."
+ssh "$VPS_HOST" "echo 'isidore_cloud ALL=(ALL) NOPASSWD: /bin/systemctl restart isidore-cloud-bridge' | sudo tee /etc/sudoers.d/isidore-cloud-deploy > /dev/null && sudo chmod 440 /etc/sudoers.d/isidore-cloud-deploy"
+
 # 9. Set up cron for auth health check
 echo "Setting up auth health check cron..."
 ssh "$VPS_HOST" '(crontab -l 2>/dev/null | grep -v auth-health-check; echo "0 */4 * * * /home/isidore_cloud/projects/my-pai-cloud-solution/scripts/auth-health-check.sh") | crontab -'

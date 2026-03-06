@@ -428,23 +428,14 @@ export class ClaudeInvoker {
     if (typeof parsed !== "object" || parsed === null) return;
     const obj = parsed as Record<string, unknown>;
 
-    // Debug: log every event type for stream diagnostics
-    const evType = typeof obj.type === "string" ? obj.type : "unknown";
-    const evSub = typeof obj.subtype === "string" ? `:${obj.subtype}` : "";
-    console.log(`[stream] event: ${evType}${evSub}`);
-
     // Handle CLI result event (final event in stream-json output)
     if (obj.type === "result") {
       if (typeof obj.session_id === "string") state.setSessionId(obj.session_id);
       if (typeof obj.result === "string") state.appendText(obj.result);
 
-      // Debug: log result event keys for diagnostics
-      console.log(`[stream] result keys: ${Object.keys(obj).join(", ")}`);
-
       // Extract full usage with cache tokens
       const usage = obj.usage as Record<string, unknown> | undefined;
       if (usage) {
-        console.log(`[stream] result usage: in=${usage.input_tokens} out=${usage.output_tokens} cache_create=${usage.cache_creation_input_tokens} cache_read=${usage.cache_read_input_tokens}`);
         state.setUsage({
           input_tokens: (usage.input_tokens as number) || 0,
           output_tokens: (usage.output_tokens as number) || 0,
@@ -480,7 +471,6 @@ export class ClaudeInvoker {
       const msg = obj.message as Record<string, unknown> | undefined;
       const content = msg?.content as Array<Record<string, unknown>> | undefined;
       if (content && Array.isArray(content)) {
-        console.log(`[stream] assistant content blocks: ${content.map(b => (b as Record<string, unknown>).type).join(", ")}`);
         // Emit thinking indicator for thinking blocks
         const hasThinking = content.some(b => (b as Record<string, unknown>).type === "thinking");
         if (hasThinking) {
@@ -495,7 +485,6 @@ export class ClaudeInvoker {
             const idx = typeof block.index === "number" ? block.index : toolBlocks.size;
             if (!toolBlocks.has(idx)) {
               toolBlocks.set(idx, block.name as string);
-              console.log(`[stream] tool detected: ${block.name}`);
               const detail = ClaudeInvoker.extractToolDetail(block.name as string, block.input as Record<string, unknown> | undefined);
               onProgress({ type: "tool_start", tool: block.name as string, detail });
             }
@@ -506,7 +495,6 @@ export class ClaudeInvoker {
           onProgress({ type: "content", text: messageText });
         }
         if (messageText) {
-          console.log(`[stream] assistant text (${messageText.length} chars): ${messageText.slice(0, 200).replace(/\n/g, "\\n")}`);
           // Detect PAI mode header (═══ PAI | NATIVE MODE / ALGORITHM MODE / MINIMAL)
           const modeMatch = messageText.match(/PAI \| (NATIVE|ALGORITHM|MINIMAL)/);
           if (modeMatch) {
@@ -521,7 +509,6 @@ export class ClaudeInvoker {
           const allPhases = [...messageText.matchAll(ClaudeInvoker.PHASE_RE_GLOBAL)];
           if (allPhases.length > 0) {
             const phase = allPhases[allPhases.length - 1]![1]!;
-            console.log(`[stream] phase detected: ${phase}`);
             onProgress({ type: "phase", phase });
           }
           // ISC progress
@@ -537,9 +524,7 @@ export class ClaudeInvoker {
       // window fill for THIS turn (not accumulated across agentic tool-use loops).
       // The LAST assistant event's usage = current context fill.
       const usage = msg?.usage as Record<string, unknown> | undefined;
-      console.log(`[stream] assistant msg.usage present: ${!!usage}, keys: ${usage ? Object.keys(usage).join(",") : "n/a"}`);
       if (usage && typeof usage.input_tokens === "number") {
-        console.log(`[stream] lastTurnUsage: in=${usage.input_tokens} out=${usage.output_tokens}`);
         state.setLastTurnUsage({
           input_tokens: (usage.input_tokens as number) || 0,
           output_tokens: (usage.output_tokens as number) || 0,

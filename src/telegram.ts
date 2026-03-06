@@ -654,6 +654,67 @@ export function createTelegramBot(
     }
   });
 
+  // /deploy — Pull latest code from origin/main and restart bridge
+  bot.command("deploy", async (ctx) => {
+    const stopTyping = startTypingLoop(ctx.chat.id);
+    try {
+      const scriptPath = join(dirname(import.meta.dir), "scripts", "self-deploy.sh");
+      const proc = Bun.spawn(["bash", scriptPath], {
+        stdout: "pipe",
+        stderr: "pipe",
+        timeout: 60_000,
+      });
+      const stdout = (await new Response(proc.stdout).text()).trim();
+      const stderr = (await new Response(proc.stderr).text()).trim();
+      const exitCode = await proc.exited;
+
+      if (stdout.startsWith("ALREADY_CURRENT")) {
+        stopTyping();
+        await ctx.reply("Already up to date. No changes to deploy.");
+        return;
+      }
+
+      if (stdout.startsWith("BUILD_FAILED") || exitCode !== 0) {
+        stopTyping();
+        const errDetail = stderr ? `\n\`\`\`\n${stderr.slice(0, 500)}\n\`\`\`` : "";
+        await ctx.reply(`Deploy failed — build check failed. Rolled back to previous version.${errDetail}`, { parse_mode: "Markdown" });
+        return;
+      }
+
+      if (stdout.startsWith("UPDATED")) {
+        const lines = stdout.split("\n");
+        const depsUpdated = lines.includes("DEPS_UPDATED");
+        // Everything after "UPDATED" line is the commit log (filter out DEPS_UPDATED marker)
+        const updatedIdx = lines.indexOf("UPDATED");
+        const commits = lines.slice(updatedIdx + 1).filter(l => l !== "DEPS_UPDATED").join("\n").trim();
+
+        let msg = "Deploy successful.";
+        if (commits) msg += `\n\n**Commits:**\n\`\`\`\n${commits}\n\`\`\``;
+        if (depsUpdated) msg += "\n\nDependencies updated.";
+        msg += "\n\nRestarting in 3s...";
+
+        stopTyping();
+        await ctx.reply(msg, { parse_mode: "Markdown" });
+
+        // Give Telegram time to deliver the reply, then restart
+        setTimeout(() => {
+          Bun.spawn(["sudo", "systemctl", "restart", "isidore-cloud-bridge"], {
+            stdout: "ignore",
+            stderr: "ignore",
+          });
+        }, 3000);
+        return;
+      }
+
+      // Unexpected output
+      stopTyping();
+      await ctx.reply(`Deploy returned unexpected output:\n\`\`\`\n${stdout.slice(0, 500)}\n\`\`\``, { parse_mode: "Markdown" });
+    } catch (err) {
+      stopTyping();
+      await ctx.reply(`Deploy error: ${String(err).slice(0, 300)}`);
+    }
+  });
+
   // /new — Start a new conversation session
   bot.command("new", async (ctx) => {
     await sessions.newSession();
@@ -1441,7 +1502,8 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
 
     const buildStatusView = (): string => {
       const header = `━━━ ${currentPhase || "processing"} ━━━`;
-      const tools = toolLog.length > 0 ? toolLog.slice(-5).join("\n") : "";
+      let tools = toolLog.length > 0 ? toolLog.slice(-5).join("\n") : "";
+      if (tools.length > 500) tools = tools.slice(-500);
       // Trim content to fit, keeping the tail (most recent)
       let content = contentBuffer;
       const overhead = header.length + tools.length + 10;
@@ -1461,8 +1523,8 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
           editStatus(buildStatusView());
           break;
         case "tool_start": {
-          const detail = event.detail ? `: ${event.detail}` : "";
-          toolLog.push(`▸ ${event.tool}${detail}`);
+          const detail = event.detail ? `: ${event.detail.slice(0, 60)}` : "";
+          toolLog.push(`▸ ${event.tool}${detail}`.slice(0, 80));
           editStatus(buildStatusView());
           break;
         }
