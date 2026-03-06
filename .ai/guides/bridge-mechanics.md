@@ -198,6 +198,81 @@
 
 ---
 
+## Git Workflow (Cloud → Review → Merge)
+
+```
+  CLOUD ISIDORE                    VPS GIT                      MARIUS (Telegram/local)
+  ─────────────                    ───────                      ───────────────────────
+
+  Makes changes                    (files modified in
+  (workspace or                     project directory)
+   project mode)
+       │
+       ▼
+  /sync ──────────► project-sync.sh push
+                         │
+                         ├─ git add -u
+                         ├─ Detect pre-push hook → main blocked
+                         ├─ git checkout -b cloud/<project>-<timestamp>
+                         ├─ git commit
+                         ├─ git push -u origin cloud/...
+                         └─ git checkout main
+                              │
+                              ▼
+                    Telegram reply:
+                    "Branch: cloud/my-pai-cloud-solution-20260306-1630
+                     Review: /review cloud/...
+                     Merge: /merge cloud/..."  ──────────► Marius sees in Telegram
+                                                                │
+                                                                ▼
+                                               /review cloud/<branch>
+                                                      │
+                                               (Codex CLI on VPS)
+                                               codex review --base main
+                                                      │
+                                                      ▼
+                                               Verdict shown in Telegram
+                                                      │
+                                                      ▼
+                                               /merge cloud/<branch>
+                                                      │
+                                               git merge → push → delete branch
+                                                      │
+                                                      ▼
+                                               "Merged + pushed. Branch cleaned up."
+
+  RECOVERY:
+  ─────────
+  /pull           → git pull --rebase (skips if dirty — warns instead)
+  /pull --force   → git fetch + reset --hard origin/main + clean stale branches
+
+  LOCAL REVIEW (alternative):
+  ───────────────────────────
+  bash scripts/review-cloud.sh cloud/<branch>
+    → git fetch, checkout, codex review --base main
+    → git merge + push locally
+```
+
+### Pre-Push Hook (VPS)
+
+Installed at `<project>/.git/hooks/pre-push`. Rejects pushes to `refs/heads/main` with instructions to use `cloud/*` branches. Install via `bash scripts/install-vps-hook.sh`.
+
+### Project Switch Safety
+
+```
+  /project <name>
+       │
+       ├─ Auto-push CURRENT project → cloud/* branch (if changes exist)
+       ├─ ensureCloned(target)
+       ├─ syncPull(target)
+       │    └─ git diff --quiet?
+       │         YES → git pull --rebase
+       │         NO  → SKIP pull, warn "uncommitted changes — pull skipped"
+       └─ setActiveProject + setWorkingDirectory
+```
+
+---
+
 ## Context % Tracking
 
 ```

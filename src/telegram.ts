@@ -78,10 +78,15 @@ export function createTelegramBot(
 
   async function getGitInfo(): Promise<GitInfo | undefined> {
     const mode = modeManager?.getCurrentMode();
-    if (!mode || mode.type !== "project") return undefined;
-    const activeProject = projects.getActiveProject();
-    if (!activeProject) return undefined;
-    const dir = projects.getProjectPath(activeProject);
+    if (!mode) return undefined;
+
+    let dir: string | undefined;
+    if (mode.type === "project") {
+      const activeProject = projects.getActiveProject();
+      if (activeProject) dir = projects.getProjectPath(activeProject) ?? undefined;
+    } else {
+      dir = config.workspaceDir;
+    }
     if (!dir) return undefined;
 
     // Return cached if fresh
@@ -209,7 +214,9 @@ export function createTelegramBot(
     wrapup: "`/wrapup`\nSession wrapup — synthesizes two files:\n- **MEMORY.md**: operational knowledge, session continuity, learnings\n- **CLAUDE.md**: architecture hygiene (remove stale, add new)\n\nRun before `/clear` to persist context across sessions.",
     keep: "`/keep`\nDismiss the auto-wrapup suggestion. Context continues growing.",
     sync: "`/sync`\nCommit + push current project changes, then show git status.",
-    pull: "`/pull`\nPull latest changes from the remote for the active project.",
+    pull: "`/pull`\nPull latest from remote. Skips if uncommitted changes exist.\n`/pull --force` — discard all local changes and reset to origin/main.",
+    review: "`/review [cloud/<name>]`\nReview a cloud/* branch using Codex. No argument lists available branches.\nExample: `/review cloud/pipeline-fixes`",
+    merge: "`/merge cloud/<name>`\nMerge a reviewed cloud/* branch into main, push, and clean up the branch.",
     new: "`/new`\nStart a fresh conversation (new session ID). Does NOT persist context — use `/wrapup` first.",
     status: "`/status`\nShow current mode, session ID, message count, token usage, context %, and episode count.",
     clear: "`/clear`\nGenerate session summary, archive the session, and start fresh.",
@@ -243,7 +250,7 @@ export function createTelegramBot(
     let msg = "**Commands**\n\n";
     msg += "**Mode:**\n/workspace · /project · /projects\n\n";
     msg += "**Session:**\n/wrapup · /keep · /clear · /compact · /verbose · /new · /status\n\n";
-    msg += "**Git:**\n/sync · /pull\n\n";
+    msg += "**Git:**\n/sync · /pull · /review · /merge\n\n";
     msg += "**Quick:**\n/oneshot · /quick\n\n";
     msg += "**Pipeline:**\n/delegate · /workflow · /workflows · /cancel · /pipeline\n\n";
     msg += "**Admin:**\n/schedule · /newproject · /deleteproject\n\n";
@@ -433,12 +440,21 @@ export function createTelegramBot(
     const session = await sessions.current();
     const path = projects.getProjectPath(activeProject);
 
+    // Extract branch name from output (project-sync.sh prints "BRANCH: cloud/...")
+    const branchMatch = gitResult.output.match(/BRANCH: (cloud\/\S+)/);
+    const cloudBranch = branchMatch?.[1];
+
     let msg = `**Sync: ${activeProject.displayName}**\n\n`;
     msg += `Git: ${gitResult.ok ? "pushed" : gitResult.output}\n`;
+    if (cloudBranch) {
+      msg += `Branch: \`${cloudBranch}\`\n`;
+    }
     msg += `Session: ${session ? session.slice(0, 8) + "..." : "none"}\n`;
     if (path) msg += `Path: \`${path}\`\n`;
     msg += "\n";
-    if (activeProject.paths.local) {
+    if (cloudBranch) {
+      msg += `Review: \`/review ${cloudBranch}\`\nMerge: \`/merge ${cloudBranch}\``;
+    } else if (activeProject.paths.local) {
       msg += `To pick up locally:\n`;
       msg += `\`cd ${activeProject.paths.local} && git pull\``;
     } else {
@@ -448,7 +464,7 @@ export function createTelegramBot(
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
 
-  // /pull — Pull latest from remote for active project
+  // /pull [--force] — Pull latest from remote for active project
   bot.command("pull", async (ctx) => {
     const activeProject = projects.getActiveProject();
     if (!activeProject) {
@@ -456,14 +472,186 @@ export function createTelegramBot(
       return;
     }
 
+    const arg = ctx.match?.trim();
+    const force = arg === "--force" || arg === "-f";
+
     await ctx.replyWithChatAction("typing");
 
-    const pullResult = await projects.syncPull(activeProject);
+    if (force) {
+      const pullResult = await projects.syncForcePull(activeProject);
+      let msg = `**Force Pull: ${activeProject.displayName}**\n\n`;
+      msg += `Git: ${pullResult.ok ? "reset to origin/main" : pullResult.output}`;
+      await ctx.reply(msg, { parse_mode: "Markdown" });
+    } else {
+      const pullResult = await projects.syncPull(activeProject);
+      let msg = `**Pull: ${activeProject.displayName}**\n\n`;
+      msg += `Git: ${pullResult.ok ? "pulled latest" : pullResult.output}`;
+      await ctx.reply(msg, { parse_mode: "Markdown" });
+    }
+  });
 
-    let msg = `**Pull: ${activeProject.displayName}**\n\n`;
-    msg += `Git: ${pullResult.ok ? "pulled latest" : pullResult.output}`;
+  // /review [branch] — Review a cloud/* branch using Codex + Claude
+  bot.command("review", async (ctx) => {
+    const branch = ctx.match?.trim();
+    const activeProject = projects.getActiveProject();
+    const projectDir = activeProject ? projects.getProjectPath(activeProject) : null;
 
-    await ctx.reply(msg, { parse_mode: "Markdown" });
+    if (!projectDir) {
+      await ctx.reply("No active project. Use /project <name> first.");
+      return;
+    }
+
+    await ctx.replyWithChatAction("typing");
+
+    // List branches if no argument
+    if (!branch) {
+      try {
+        const fetchProc = Bun.spawn(["git", "fetch", "origin", "--prune"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+        await fetchProc.exited;
+        const listProc = Bun.spawn(["git", "branch", "-r", "--list", "origin/cloud/*"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+        const branches = (await new Response(listProc.stdout).text()).trim();
+        if (!branches) {
+          await ctx.reply("No cloud/* branches found.");
+        } else {
+          const names = branches.split("\n").map(b => b.trim().replace("origin/", ""));
+          await ctx.reply(`**Cloud branches:**\n${names.map(n => `• \`${n}\``).join("\n")}\n\nUsage: \`/review cloud/<name>\``, { parse_mode: "Markdown" });
+        }
+      } catch {
+        await ctx.reply("Failed to list branches.");
+      }
+      return;
+    }
+
+    // Validate branch name
+    if (!branch.startsWith("cloud/")) {
+      await ctx.reply("Only cloud/* branches can be reviewed. Usage: `/review cloud/<name>`", { parse_mode: "Markdown" });
+      return;
+    }
+
+    const statusMsg = await ctx.reply(`Reviewing \`${branch}\`...`).catch(() => null);
+
+    try {
+      // Fetch and verify branch exists
+      const fetchProc = Bun.spawn(["git", "fetch", "origin"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+      await fetchProc.exited;
+
+      const verifyProc = Bun.spawn(["git", "rev-parse", `origin/${branch}`], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+      if (await verifyProc.exited !== 0) {
+        await ctx.reply(`Branch \`origin/${branch}\` not found.`, { parse_mode: "Markdown" });
+        return;
+      }
+
+      // Get diff stats
+      const statsProc = Bun.spawn(["git", "diff", "--stat", `main...origin/${branch}`], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+      const stats = (await new Response(statsProc.stdout).text()).trim();
+
+      // Get commit log
+      const logProc = Bun.spawn(["git", "log", "--oneline", `main..origin/${branch}`], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+      const commitLog = (await new Response(logProc.stdout).text()).trim();
+
+      // Checkout branch for review — abort if both attempts fail
+      const checkoutProc = Bun.spawn(["git", "checkout", branch], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+      const checkoutExit = await checkoutProc.exited;
+      if (checkoutExit !== 0) {
+        // Try creating local tracking branch
+        const trackProc = Bun.spawn(["git", "checkout", "-b", branch, `origin/${branch}`], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+        const trackExit = await trackProc.exited;
+        if (trackExit !== 0) {
+          const trackErr = (await new Response(trackProc.stderr).text()).trim();
+          await ctx.reply(`Cannot checkout \`${branch}\` — dirty working tree or branch conflict.\n${trackErr.slice(0, 200)}`, { parse_mode: "Markdown" });
+          return;
+        }
+      }
+
+      // Run Codex review
+      const codexBin = `${process.env.HOME}/.npm-global/bin/codex`;
+      const codexProc = Bun.spawn([codexBin, "review", "--base", "main"], { cwd: projectDir, stdout: "pipe", stderr: "pipe", timeout: 120_000 });
+      const codexOut = await new Response(codexProc.stdout).text();
+      const codexExit = await codexProc.exited;
+
+      // Return to main
+      Bun.spawn(["git", "checkout", "main"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+
+      // Build review message
+      let msg = `**Review: \`${branch}\`**\n\n`;
+      msg += `**Commits:**\n\`\`\`\n${commitLog}\n\`\`\`\n\n`;
+      msg += `**Changes:**\n\`\`\`\n${stats}\n\`\`\`\n\n`;
+      msg += `**Codex Review:**\n${codexOut.slice(-3000) || (codexExit === 0 ? "No issues found." : "Review failed.")}\n\n`;
+      msg += `To merge: \`/merge ${branch}\``;
+
+      // Chunk and send
+      const chunks = chunkMessage(msg, 4000);
+      for (const chunk of chunks) {
+        await ctx.reply(chunk, { parse_mode: "Markdown" }).catch(() => ctx.reply(chunk));
+      }
+    } catch (err) {
+      await ctx.reply(`Review failed: ${String(err).slice(0, 200)}`);
+      // Return to main on error
+      Bun.spawn(["git", "checkout", "main"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+    }
+  });
+
+  // /merge <branch> — Merge a reviewed cloud/* branch into main
+  bot.command("merge", async (ctx) => {
+    const branch = ctx.match?.trim();
+    const activeProject = projects.getActiveProject();
+    const projectDir = activeProject ? projects.getProjectPath(activeProject) : null;
+
+    if (!projectDir) {
+      await ctx.reply("No active project. Use /project <name> first.");
+      return;
+    }
+
+    if (!branch || !branch.startsWith("cloud/")) {
+      await ctx.reply("Usage: `/merge cloud/<name>`", { parse_mode: "Markdown" });
+      return;
+    }
+
+    await ctx.replyWithChatAction("typing");
+
+    try {
+      // Ensure we're on main — abort if checkout fails
+      const checkoutProc = Bun.spawn(["git", "checkout", "main"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+      const checkoutExit = await checkoutProc.exited;
+      if (checkoutExit !== 0) {
+        const checkoutErr = (await new Response(checkoutProc.stderr).text()).trim();
+        await ctx.reply(`Cannot switch to main — dirty working tree?\n${checkoutErr.slice(0, 200)}`, { parse_mode: "Markdown" });
+        return;
+      }
+
+      // Merge the branch
+      const mergeProc = Bun.spawn(["git", "merge", `origin/${branch}`], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+      const mergeOut = (await new Response(mergeProc.stdout).text()).trim();
+      const mergeErr = (await new Response(mergeProc.stderr).text()).trim();
+      const mergeExit = await mergeProc.exited;
+
+      if (mergeExit !== 0) {
+        // Abort merge on failure
+        Bun.spawn(["git", "merge", "--abort"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+        await ctx.reply(`Merge failed:\n\`\`\`\n${(mergeErr || mergeOut).slice(0, 500)}\n\`\`\``, { parse_mode: "Markdown" });
+        return;
+      }
+
+      // Push to origin
+      const pushProc = Bun.spawn(["git", "push", "origin", "main"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+      const pushExit = await pushProc.exited;
+
+      if (pushExit !== 0) {
+        await ctx.reply(`Merged locally but push failed. Run \`git push origin main\` manually.`, { parse_mode: "Markdown" });
+        return;
+      }
+
+      // Delete remote branch
+      const deleteProc = Bun.spawn(["git", "push", "origin", "--delete", branch], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+      await deleteProc.exited;
+
+      // Delete local branch
+      Bun.spawn(["git", "branch", "-d", branch], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+
+      await ctx.reply(`Merged \`${branch}\` → main and pushed.\nBranch cleaned up.`, { parse_mode: "Markdown" });
+    } catch (err) {
+      await ctx.reply(`Merge error: ${String(err).slice(0, 300)}`);
+    }
   });
 
   // /new — Start a new conversation session

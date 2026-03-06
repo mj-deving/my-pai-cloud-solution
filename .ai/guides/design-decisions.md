@@ -53,12 +53,21 @@ Detailed design decisions organized by implementation phase. Core architectural 
 - **Session Continuity:** Session summaries (importance 9) generated on `/clear` and bridge shutdown. `ContextBuilder` retrieves latest session summary for recovery context in subsequent conversations.
 - **State in memory.db:** Project state (active project, sessions map) persisted in memory.db knowledge table (domain="system") instead of file-based handoff. `ProjectManager.loadState()`/`saveState()` read/write via `MemoryStore.getSystemState()`/`setSystemState()`.
 
+## Git Workflow — Branch Protection, Code Review, Mobile Merge
+
+- **Cloud/* branch convention:** Cloud Isidore never pushes to `main` directly. All changes go to `cloud/<project>-<timestamp>` branches. Enforced by a VPS-side `pre-push` git hook that rejects pushes to `refs/heads/main` with instructions to use `cloud/*` branches.
+- **Auto-branching via `/sync`:** `project-sync.sh push` detects the pre-push hook and automatically creates a `cloud/` branch, commits, pushes, and returns to `main`. The Telegram reply includes the branch name and `/review` + `/merge` commands. For repos without the hook, `/sync` pushes to current branch (backward compatible).
+- **Code review via Codex CLI:** `scripts/review-cloud.sh` (local) and `/review` (Telegram) run `codex review --base main` to get an AI-powered review of the branch diff. Codex CLI installed on both local (`~/.npm-global/bin/codex`) and VPS.
+- **Mobile merge flow:** From Telegram: `/review cloud/<branch>` → Codex reviews → `/merge cloud/<branch>` → merges to main, pushes, deletes branch. No local machine access required.
+- **Pull safety:** `project-sync.sh pull` skips pull if uncommitted changes exist (warns instead of stash/pop). `/pull --force` does `git fetch + reset --hard origin/main` for recovery.
+- **GitHub free plan:** Branch protection rules require GitHub Pro for private repos. The pre-push hook provides equivalent enforcement at no cost.
+
 ## Dual-Mode System — Workspace Mode, Statusline, Auto-Wrapup, Daily Memory
 
 - **Dual Modes:** `ModeManager` (`mode.ts`) manages two modes: workspace (default, autonomous) and project (focused git-repo work). Mode state drives session management, context injection, and UX behavior.
 - **Workspace Mode:** The agent's "home" between projects. Auto-session management with wrapup on context pressure. Importance-triggered synthesis flush. Daily memory file generation. Persistent workspace session stored in memory.db (domain="system", key="workspace_session"), separate from project sessions.
 - **Project Mode:** Focused work on a specific git-tracked repo. Invoked via `/project`. Manual session management via project-keyed session IDs. Syncs with local Claude Code via `/sync` and `/pull`.
-- **Mode Switching:** `/workspace` (or `/home`) switches to workspace mode — auto-pushes current project, loads workspace session. `/project <name>` switches to project mode — emits mode change event, pulls latest. No auto-detection in v1 — explicit commands only.
+- **Mode Switching:** `/workspace` (or `/home`) switches to workspace mode — auto-pushes current project (to `cloud/*` branch), loads workspace session. `/project <name>` switches to project mode — auto-pushes current project, pulls latest (skipped if uncommitted changes to protect local work), emits mode change event. No auto-detection in v1 — explicit commands only.
 - **Statusline:** `formatStatusline()` (`statusline.ts`) generates a two-line block appended to every Telegram reply: mode icon (🏠/📁) + name + time on line 1, message count + context % + episode count on line 2. Wrapped in code block for monospace rendering.
 - **Auto-Wrapup:** `ModeManager` tracks cumulative tokens and message count per workspace session. `shouldAutoWrapup(config)` returns `{ trigger, warning, reason }`. Warning at 80% of threshold. Trigger at 100%. `/keep` command extends threshold by 50% and clears pending warning. Wrapup generates session summary (quickShot), records as importance-9 episode, rotates workspace session, resets metrics.
 - **Daily Memory:** `DailyMemoryWriter` (`daily-memory.ts`) generates daily summaries of workspace episodes. Filters by importance ≥ 3, summarizes via `quickShot`, writes markdown to `${workspaceDir}/memory/YYYY-MM-DD.md`, records in memory.db (source="daily_memory", importance 8), optionally git commits. Triggered by scheduler via `type: "daily-memory"` pipeline task. Default cron: `55 22 * * *` (22:55 UTC).

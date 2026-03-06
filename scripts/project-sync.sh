@@ -31,25 +31,40 @@ do_pull() {
   log "Pulling latest in ${dir}..."
   cd "${dir}"
 
-  # Stash any uncommitted changes to avoid rebase conflicts
-  local stashed=false
+  # Refuse to pull if there are uncommitted changes — warn instead of risking stash conflicts
   if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
-    git stash --quiet 2>/dev/null && stashed=true
-    log "Stashed local changes"
+    local changed
+    changed=$(git diff --stat 2>/dev/null | tail -1)
+    log "SKIP: uncommitted changes in ${dir} (${changed}). Pull skipped to protect local work."
+    echo "DIRTY: uncommitted changes — pull skipped. Use /sync to commit first, then /pull."
+    return 1
   fi
 
   run_with_timeout git pull --rebase --quiet || {
     log "WARN: pull failed, continuing with local state"
   }
 
-  # Restore stashed changes
-  if $stashed; then
-    git stash pop --quiet 2>/dev/null || {
-      log "WARN: stash pop had conflicts, changes in stash"
-    }
-  fi
-
   log "Pull complete"
+}
+
+do_force_pull() {
+  local dir="$1"
+  [[ -d "${dir}/.git" ]] || { log "ERROR: not a git repo: ${dir}"; exit 1; }
+
+  log "Force pulling in ${dir} — discarding local changes..."
+  cd "${dir}"
+
+  # Checkout main, fetch, and hard reset
+  git checkout main --quiet 2>/dev/null || true
+  run_with_timeout git fetch origin || {
+    log "ERROR: fetch failed"
+    exit 1
+  }
+  git reset --hard origin/main
+  # Clean up stale cloud/* branches
+  git branch | grep 'cloud/' | xargs -r git branch -D 2>/dev/null || true
+
+  log "Force pull complete — now at $(git rev-parse --short HEAD)"
 }
 
 do_push() {
@@ -68,19 +83,37 @@ do_push() {
   fi
 
   local timestamp
-  timestamp=$(date '+%Y-%m-%d %H:%M')
-  local instance
-  instance=$(hostname -s 2>/dev/null || echo "unknown")
+  timestamp=$(date '+%Y%m%d-%H%M')
+  local project_name
+  project_name=$(basename "${dir}")
 
-  run_with_timeout git commit -m "cloud: auto-save (${instance} ${timestamp})" --quiet || {
+  # If a pre-push hook blocks main, auto-create a cloud/* branch
+  local branch
+  branch=$(git branch --show-current 2>/dev/null || echo "main")
+  if [[ "${branch}" == "main" ]] && grep -q "Direct push to main is blocked" "${dir}/.git/hooks/pre-push" 2>/dev/null; then
+    branch="cloud/${project_name}-${timestamp}"
+    git checkout -b "${branch}" --quiet 2>/dev/null || {
+      log "WARN: failed to create branch ${branch}"
+      return 0
+    }
+    log "Created branch ${branch}"
+  fi
+
+  run_with_timeout git commit -m "cloud: ${project_name} changes (${timestamp})" --quiet || {
     log "WARN: commit failed"
     return 0
   }
 
-  run_with_timeout git push -u origin main --quiet || {
+  run_with_timeout git push -u origin "${branch}" --quiet || {
     log "WARN: push failed (maybe offline), changes committed locally"
     return 0
   }
+
+  # Return to main after pushing to a cloud/* branch
+  if [[ "${branch}" == cloud/* ]]; then
+    git checkout main --quiet 2>/dev/null
+    echo "BRANCH: ${branch}"
+  fi
 
   log "Push complete"
 }
@@ -120,6 +153,10 @@ case "${1:-}" in
   pull)
     [[ -n "${2:-}" ]] || { echo "Usage: $0 pull <dir>" >&2; exit 1; }
     do_pull "$2"
+    ;;
+  force-pull)
+    [[ -n "${2:-}" ]] || { echo "Usage: $0 force-pull <dir>" >&2; exit 1; }
+    do_force_pull "$2"
     ;;
   push)
     [[ -n "${2:-}" ]] || { echo "Usage: $0 push <dir>" >&2; exit 1; }

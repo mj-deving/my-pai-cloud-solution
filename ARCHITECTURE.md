@@ -499,14 +499,38 @@ A **project registry** (`config/projects.json`) tracks all projects with their p
 
 ```
 /project openclaw-bot
-  → Auto-push current project (git commit + push)
+  → Auto-push current project (git commit + push to cloud/* branch)
   → ModeManager.switchToProject("openclaw-bot")
   → Look up in registry (case-insensitive partial match)
   → Ensure target is cloned (auto-clone if needed)
-  → Pull latest code (git pull)
+  → Pull latest code (skipped if uncommitted changes — warns instead)
   → Save current session ID, restore target's session ID (from memory.db)
   → Set Claude working directory to target's path
   → Reply with status + statusline
+```
+
+### Git Workflow (Cloud → Review → Merge)
+
+Cloud Isidore never pushes to `main` directly. A VPS-side pre-push hook rejects it.
+
+```
+Cloud makes changes (workspace or project mode)
+  → /sync (or auto-push on project switch)
+    → project-sync.sh detects pre-push hook
+    → Creates cloud/<project>-<timestamp> branch
+    → Commits + pushes branch
+    → Returns to main
+    → Telegram reply shows branch + /review + /merge commands
+
+Marius reviews (from phone or desktop):
+  → /review cloud/<branch>    — Codex CLI reviews diff on VPS
+  → /merge cloud/<branch>     — merges to main, pushes, deletes branch
+  OR
+  → scripts/review-cloud.sh   — Codex review from local machine
+
+Recovery:
+  → /pull                     — normal pull (skips if dirty)
+  → /pull --force             — git reset --hard origin/main
 ```
 
 ### Project Creation (`/newproject <name>`)
@@ -1137,7 +1161,9 @@ ssh isidore_cloud 'gh auth status'
 | `deploy.sh` | Full deployment: rsync code + git fetch/reset + bun install. Excludes `CLAUDE.local.md`. | Every time you update the code |
 | `auth-health-check.sh` | Checks Claude OAuth health. Runs via cron every 4 hours. | Automatically via cron |
 | `run-task.sh` | Runs a one-shot Claude task. For cron-based automation. | Manually or via cron |
-| `project-sync.sh` | Git operations for projects: `pull`, `push`, `clone`. | Called by ProjectManager (not directly) |
+| `project-sync.sh` | Git operations: `pull` (skips if dirty), `push` (auto-branches to `cloud/*`), `force-pull` (reset to origin/main), `clone`. | Called by ProjectManager (not directly) |
+| `review-cloud.sh` | Review a `cloud/*` branch using Codex CLI. Lists branches if no arg. | Manually from local machine |
+| `install-vps-hook.sh` | Installs pre-push hook on VPS to block direct pushes to main. | Once, during setup |
 
 ### Systemd (`systemd/`)
 

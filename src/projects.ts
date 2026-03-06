@@ -492,6 +492,13 @@ ${displayName}
     return this.runSyncScript("pull", dir);
   }
 
+  // Force pull — discard local changes and reset to origin/main
+  async syncForcePull(project: ProjectEntry): Promise<{ ok: boolean; output: string }> {
+    const dir = this.getProjectPath(project);
+    if (!dir) return { ok: true, output: "No path on this instance — skipped" };
+    return this.runSyncScript("force-pull", dir);
+  }
+
   // Push changes for a project (git add -u + commit + push)
   async syncPush(project: ProjectEntry): Promise<{ ok: boolean; output: string }> {
     const dir = this.getProjectPath(project);

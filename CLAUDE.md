@@ -36,6 +36,14 @@ ssh isidore_cloud 'sudo journalctl -u isidore-cloud-bridge -f'
 
 No test suite exists. Verify changes by deploying and testing via Telegram commands or pipeline task files.
 
+```bash
+# Review a cloud/* branch (local, via Codex CLI)
+bash scripts/review-cloud.sh cloud/<branch-name>
+
+# Install pre-push hook on VPS (blocks direct pushes to main)
+bash scripts/install-vps-hook.sh
+```
+
 ## Architecture
 
 ### Dual-Mode System
@@ -106,9 +114,17 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 
 - **Mode:** `/workspace` (`/home`), `/project <name>`, `/wrapup`, `/keep`, `/start`, `/status`, `/help`
 - **Session:** `/clear` (summary + reset), `/compact`, `/verbose` (light/raw output), `/new`, `/oneshot`, `/quick`
-- **Git:** `/sync` (commit+push), `/pull`
+- **Git:** `/sync` (commit+push), `/pull`, `/review` (Codex branch review), `/merge` (merge cloud/* to main)
 - **Pipeline:** `/delegate`, `/workflow create`, `/workflows`, `/cancel`, `/branches`, `/pipeline`
 - **Admin:** `/schedule`, `/newproject`, `/deleteproject`, `/reauth` (mobile OAuth re-auth)
+
+## Git Workflow (MANDATORY)
+
+- **Never push to `main` directly.** A pre-push hook blocks it.
+- **Always create a `cloud/<description>` branch** for your changes.
+- **Push to the branch, then notify Marius** for review and merge.
+- Workflow: `git checkout -b cloud/<description>` → commit → `git push -u origin cloud/<description>` → tell Marius.
+- Marius reviews via Codex CLI (`scripts/review-cloud.sh`) and merges to main.
 
 ## Conventions
 
