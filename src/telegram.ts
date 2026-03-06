@@ -676,6 +676,13 @@ export function createTelegramBot(
       const stderr = (await new Response(proc.stderr).text()).trim();
       const exitCode = await proc.exited;
 
+      if (stdout.startsWith("WRONG_BRANCH")) {
+        stopTyping();
+        const branch = stdout.split(" ")[1] || "unknown";
+        await ctx.reply(`Cannot deploy — VPS is on branch \`${branch}\`. Switch to main first.`, { parse_mode: "Markdown" });
+        return;
+      }
+
       if (stdout.startsWith("ALREADY_CURRENT")) {
         stopTyping();
         await ctx.reply("Already up to date. No changes to deploy.");

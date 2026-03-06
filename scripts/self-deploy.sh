@@ -7,6 +7,13 @@ set -euo pipefail
 REPO_DIR="/home/isidore_cloud/projects/my-pai-cloud-solution"
 cd "$REPO_DIR"
 
+# Step 0: Ensure we're on main — refuse to deploy if on a branch with uncommitted work
+CURRENT_BRANCH=$(git branch --show-current)
+if [ "$CURRENT_BRANCH" != "main" ]; then
+    echo "WRONG_BRANCH $CURRENT_BRANCH"
+    exit 1
+fi
+
 # Step 1: Pull latest
 git fetch origin
 LOCAL=$(git rev-parse HEAD)
@@ -17,10 +24,19 @@ if [ "$LOCAL" = "$REMOTE" ]; then
     exit 0
 fi
 
-# Reset tracked files to match HEAD (deploy.sh rsync can leave dirty state)
-git checkout -- .
+# Stash any dirty tracked files (deploy.sh rsync can leave dirty state)
+STASHED=""
+if ! git diff --quiet 2>/dev/null; then
+    git stash --quiet
+    STASHED="1"
+fi
 
 git pull --rebase --quiet
+
+# Pop stash if we stashed (best-effort — conflicts mean stash stays saved)
+if [ -n "$STASHED" ]; then
+    git stash pop --quiet 2>/dev/null || true
+fi
 
 # Step 2: Install deps if lockfile changed (with rollback on failure)
 DEPS_UPDATED=""
