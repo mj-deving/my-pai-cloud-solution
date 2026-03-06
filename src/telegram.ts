@@ -200,7 +200,11 @@ export function createTelegramBot(
     msg += `/cancel <id> — Cancel workflow\n`;
     msg += `/pipeline — Pipeline dashboard\n`;
     msg += `/schedule — Manage scheduled tasks\n`;
+    msg += `/review [branch] — Codex review a cloud/* branch\n`;
+    msg += `/merge cloud/<name> — Merge reviewed branch to main\n`;
+    msg += `/branches — List cloud/* branches\n`;
     msg += `/deploy — Pull latest & restart bridge\n`;
+    msg += `/reauth — Re-authenticate Claude CLI\n`;
     msg += `/newproject <name> — Create new project\n`;
     msg += `/deleteproject <name> — Remove project`;
 
@@ -232,6 +236,8 @@ export function createTelegramBot(
     schedule: "`/schedule`\nManage scheduled tasks. Sub-commands: `enable`, `disable`, `run`, or list all.",
     newproject: "`/newproject <name>`\nCreate a new project — GitHub repo, VPS clone, CLAUDE.md scaffold, registry entry.",
     deleteproject: "`/deleteproject <name>`\nRemove a project from the registry.",
+    branches: "`/branches`\nList all `cloud/*` branches on the remote for the active project.",
+    reauth: "`/reauth`\nRe-authenticate the Claude CLI with a fresh OAuth token.\nUseful when auth expires on the VPS.",
     help: "`/help [command]`\nShow help for a specific command, or list all commands.",
   };
 
