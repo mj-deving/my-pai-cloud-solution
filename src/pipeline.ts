@@ -349,6 +349,7 @@ export class PipelineWatcher {
           } catch (writeErr) {
             console.error(`[pipeline] Failed to write policy-denied result for ${task.id}: ${writeErr}`);
             try { await unlink(tmpPath); } catch { /* ignore */ }
+            return;
           }
           const ackPath = join(this.ackDir, filename);
           try { await rename(join(this.tasksDir, filename), ackPath); } catch { /* ignore */ }
