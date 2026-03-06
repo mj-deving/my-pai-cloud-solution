@@ -431,7 +431,7 @@ export function createTelegramBot(
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
 
-  // /sync — Commit + push + status
+  // /sync — Commit + push + status + Codex review
   bot.command("sync", async (ctx) => {
     const activeProject = projects.getActiveProject();
     if (!activeProject) {
@@ -439,7 +439,7 @@ export function createTelegramBot(
       return;
     }
 
-    await ctx.replyWithChatAction("typing");
+    const stopTyping = startTypingLoop(ctx.chat.id);
 
     // 1. Git commit + push
     const gitResult = await projects.syncPush(activeProject);
@@ -469,7 +469,55 @@ export function createTelegramBot(
       msg += "Cloud-only project — no local path configured.";
     }
 
+    stopTyping();
     await ctx.reply(msg, { parse_mode: "Markdown" });
+
+    // 2. Run Codex review on the pushed commit (async, non-blocking)
+    if (gitResult.ok) {
+      const projectDir = projects.getProjectPath(activeProject);
+      if (projectDir) {
+        const reviewTyping = startTypingLoop(ctx.chat.id);
+        try {
+          const codexBin = `${process.env.HOME}/.npm-global/bin/codex`;
+          const reviewBase = cloudBranch ? "main" : "HEAD~1";
+          const reviewArgs = cloudBranch
+            ? [codexBin, "review", "--base", reviewBase]
+            : [codexBin, "review", "--commit", "HEAD"];
+          const reviewProc = Bun.spawn(reviewArgs, {
+            cwd: projectDir,
+            stdout: "pipe",
+            stderr: "pipe",
+            timeout: 120_000,
+          });
+          const reviewOut = (await new Response(reviewProc.stdout).text()).trim();
+          const reviewExit = await reviewProc.exited;
+
+          reviewTyping();
+          if (reviewExit === 0 && reviewOut && !reviewOut.includes("CODEX_REVIEW_FAILED")) {
+            // Extract just the codex review output (last message from codex)
+            const codexLine = reviewOut.split("\n").findIndex(l => l.startsWith("codex"));
+            const reviewBody = codexLine >= 0
+              ? reviewOut.slice(reviewOut.indexOf("\n", reviewOut.indexOf("codex")) + 1).trim()
+              : reviewOut;
+            if (reviewBody && reviewBody.length > 10) {
+              const truncated = reviewBody.length > 3500
+                ? reviewBody.slice(0, 3500) + "\n...(truncated)"
+                : reviewBody;
+              await ctx.reply(`**Codex Review:**\n${truncated}`, { parse_mode: "Markdown" }).catch(() =>
+                ctx.reply(`Codex Review:\n${truncated}`)
+              );
+            } else {
+              await ctx.reply("Codex review: no issues found.");
+            }
+          } else {
+            // Codex not available or failed — silent, review is advisory
+          }
+        } catch {
+          reviewTyping();
+          // Codex review is advisory — don't block sync on failure
+        }
+      }
+    }
   });
 
   // /pull [--force] — Pull latest from remote for active project
