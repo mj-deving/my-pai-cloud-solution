@@ -155,6 +155,8 @@ export class Scheduler {
       project: template.project || undefined,
       timeout_minutes: template.timeout_minutes || 5,
       max_turns: template.max_turns || 10,
+      // Scheduled tasks recur — disable prompt-based dedup so they run every time
+      auto_op_id: false,
     };
 
     const filename = `${taskId}.json`;

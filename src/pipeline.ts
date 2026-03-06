@@ -269,15 +269,16 @@ export class PipelineWatcher {
     let statusMsgId: number | null = null;
     const startTime = Date.now();
 
-    // Send compact status message via Telegram
-    if (this.messenger) {
-      try {
-        const handle = await this.messenger.sendStatusMessage(
-          `Pipeline ${task.id.slice(0, 8)} [${task.type || "task"}] ${task.priority || "normal"}`,
-        );
-        statusMsgId = handle.messageId;
-      } catch { /* status is optional */ }
-    }
+    const sendStatus = async () => {
+      if (this.messenger) {
+        try {
+          const handle = await this.messenger.sendStatusMessage(
+            `Pipeline ${task.id.slice(0, 8)} [${task.type || "task"}] ${task.priority || "normal"}`,
+          );
+          statusMsgId = handle.messageId;
+        } catch { /* status is optional */ }
+      }
+    };
 
     const updateStatus = (text: string) => {
       if (!this.messenger || !statusMsgId) return;
@@ -289,7 +290,7 @@ export class PipelineWatcher {
         `[pipeline] Processing task ${task.id} from ${task.from} [${task.priority || "normal"}] (active: ${this.activeCount}/${this.maxConcurrent}) (${task.prompt.slice(0, 80)}...)`,
       );
 
-      // Phase 1: Idempotency check — skip if already processed
+      // Phase 1: Idempotency check — skip if already processed (before status notification)
       if (this.idempotencyStore) {
         const opId = task.op_id || (task.auto_op_id !== false ? IdempotencyStore.generateOpId(task.prompt) : null);
         if (opId && this.idempotencyStore.isDuplicate(opId)) {
@@ -300,7 +301,7 @@ export class PipelineWatcher {
             context: { op_id: opId },
           });
           console.log(`[pipeline] Skipping duplicate task ${task.id} (op_id: ${opId.slice(0, 12)}...)`);
-          // Move to ack without dispatching
+          // Move to ack without dispatching — no Telegram notification for duplicates
           const ackPath = join(this.ackDir, filename);
           try { await rename(taskPath, ackPath); } catch { /* ignore */ }
           return;
@@ -380,15 +381,34 @@ export class PipelineWatcher {
         }
       }
 
-      // 1. Dispatch to Claude
-      updateStatus(`Pipeline ${task.id.slice(0, 8)} ...dispatching`);
-      traces.emit({
-        phase: "dispatch",
-        decision: `Dispatching task ${task.id}`,
-        reason_code: "dispatched",
-        context: { project: task.project, priority: task.priority },
-      });
-      const result = await this.dispatch(task);
+      // Send status notification (after dedup/policy checks pass)
+      await sendStatus();
+
+      // Hook-only types: synthesis and daily-memory have dedicated handlers,
+      // skip the Claude CLI dispatch to avoid wasting turns/cost.
+      const hookOnlyTypes = new Set(["synthesis", "daily-memory"]);
+      let result: PipelineResult;
+
+      if (hookOnlyTypes.has(task.type || "")) {
+        updateStatus(`Pipeline ${task.id.slice(0, 8)} ...running hook`);
+        traces.emit({
+          phase: "dispatch",
+          decision: `Hook-only dispatch for ${task.type} task ${task.id}`,
+          reason_code: "hook_only",
+          context: { type: task.type },
+        });
+        result = this.buildResult(task, "completed", `Hook-only: ${task.type} handler will execute`);
+      } else {
+        // 1. Dispatch to Claude
+        updateStatus(`Pipeline ${task.id.slice(0, 8)} ...dispatching`);
+        traces.emit({
+          phase: "dispatch",
+          decision: `Dispatching task ${task.id}`,
+          reason_code: "dispatched",
+          context: { project: task.project, priority: task.priority },
+        });
+        result = await this.dispatch(task);
+      }
 
       // Phase 6B: Verify completed results before writing
       // Skip verification for synthesis/prd tasks — their dispatch result is not the
@@ -509,14 +529,29 @@ export class PipelineWatcher {
         console.warn(`[pipeline] Failed to move ${filename} to ack/: ${err}`);
       }
 
-      // Final status update
+      // Final status update + send result content
       const elapsed = Math.round((Date.now() - startTime) / 1000);
-      if (this.messenger && statusMsgId) {
+      if (this.messenger) {
         const icon = result.status === "completed" ? "\u2713" : "\u2717";
-        this.messenger.editMessage(
-          statusMsgId,
-          `${icon} Pipeline ${task.id.slice(0, 8)}: ${result.status} (${elapsed}s)`,
-        ).catch(() => {});
+        const statusLine = `${icon} Pipeline ${task.id.slice(0, 8)} [${task.type || "task"}]: ${result.status} (${elapsed}s)`;
+
+        if (statusMsgId) {
+          this.messenger.editMessage(statusMsgId, statusLine).catch(() => {});
+        }
+
+        // Send result content (or error) as a separate message
+        const content = result.status === "completed"
+          ? result.result?.trim()
+          : result.error?.trim();
+        if (content) {
+          const truncated = content.length > 3500
+            ? content.slice(0, 3500) + "\n...(truncated)"
+            : content;
+          this.messenger.sendDirectMessage(
+            `${statusLine}\n\n${truncated}`,
+            { parseMode: "Markdown" },
+          ).catch(() => {});
+        }
       }
     } finally {
       // Phase 5C: Release branch lock and return to base branch

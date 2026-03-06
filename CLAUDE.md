@@ -105,7 +105,7 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 ## Telegram Commands
 
 - **Mode:** `/workspace` (`/home`), `/project <name>`, `/wrapup`, `/keep`, `/start`, `/status`, `/help`
-- **Session:** `/clear` (summary + reset), `/compact`, `/new`, `/oneshot`, `/quick`
+- **Session:** `/clear` (summary + reset), `/compact`, `/verbose` (light/raw output), `/new`, `/oneshot`, `/quick`
 - **Git:** `/sync` (commit+push), `/pull`
 - **Pipeline:** `/delegate`, `/workflow create`, `/workflows`, `/cancel`, `/branches`, `/pipeline`
 - **Admin:** `/schedule`, `/newproject`, `/deleteproject`, `/reauth` (mobile OAuth re-auth)

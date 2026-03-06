@@ -25,6 +25,7 @@ export interface ClaudeResponse {
   };
   contextWindow?: number;
   error?: string;
+  retried?: boolean;
 }
 
 export type ProgressEvent =
@@ -39,6 +40,19 @@ const RATE_LIMIT_PATTERNS = ["rate_limit", "429", "overloaded", "Too many reques
 
 function isRateLimitError(stderr: string): boolean {
   return RATE_LIMIT_PATTERNS.some((p) => stderr.includes(p));
+}
+
+const AUTH_ERROR_PATTERNS = ["authentication_failed", "OAuth token", "authentication_error"];
+
+function isAuthError(text: string): boolean {
+  return AUTH_ERROR_PATTERNS.some((p) => text.includes(p));
+}
+
+function isRecoverableError(errorDetail: string): boolean {
+  if (isAuthError(errorDetail)) return false;
+  if (isRateLimitError(errorDetail)) return false;
+  if (errorDetail.includes("No conversation found with session ID")) return false;
+  return true;
 }
 
 export interface ContextBuilderLike {
@@ -90,7 +104,7 @@ export class ClaudeInvoker {
 
   // Send a message to the active session and get a response
   // If onProgress is provided, uses stream-json for live status updates
-  async send(message: string, onProgress?: (event: ProgressEvent) => void): Promise<ClaudeResponse> {
+  async send(message: string, onProgress?: (event: ProgressEvent) => void, _isRetry = false): Promise<ClaudeResponse> {
     // V2-B: Prepend memory context if context builder is wired
     let prompt = message;
     if (this.contextBuilder) {
@@ -102,7 +116,7 @@ export class ClaudeInvoker {
 
     // If onProgress provided, use streaming path
     if (onProgress) {
-      return this.sendStreaming(prompt, sessionId, onProgress);
+      return this.sendStreaming(prompt, sessionId, onProgress, _isRetry);
     }
 
     // Build args: use --resume only if we have a real session ID from a prior Claude response
@@ -149,6 +163,15 @@ export class ClaudeInvoker {
           await this.sessions.newSession();
           return this.send(message);
         }
+        // Auto-retry recoverable errors once with fresh session
+        if (!_isRetry && isRecoverableError(stderr)) {
+          console.warn(`[claude] Recoverable error (exit ${exitCode}), retrying fresh: ${stderr.slice(0, 100)}`);
+          this.rateLimiter?.recordFailure();
+          await this.sessions.newSession();
+          const retryResult = await this.send(message, onProgress, true);
+          retryResult.retried = true;
+          return retryResult;
+        }
         return {
           sessionId: sessionId || "",
           result: "",
@@ -190,6 +213,14 @@ export class ClaudeInvoker {
         };
       }
     } catch (err) {
+      if (!_isRetry && isRecoverableError(String(err))) {
+        console.warn(`[claude] Spawn exception, retrying fresh: ${String(err).slice(0, 100)}`);
+        this.rateLimiter?.recordFailure();
+        await this.sessions.newSession();
+        const retryResult = await this.send(message, onProgress, true);
+        retryResult.retried = true;
+        return retryResult;
+      }
       return {
         sessionId: sessionId || "",
         result: "",
@@ -203,6 +234,7 @@ export class ClaudeInvoker {
     prompt: string,
     sessionId: string | null,
     onProgress: (event: ProgressEvent) => void,
+    isRetry = false,
   ): Promise<ClaudeResponse> {
     const args = [this.config.claudeBinary];
     if (sessionId) {
@@ -306,6 +338,16 @@ export class ClaudeInvoker {
           : stderr.trim()
             ? stderr.slice(0, 500)
             : accumulatedText.slice(0, 500);
+        // Auto-retry recoverable errors once with fresh session
+        if (!isRetry && isRecoverableError(errorDetail)) {
+          console.warn(`[claude] Recoverable error (exit ${exitCode}), retrying fresh: ${errorDetail.slice(0, 100)}`);
+          this.rateLimiter?.recordFailure();
+          await this.sessions.newSession();
+          onProgress({ type: "phase", phase: "RETRY" });
+          const retryResult = await this.sendStreaming(prompt, null, onProgress, true);
+          retryResult.retried = true;
+          return retryResult;
+        }
         return {
           sessionId: sessionId || "",
           result: "",
@@ -327,6 +369,15 @@ export class ClaudeInvoker {
         contextWindow: extractedContextWindow,
       };
     } catch (err) {
+      if (!isRetry && isRecoverableError(String(err))) {
+        console.warn(`[claude] Spawn exception (streaming), retrying fresh: ${String(err).slice(0, 100)}`);
+        this.rateLimiter?.recordFailure();
+        await this.sessions.newSession();
+        onProgress({ type: "phase", phase: "RETRY" });
+        const retryResult = await this.sendStreaming(prompt, null, onProgress, true);
+        retryResult.retried = true;
+        return retryResult;
+      }
       return {
         sessionId: sessionId || "",
         result: "",

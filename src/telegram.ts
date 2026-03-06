@@ -14,7 +14,7 @@ import type { RateLimiter } from "./rate-limiter";
 import type { MemoryStore } from "./memory";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { compactFormat, chunkMessage } from "./format";
+import { formatResponse, chunkMessage, toggleFormatMode, getFormatMode } from "./format";
 import type { Scheduler } from "./scheduler";
 import { StatusMessage } from "./status-message";
 import type { ProgressEvent } from "./claude";
@@ -66,6 +66,14 @@ export function createTelegramBot(
       return "Claude crashed with no output. Likely a hook failure — check VPS logs.";
     }
     return raw;
+  }
+
+  /** Send "typing..." repeatedly until stopped. Telegram expires it after ~5s. */
+  function startTypingLoop(chatId: number): () => void {
+    const send = () => bot.api.sendChatAction(chatId, "typing").catch(() => {});
+    send();
+    const interval = setInterval(send, 4000);
+    return () => clearInterval(interval);
   }
 
   async function getGitInfo(): Promise<GitInfo | undefined> {
@@ -177,6 +185,7 @@ export function createTelegramBot(
     msg += `/status — Current session info\n`;
     msg += `/clear — Archive & restart\n`;
     msg += `/compact — Compact context\n`;
+    msg += `/verbose — Toggle light/raw output\n`;
     msg += `/oneshot <msg> — One-shot (no session)\n`;
     msg += `/quick <msg> — Quick answer (lightweight model)\n`;
     msg += `/delegate <prompt> — Delegate task to Gregor\n`;
@@ -204,6 +213,7 @@ export function createTelegramBot(
     status: "`/status`\nShow current mode, session ID, message count, token usage, context %, and episode count.",
     clear: "`/clear`\nGenerate session summary, archive the session, and start fresh.",
     compact: "`/compact`\nCompress conversation context to free up token space.",
+    verbose: "`/verbose`\nToggle output format:\n- **Light** (default): strips noise (curl, time checks, ISC gates, audits). Keeps all content.\n- **Raw**: full unmodified Claude output.",
     oneshot: "`/oneshot <message>`\nOne-shot question — fresh context, no session persistence.",
     quick: "`/quick <message>`\nQuick answer using a lightweight model (haiku).",
     delegate: "`/delegate <prompt>`\nDelegate a task to Gregor via the reverse pipeline.",
@@ -231,7 +241,7 @@ export function createTelegramBot(
     // No argument — grouped overview
     let msg = "**Commands**\n\n";
     msg += "**Mode:**\n/workspace · /project · /projects\n\n";
-    msg += "**Session:**\n/wrapup · /keep · /clear · /compact · /new · /status\n\n";
+    msg += "**Session:**\n/wrapup · /keep · /clear · /compact · /verbose · /new · /status\n\n";
     msg += "**Git:**\n/sync · /pull\n\n";
     msg += "**Quick:**\n/oneshot · /quick\n\n";
     msg += "**Pipeline:**\n/delegate · /workflow · /workflows · /cancel · /pipeline\n\n";
@@ -503,9 +513,9 @@ export function createTelegramBot(
   bot.command("clear", async (ctx) => {
     // Generate session summary before clearing (non-blocking on failure)
     if (memoryStore) {
+      const stopTyping = startTypingLoop(ctx.chat.id);
       try {
         await ctx.reply("Generating session summary...");
-        await ctx.replyWithChatAction("typing");
         const recentEpisodes = memoryStore.getEpisodesSince(
           Math.max(0, memoryStore.getLastEpisodeId() - 20), 20
         );
@@ -531,6 +541,8 @@ export function createTelegramBot(
         }
       } catch (err) {
         console.warn(`[telegram] Session summary generation failed: ${err}`);
+      } finally {
+        stopTyping();
       }
     }
 
@@ -543,12 +555,23 @@ export function createTelegramBot(
   // /compact — Send /compact to Claude to compress context
   bot.command("compact", async (ctx) => {
     await ctx.reply("Compacting context...");
+    const stopTyping = startTypingLoop(ctx.chat.id);
     const response = await claude.send("/compact");
+    stopTyping();
     if (response.error) {
       await ctx.reply(`⚠️ ${friendlyError(response.error)}`);
       return;
     }
     await ctx.reply("Context compacted.");
+  });
+
+  // /verbose — Toggle output format between light strip and raw
+  bot.command("verbose", async (ctx) => {
+    const mode = toggleFormatMode();
+    const desc = mode === "raw"
+      ? "Raw — full unmodified output"
+      : "Light — noise stripped, content preserved";
+    await ctx.reply(`Output format: ${desc}`);
   });
 
   // /oneshot <message> — One-shot invocation (no session)
@@ -559,12 +582,14 @@ export function createTelegramBot(
       return;
     }
     await ctx.reply("Processing (one-shot)...");
+    const stopTyping = startTypingLoop(ctx.chat.id);
     const response = await claude.oneShot(message);
+    stopTyping();
     if (response.error) {
       await ctx.reply(`⚠️ ${friendlyError(response.error)}`);
       return;
     }
-    const formatted = compactFormat(response.result);
+    const formatted = formatResponse(response.result);
     const chunks = chunkMessage(formatted, config.telegramMaxChunkSize);
     for (const chunk of chunks) {
       await ctx.reply(chunk);
@@ -578,13 +603,14 @@ export function createTelegramBot(
       await ctx.reply("Usage: /quick <your message>\nUses a lightweight model for fast, cheap responses.");
       return;
     }
-    await ctx.replyWithChatAction("typing");
+    const stopTyping = startTypingLoop(ctx.chat.id);
     const response = await claude.quickShot(message);
+    stopTyping();
     if (response.error) {
       await ctx.reply(`⚠️ ${friendlyError(response.error)}`);
       return;
     }
-    const formatted = compactFormat(response.result);
+    const formatted = formatResponse(response.result);
     const chunks = chunkMessage(formatted, config.telegramMaxChunkSize);
     for (const chunk of chunks) {
       await ctx.reply(chunk);
@@ -686,7 +712,7 @@ export function createTelegramBot(
         return;
       }
 
-      await ctx.replyWithChatAction("typing");
+      const stopTyping = startTypingLoop(ctx.chat.id);
       await ctx.reply("Creating workflow...");
 
       const activeProject = projects.getActiveProject();
@@ -694,6 +720,7 @@ export function createTelegramBot(
         rest,
         activeProject?.name,
       );
+      stopTyping();
 
       if (result.error) {
         await ctx.reply(`Failed: ${result.error}`);
@@ -898,8 +925,9 @@ export function createTelegramBot(
       return;
     }
 
-    await ctx.replyWithChatAction("typing");
+    const stopTyping = startTypingLoop(ctx.chat.id);
     await performWrapup(ctx.chat.id);
+    stopTyping();
     const statusline = await buildStatusline();
     await ctx.reply(`Session wrapped up. Fresh context started.\n\n\`\`\`\n${statusline}\n\`\`\``);
   });
@@ -1191,8 +1219,8 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
       return;
     }
 
-    // Typing indicator
-    await ctx.replyWithChatAction("typing");
+    // Typing indicator — repeats every 4s until response arrives
+    const stopTyping = startTypingLoop(chatId);
 
     // Create a live status message for progress tracking
     let statusMsgId: number | null = null;
@@ -1233,6 +1261,8 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
 
     const response = await claude.send(message, onProgress);
 
+    stopTyping();
+
     // Remove the status message (replaced by actual response)
     if (statusMsgId) {
       ctx.api.deleteMessage(chatId, statusMsgId).catch(() => {});
@@ -1243,7 +1273,8 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
       return;
     }
 
-    const formatted = compactFormat(response.result);
+    const retryNote = response.retried ? "↻ Recovered after retry\n\n" : "";
+    const formatted = retryNote + formatResponse(response.result);
     const rawChunks = chunkMessage(formatted, config.telegramMaxChunkSize);
     const chunks = await appendStatusline(rawChunks);
 
