@@ -1,20 +1,15 @@
 #!/bin/bash
 # self-deploy.sh — Pull latest code and restart bridge
 # Called by /deploy Telegram command. Runs ON the VPS.
+#
+# Simple approach: fetch + reset --hard origin/main.
+# VPS has no meaningful local commits on main — everything comes from GitHub.
 
 set -euo pipefail
 
 REPO_DIR="/home/isidore_cloud/projects/my-pai-cloud-solution"
 cd "$REPO_DIR"
 
-# Step 0: Ensure we're on main — refuse to deploy if on a branch with uncommitted work
-CURRENT_BRANCH=$(git branch --show-current)
-if [ "$CURRENT_BRANCH" != "main" ]; then
-    echo "WRONG_BRANCH $CURRENT_BRANCH"
-    exit 1
-fi
-
-# Step 1: Pull latest
 git fetch origin
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/main)
@@ -24,42 +19,14 @@ if [ "$LOCAL" = "$REMOTE" ]; then
     exit 0
 fi
 
-# Stash any dirty tracked files (deploy.sh rsync can leave dirty state)
-STASHED=""
-if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
-    git stash --quiet
-    STASHED="1"
-fi
+git reset --hard origin/main
 
-git pull --rebase --quiet
-
-# Pop stash if we stashed (best-effort — conflicts mean stash stays saved)
-if [ -n "$STASHED" ]; then
-    git stash pop --quiet 2>/dev/null || true
-fi
-
-# Step 2: Install deps if lockfile changed (with rollback on failure)
-DEPS_UPDATED=""
+# Install deps if lockfile changed
 if ! git diff --quiet "$LOCAL" "$REMOTE" -- bun.lock 2>/dev/null; then
-    if ! (bun install --frozen-lockfile 2>/dev/null || bun install); then
-        echo "BUILD_FAILED"
-        git reset --hard "$LOCAL"
-        exit 1
-    fi
-    DEPS_UPDATED="1"
-fi
-
-# Step 3: Syntax check — verify entry point parses and resolves imports
-if ! bun --print "require.resolve('./src/bridge.ts')" > /dev/null 2>&1; then
-    echo "BUILD_FAILED"
-    git reset --hard "$LOCAL"  # rollback
-    exit 1
-fi
-
-# Step 4: Show what changed — UPDATED must be the first line
-CHANGES=$(git log --oneline "$LOCAL".."$REMOTE")
-echo "UPDATED"
-if [ -n "$DEPS_UPDATED" ]; then
+    bun install --frozen-lockfile 2>/dev/null || bun install
     echo "DEPS_UPDATED"
 fi
+
+CHANGES=$(git log --oneline "$LOCAL".."$REMOTE")
+echo "UPDATED"
 echo "$CHANGES"

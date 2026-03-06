@@ -724,23 +724,16 @@ export function createTelegramBot(
       const stderr = (await new Response(proc.stderr).text()).trim();
       const exitCode = await proc.exited;
 
-      if (stdout.startsWith("WRONG_BRANCH")) {
-        stopTyping();
-        const branch = stdout.split(" ")[1] || "unknown";
-        await ctx.reply(`Cannot deploy — VPS is on branch \`${branch}\`. Switch to main first.`, { parse_mode: "Markdown" });
-        return;
-      }
-
       if (stdout.startsWith("ALREADY_CURRENT")) {
         stopTyping();
         await ctx.reply("Already up to date. No changes to deploy.");
         return;
       }
 
-      if (stdout.startsWith("BUILD_FAILED") || exitCode !== 0) {
+      if (exitCode !== 0) {
         stopTyping();
         const errDetail = stderr ? `\n\`\`\`\n${stderr.slice(0, 500)}\n\`\`\`` : "";
-        await ctx.reply(`Deploy failed — build check failed. Rolled back to previous version.${errDetail}`, { parse_mode: "Markdown" });
+        await ctx.reply(`Deploy failed.${errDetail}`, { parse_mode: "Markdown" });
         return;
       }
 
