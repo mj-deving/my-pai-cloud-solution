@@ -67,7 +67,7 @@ Local Isidore and Isidore Cloud share knowledge via a private GitHub repo (`mj-d
 ## Requirements
 
 - Bun runtime
-- Claude Code CLI (Max 5x subscription)
+- Claude Code CLI
 - Telegram bot token (via @BotFather)
 
 ---
