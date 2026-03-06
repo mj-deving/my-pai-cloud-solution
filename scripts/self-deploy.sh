@@ -17,6 +17,9 @@ if [ "$LOCAL" = "$REMOTE" ]; then
     exit 0
 fi
 
+# Reset tracked files to match HEAD (deploy.sh rsync can leave dirty state)
+git checkout -- .
+
 git pull --rebase --quiet
 
 # Step 2: Install deps if lockfile changed (with rollback on failure)
