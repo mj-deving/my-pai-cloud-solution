@@ -737,7 +737,7 @@ export function createTelegramBot(
         return;
       }
 
-      if (stdout.startsWith("UPDATED")) {
+      if (stdout.includes("UPDATED")) {
         const lines = stdout.split("\n");
         const depsUpdated = lines.includes("DEPS_UPDATED");
         // Everything after "UPDATED" line is the commit log (filter out DEPS_UPDATED marker)
