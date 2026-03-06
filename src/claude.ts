@@ -388,6 +388,7 @@ export class ClaudeInvoker {
 
   // Phase detection regex
   private static PHASE_RE = /━━━.*?(OBSERVE|THINK|PLAN|BUILD|EXECUTE|VERIFY|LEARN).*━━━/;
+  private static PHASE_RE_GLOBAL = /━━━.*?(OBSERVE|THINK|PLAN|BUILD|EXECUTE|VERIFY|LEARN).*━━━/g;
   // ISC checkbox detection
   private static ISC_CHECKED_RE = /- \[x\]/gi;
   private static ISC_UNCHECKED_RE = /- \[ \]/g;
@@ -499,11 +500,11 @@ export class ClaudeInvoker {
           state.appendText(delta.text);
           onProgress({ type: "text_chunk", text: delta.text });
 
-          // Check for Algorithm phase markers
+          // Check for Algorithm phase markers — find the LAST phase in accumulated text
           const fullText = state.getText();
-          const phaseMatch = fullText.match(ClaudeInvoker.PHASE_RE);
-          if (phaseMatch) {
-            onProgress({ type: "phase", phase: phaseMatch[1]! });
+          const allPhases = [...fullText.matchAll(ClaudeInvoker.PHASE_RE_GLOBAL)];
+          if (allPhases.length > 0) {
+            onProgress({ type: "phase", phase: allPhases[allPhases.length - 1]![1]! });
           }
 
           // Check for ISC progress
