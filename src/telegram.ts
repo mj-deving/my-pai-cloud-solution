@@ -200,6 +200,7 @@ export function createTelegramBot(
     msg += `/cancel <id> — Cancel workflow\n`;
     msg += `/pipeline — Pipeline dashboard\n`;
     msg += `/schedule — Manage scheduled tasks\n`;
+    msg += `/deploy — Pull latest & restart bridge\n`;
     msg += `/newproject <name> — Create new project\n`;
     msg += `/deleteproject <name> — Remove project`;
 
@@ -217,6 +218,7 @@ export function createTelegramBot(
     pull: "`/pull`\nPull latest from remote. Skips if uncommitted changes exist.\n`/pull --force` — discard all local changes and reset to origin/main.",
     review: "`/review [cloud/<name>]`\nReview a cloud/* branch using Codex. No argument lists available branches.\nExample: `/review cloud/pipeline-fixes`",
     merge: "`/merge cloud/<name>`\nMerge a reviewed cloud/* branch into main, push, and clean up the branch.",
+    deploy: "`/deploy`\nPull latest code from origin/main, validate build, and restart the bridge.\nIf build fails, rolls back automatically. Shows commit list on success.",
     new: "`/new`\nStart a fresh conversation (new session ID). Does NOT persist context — use `/wrapup` first.",
     status: "`/status`\nShow current mode, session ID, message count, token usage, context %, and episode count.",
     clear: "`/clear`\nGenerate session summary, archive the session, and start fresh.",
