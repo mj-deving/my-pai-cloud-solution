@@ -30,9 +30,10 @@ export interface ClaudeResponse {
 
 export type ProgressEvent =
   | { type: "phase"; phase: string }
-  | { type: "tool_start"; tool: string }
+  | { type: "tool_start"; tool: string; detail?: string }
   | { type: "tool_end"; tool: string }
   | { type: "text_chunk"; text: string }
+  | { type: "content"; text: string }
   | { type: "isc_progress"; done: number; total: number };
 
 // Rate-limit error patterns in Claude CLI stderr
@@ -393,6 +394,23 @@ export class ClaudeInvoker {
   private static ISC_CHECKED_RE = /- \[x\]/gi;
   private static ISC_UNCHECKED_RE = /- \[ \]/g;
 
+  /** Extract a short detail string from tool input (file path, command, pattern). */
+  static extractToolDetail(tool: string, input?: Record<string, unknown>): string | undefined {
+    if (!input) return undefined;
+    switch (tool) {
+      case "Read": return typeof input.file_path === "string" ? input.file_path.split("/").slice(-2).join("/") : undefined;
+      case "Write": return typeof input.file_path === "string" ? input.file_path.split("/").slice(-2).join("/") : undefined;
+      case "Edit": return typeof input.file_path === "string" ? input.file_path.split("/").slice(-2).join("/") : undefined;
+      case "Glob": return typeof input.pattern === "string" ? input.pattern : undefined;
+      case "Grep": return typeof input.pattern === "string" ? input.pattern.slice(0, 40) : undefined;
+      case "Bash": return typeof input.command === "string" ? input.command.slice(0, 50) : undefined;
+      case "Task": return typeof input.description === "string" ? input.description.slice(0, 40) : undefined;
+      case "WebSearch": return typeof input.query === "string" ? input.query.slice(0, 40) : undefined;
+      case "WebFetch": return typeof input.url === "string" ? input.url.slice(0, 50) : undefined;
+      default: return undefined;
+    }
+  }
+
   private processStreamEvent(
     parsed: unknown,
     onProgress: (event: ProgressEvent) => void,
@@ -410,14 +428,23 @@ export class ClaudeInvoker {
     if (typeof parsed !== "object" || parsed === null) return;
     const obj = parsed as Record<string, unknown>;
 
+    // Debug: log every event type for stream diagnostics
+    const evType = typeof obj.type === "string" ? obj.type : "unknown";
+    const evSub = typeof obj.subtype === "string" ? `:${obj.subtype}` : "";
+    console.log(`[stream] event: ${evType}${evSub}`);
+
     // Handle CLI result event (final event in stream-json output)
     if (obj.type === "result") {
       if (typeof obj.session_id === "string") state.setSessionId(obj.session_id);
       if (typeof obj.result === "string") state.appendText(obj.result);
 
+      // Debug: log result event keys for diagnostics
+      console.log(`[stream] result keys: ${Object.keys(obj).join(", ")}`);
+
       // Extract full usage with cache tokens
       const usage = obj.usage as Record<string, unknown> | undefined;
       if (usage) {
+        console.log(`[stream] result usage: in=${usage.input_tokens} out=${usage.output_tokens} cache_create=${usage.cache_creation_input_tokens} cache_read=${usage.cache_read_input_tokens}`);
         state.setUsage({
           input_tokens: (usage.input_tokens as number) || 0,
           output_tokens: (usage.output_tokens as number) || 0,
@@ -453,6 +480,12 @@ export class ClaudeInvoker {
       const msg = obj.message as Record<string, unknown> | undefined;
       const content = msg?.content as Array<Record<string, unknown>> | undefined;
       if (content && Array.isArray(content)) {
+        console.log(`[stream] assistant content blocks: ${content.map(b => (b as Record<string, unknown>).type).join(", ")}`);
+        // Emit thinking indicator for thinking blocks
+        const hasThinking = content.some(b => (b as Record<string, unknown>).type === "thinking");
+        if (hasThinking) {
+          onProgress({ type: "phase", phase: "thinking" });
+        }
         let messageText = "";
         for (const block of content) {
           if (block.type === "text" && typeof block.text === "string") {
@@ -462,15 +495,34 @@ export class ClaudeInvoker {
             const idx = typeof block.index === "number" ? block.index : toolBlocks.size;
             if (!toolBlocks.has(idx)) {
               toolBlocks.set(idx, block.name as string);
-              onProgress({ type: "tool_start", tool: block.name as string });
+              console.log(`[stream] tool detected: ${block.name}`);
+              const detail = ClaudeInvoker.extractToolDetail(block.name as string, block.input as Record<string, unknown> | undefined);
+              onProgress({ type: "tool_start", tool: block.name as string, detail });
             }
           }
         }
+        // Emit content event for text blocks (live preview in status message)
         if (messageText) {
+          onProgress({ type: "content", text: messageText });
+        }
+        if (messageText) {
+          console.log(`[stream] assistant text (${messageText.length} chars): ${messageText.slice(0, 200).replace(/\n/g, "\\n")}`);
+          // Detect PAI mode header (═══ PAI | NATIVE MODE / ALGORITHM MODE / MINIMAL)
+          const modeMatch = messageText.match(/PAI \| (NATIVE|ALGORITHM|MINIMAL)/);
+          if (modeMatch) {
+            const paiMode = modeMatch[1]!;
+            if (paiMode === "ALGORITHM") {
+              onProgress({ type: "phase", phase: "ALGORITHM" });
+            } else {
+              onProgress({ type: "phase", phase: paiMode });
+            }
+          }
           // Detect Algorithm phase markers
           const allPhases = [...messageText.matchAll(ClaudeInvoker.PHASE_RE_GLOBAL)];
           if (allPhases.length > 0) {
-            onProgress({ type: "phase", phase: allPhases[allPhases.length - 1]![1]! });
+            const phase = allPhases[allPhases.length - 1]![1]!;
+            console.log(`[stream] phase detected: ${phase}`);
+            onProgress({ type: "phase", phase });
           }
           // ISC progress
           const checked = (messageText.match(ClaudeInvoker.ISC_CHECKED_RE) || []).length;
@@ -485,7 +537,9 @@ export class ClaudeInvoker {
       // window fill for THIS turn (not accumulated across agentic tool-use loops).
       // The LAST assistant event's usage = current context fill.
       const usage = msg?.usage as Record<string, unknown> | undefined;
+      console.log(`[stream] assistant msg.usage present: ${!!usage}, keys: ${usage ? Object.keys(usage).join(",") : "n/a"}`);
       if (usage && typeof usage.input_tokens === "number") {
+        console.log(`[stream] lastTurnUsage: in=${usage.input_tokens} out=${usage.output_tokens}`);
         state.setLastTurnUsage({
           input_tokens: (usage.input_tokens as number) || 0,
           output_tokens: (usage.output_tokens as number) || 0,
