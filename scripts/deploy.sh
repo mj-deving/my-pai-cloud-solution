@@ -10,6 +10,23 @@ PROJECT_DIR="/home/isidore_cloud/projects/my-pai-cloud-solution"
 
 echo "=== Deploying Isidore Cloud to VPS ==="
 
+# 0. Guard: refuse to deploy with uncommitted or unpushed changes
+if [ -n "$(git -C /home/mj/projects/my-pai-cloud-solution status --porcelain -- src/ CLAUDE.md scripts/ systemd/ policy.yaml)" ]; then
+    echo "ERROR: Uncommitted changes in tracked source files. Commit and push first."
+    git -C /home/mj/projects/my-pai-cloud-solution status --short -- src/ CLAUDE.md scripts/ systemd/ policy.yaml
+    exit 1
+fi
+
+LOCAL_HEAD=$(git -C /home/mj/projects/my-pai-cloud-solution rev-parse HEAD)
+REMOTE_HEAD=$(git -C /home/mj/projects/my-pai-cloud-solution rev-parse origin/main 2>/dev/null || echo "")
+if [ "$LOCAL_HEAD" != "$REMOTE_HEAD" ]; then
+    echo "ERROR: Local HEAD ($LOCAL_HEAD) differs from origin/main ($REMOTE_HEAD)."
+    echo "Push your commits first: git push"
+    exit 1
+fi
+
+echo "Pre-deploy check passed (commit $LOCAL_HEAD)"
+
 # 1. Sync project code
 echo "Syncing project code..."
 rsync -avz --exclude='node_modules/' --exclude='.git/' --exclude='*.env' --exclude='CLAUDE.local.md' \
