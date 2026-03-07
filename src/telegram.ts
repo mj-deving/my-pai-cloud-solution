@@ -22,7 +22,62 @@ import type { MessengerAdapter } from "./messenger-adapter";
 import type { ModeManager } from "./mode";
 import { formatStatusline, type GitInfo } from "./statusline";
 import { AuthManager } from "./auth";
-import { createOrReusePR, upsertReviewComment, mergePR, findPR } from "./github";
+import { createOrReusePR, upsertReviewComment, mergePR, findPR, runGh } from "./github";
+
+/** Run codex exec --full-auto to fix review issues, commit + push if changes made */
+async function runCodexAutofix(
+  reviewOutput: string,
+  cwd: string,
+): Promise<{ fixed: boolean; commitHash?: string; output: string }> {
+  const codexBin = `${process.env.HOME}/.npm-global/bin/codex`;
+
+  const fixProc = Bun.spawn(
+    [codexBin, "exec", "--full-auto",
+      `Fix the following code review issues. Make minimal, surgical changes only. Do not refactor unrelated code:\n\n${reviewOutput}`],
+    { cwd, stdout: "pipe", stderr: "pipe", timeout: 180_000 },
+  );
+  const fixOut = await new Response(fixProc.stdout).text();
+  const fixExit = await fixProc.exited;
+
+  if (fixExit !== 0) {
+    return { fixed: false, output: `Auto-fix failed (exit ${fixExit})` };
+  }
+
+  // Check for changes
+  const diffProc = Bun.spawn(["git", "diff", "--quiet"], { cwd, stdout: "pipe", stderr: "pipe" });
+  const hasDiff = await diffProc.exited !== 0;
+  const cachedProc = Bun.spawn(["git", "diff", "--cached", "--quiet"], { cwd, stdout: "pipe", stderr: "pipe" });
+  const hasCached = await cachedProc.exited !== 0;
+
+  if (!hasDiff && !hasCached) {
+    return { fixed: false, output: "No changes made by auto-fix" };
+  }
+
+  // Stage modified files only (not untracked)
+  const addProc = Bun.spawn(["git", "add", "-u"], { cwd, stdout: "pipe", stderr: "pipe" });
+  await addProc.exited;
+
+  // Commit
+  const commitProc = Bun.spawn(
+    ["git", "commit", "-m", "fix: address Codex review findings\n\nAuto-fixed by Codex"],
+    { cwd, stdout: "pipe", stderr: "pipe" },
+  );
+  if (await commitProc.exited !== 0) {
+    return { fixed: false, output: "Auto-fix: commit failed" };
+  }
+
+  // Push
+  const pushProc = Bun.spawn(["git", "push"], { cwd, stdout: "pipe", stderr: "pipe" });
+  if (await pushProc.exited !== 0) {
+    return { fixed: false, output: "Auto-fix: push failed" };
+  }
+
+  // Get commit hash
+  const hashProc = Bun.spawn(["git", "rev-parse", "--short", "HEAD"], { cwd, stdout: "pipe", stderr: "pipe" });
+  const hash = (await new Response(hashProc.stdout).text()).trim();
+
+  return { fixed: true, commitHash: hash, output: fixOut };
+}
 
 export interface SynthesisLoopLike {
   run(): Promise<unknown>;
@@ -219,9 +274,9 @@ export function createTelegramBot(
     projects: "`/projects`\nList all registered projects with their session status.",
     wrapup: "`/wrapup`\nSession wrapup — synthesizes two files:\n- **MEMORY.md**: operational knowledge, session continuity, learnings\n- **CLAUDE.md**: architecture hygiene (remove stale, add new)\n\nRun before `/clear` to persist context across sessions.",
     keep: "`/keep`\nDismiss the auto-wrapup suggestion. Context continues growing.",
-    sync: "`/sync`\nCommit + push current project changes, create/reuse a GitHub PR, then run Codex review (posted to PR as comment).",
+    sync: "`/sync`\nCommit + push current project changes, create/reuse a GitHub PR, then run Codex review (posted to PR as comment). If CODEX_AUTOFIX=1, auto-fixes issues and pushes.",
     pull: "`/pull`\nPull latest from remote. Skips if uncommitted changes exist.\n`/pull --force` — discard all local changes and reset to origin/main.",
-    review: "`/review [cloud/branch-name]`\nReview a cloud/* branch using Codex. Posts review as PR comment if PR exists. No argument lists available branches.\nExample: `/review cloud/pipeline-fixes`",
+    review: "`/review [cloud/branch-name]`\nReview a cloud/* branch using Codex. Posts review as PR comment if PR exists. If CODEX_AUTOFIX=1, auto-fixes issues and pushes. No argument lists available branches.\nExample: `/review cloud/pipeline-fixes`",
     merge: "`/merge cloud/branch-name`\nMerge a cloud/* branch via its GitHub PR, then sync local main and clean up the branch.",
     deploy: "`/deploy`\nPull latest code from origin/main and restart the bridge.\nWarns if uncommitted files will be overwritten — use `/deploy force` to proceed.\nShows commit list on success.",
     new: "`/new`\nStart a fresh conversation (new session ID). Does NOT persist context — use `/wrapup` first.",
@@ -529,8 +584,28 @@ export function createTelegramBot(
                 ? reviewBody.slice(0, 3500) + "\n...(truncated)"
                 : reviewBody;
               const prNote = prPostResult.ok ? " (posted to PR)" : "";
-              await ctx.reply(`**Codex Review${prNote}:**\n${truncated}`, { parse_mode: "Markdown" }).catch(() =>
-                ctx.reply(`Codex Review${prNote}:\n${truncated}`)
+              let autofixNote = "";
+
+              // Auto-fix if issues found and enabled
+              const hasIssues = /\[P[0-3]\]/.test(reviewBody);
+              if (hasIssues && config.codexAutofixEnabled) {
+                await ctx.replyWithChatAction("typing");
+                // Checkout cloud branch for fix
+                const coProc = Bun.spawn(["git", "checkout", cloudBranch], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+                if (await coProc.exited === 0) {
+                  const fixResult = await runCodexAutofix(reviewBody, projectDir);
+                  // Return to main
+                  Bun.spawn(["git", "checkout", "main"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+                  if (fixResult.fixed) {
+                    autofixNote = `\nAuto-fix: applied and pushed (\`${fixResult.commitHash}\`)`;
+                  } else {
+                    autofixNote = `\nAuto-fix: ${fixResult.output}`;
+                  }
+                }
+              }
+
+              await ctx.reply(`**Codex Review${prNote}:**\n${truncated}${autofixNote}`, { parse_mode: "Markdown" }).catch(() =>
+                ctx.reply(`Codex Review${prNote}:\n${truncated}${autofixNote}`)
               );
             } else {
               await ctx.reply("Codex review: no issues found.");
@@ -657,11 +732,24 @@ export function createTelegramBot(
       const codexOut = await new Response(codexProc.stdout).text();
       const codexExit = await codexProc.exited;
 
+      // Auto-fix: if review found issues and CODEX_AUTOFIX is enabled, fix before returning to main
+      const codexReviewBody = codexOut.trim();
+      const hasIssues = /\[P[0-3]\]/.test(codexReviewBody);
+      let autofixNote = "";
+      if (hasIssues && config.codexAutofixEnabled && codexExit === 0) {
+        await ctx.replyWithChatAction("typing");
+        const fixResult = await runCodexAutofix(codexReviewBody, projectDir);
+        if (fixResult.fixed) {
+          autofixNote = `\n**Auto-fix:** Applied and pushed (\`${fixResult.commitHash}\`). Re-review recommended.\n`;
+        } else {
+          autofixNote = `\n**Auto-fix:** ${fixResult.output}\n`;
+        }
+      }
+
       // Return to main
       Bun.spawn(["git", "checkout", "main"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
 
       // Post review to PR as comment (if PR exists)
-      const codexReviewBody = codexOut.trim();
       let prNote = "";
       if (codexReviewBody && codexReviewBody.length > 10) {
         const prPostResult = await upsertReviewComment(branch, codexReviewBody, projectDir);
@@ -691,6 +779,7 @@ export function createTelegramBot(
           : `Codex exited with code ${codexExit}`;
         msg += `**Codex Review:** Unavailable (${reason})\nReview the diff above manually.\n\n`;
       }
+      if (autofixNote) msg += autofixNote;
       msg += `To merge: \`/merge ${branch}\``;
 
       // Chunk and send
