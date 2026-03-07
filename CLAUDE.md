@@ -122,9 +122,9 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 
 - **Never push to `main` directly.** A pre-push hook blocks it.
 - **Always create a `cloud/<description>` branch** for your changes.
-- **Push to the branch, then notify Marius** for review and merge.
-- Workflow: `git checkout -b cloud/<description>` → commit → `git push -u origin cloud/<description>` → tell Marius.
-- Marius reviews via Codex CLI (`scripts/review-cloud.sh`) and merges to main.
+- **PR-based flow:** `/sync` pushes and creates a GitHub PR automatically. Codex review is posted as a PR comment. `/merge` merges the PR via `gh pr merge`, syncs local main, and cleans up the branch.
+- **Manual fallback:** `git checkout -b cloud/<description>` → commit → `git push -u origin cloud/<description>` → tell Marius.
+- Marius can also review via Codex CLI (`scripts/review-cloud.sh`) or GitHub PR comments.
 
 ## Conventions
 

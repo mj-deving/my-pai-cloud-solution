@@ -22,6 +22,62 @@ import type { MessengerAdapter } from "./messenger-adapter";
 import type { ModeManager } from "./mode";
 import { formatStatusline, type GitInfo } from "./statusline";
 import { AuthManager } from "./auth";
+import { createOrReusePR, upsertReviewComment, mergePR, findPR, runGh } from "./github";
+
+/** Run codex exec --full-auto to fix review issues, commit + push if changes made */
+async function runCodexAutofix(
+  reviewOutput: string,
+  cwd: string,
+): Promise<{ fixed: boolean; commitHash?: string; output: string }> {
+  const codexBin = `${process.env.HOME}/.npm-global/bin/codex`;
+
+  const fixProc = Bun.spawn(
+    [codexBin, "exec", "--full-auto",
+      `Fix the following code review issues. Make minimal, surgical changes only. Do not refactor unrelated code:\n\n${reviewOutput}`],
+    { cwd, stdout: "pipe", stderr: "pipe", timeout: 180_000 },
+  );
+  const fixOut = await new Response(fixProc.stdout).text();
+  const fixExit = await fixProc.exited;
+
+  if (fixExit !== 0) {
+    return { fixed: false, output: `Auto-fix failed (exit ${fixExit})` };
+  }
+
+  // Check for changes
+  const diffProc = Bun.spawn(["git", "diff", "--quiet"], { cwd, stdout: "pipe", stderr: "pipe" });
+  const hasDiff = await diffProc.exited !== 0;
+  const cachedProc = Bun.spawn(["git", "diff", "--cached", "--quiet"], { cwd, stdout: "pipe", stderr: "pipe" });
+  const hasCached = await cachedProc.exited !== 0;
+
+  if (!hasDiff && !hasCached) {
+    return { fixed: false, output: "No changes made by auto-fix" };
+  }
+
+  // Stage modified files only (not untracked)
+  const addProc = Bun.spawn(["git", "add", "-u"], { cwd, stdout: "pipe", stderr: "pipe" });
+  await addProc.exited;
+
+  // Commit
+  const commitProc = Bun.spawn(
+    ["git", "commit", "-m", "fix: address Codex review findings\n\nAuto-fixed by Codex"],
+    { cwd, stdout: "pipe", stderr: "pipe" },
+  );
+  if (await commitProc.exited !== 0) {
+    return { fixed: false, output: "Auto-fix: commit failed" };
+  }
+
+  // Push
+  const pushProc = Bun.spawn(["git", "push"], { cwd, stdout: "pipe", stderr: "pipe" });
+  if (await pushProc.exited !== 0) {
+    return { fixed: false, output: "Auto-fix: push failed" };
+  }
+
+  // Get commit hash
+  const hashProc = Bun.spawn(["git", "rev-parse", "--short", "HEAD"], { cwd, stdout: "pipe", stderr: "pipe" });
+  const hash = (await new Response(hashProc.stdout).text()).trim();
+
+  return { fixed: true, commitHash: hash, output: fixOut };
+}
 
 export interface SynthesisLoopLike {
   run(): Promise<unknown>;
@@ -200,8 +256,8 @@ export function createTelegramBot(
     msg += `/cancel <id> — Cancel workflow\n`;
     msg += `/pipeline — Pipeline dashboard\n`;
     msg += `/schedule — Manage scheduled tasks\n`;
-    msg += `/review [branch] — Codex review a cloud/* branch\n`;
-    msg += `/merge cloud/<name> — Merge reviewed branch to main\n`;
+    msg += `/review [branch] — Codex review a cloud/* branch (posts to PR)\n`;
+    msg += `/merge cloud/<name> — Merge cloud branch via GitHub PR\n`;
     msg += `/branches — List cloud/* branches\n`;
     msg += `/deploy — Pull latest & restart bridge\n`;
     msg += `/reauth — Re-authenticate Claude CLI\n`;
@@ -218,10 +274,10 @@ export function createTelegramBot(
     projects: "`/projects`\nList all registered projects with their session status.",
     wrapup: "`/wrapup`\nSession wrapup — synthesizes two files:\n- **MEMORY.md**: operational knowledge, session continuity, learnings\n- **CLAUDE.md**: architecture hygiene (remove stale, add new)\n\nRun before `/clear` to persist context across sessions.",
     keep: "`/keep`\nDismiss the auto-wrapup suggestion. Context continues growing.",
-    sync: "`/sync`\nCommit + push current project changes, then show git status.",
+    sync: "`/sync`\nCommit + push current project changes, create/reuse a GitHub PR, then run Codex review (posted to PR as comment). If CODEX_AUTOFIX=1, auto-fixes issues and pushes.",
     pull: "`/pull`\nPull latest from remote. Skips if uncommitted changes exist.\n`/pull --force` — discard all local changes and reset to origin/main.",
-    review: "`/review [cloud/branch-name]`\nReview a cloud/* branch using Codex. No argument lists available branches.\nExample: `/review cloud/pipeline-fixes`",
-    merge: "`/merge cloud/branch-name`\nMerge a reviewed cloud/* branch into main, push, and clean up the branch.",
+    review: "`/review [cloud/branch-name]`\nReview a cloud/* branch using Codex. Posts review as PR comment if PR exists. If CODEX_AUTOFIX=1, auto-fixes issues and pushes. No argument lists available branches.\nExample: `/review cloud/pipeline-fixes`",
+    merge: "`/merge cloud/branch-name`\nMerge a cloud/* branch via its GitHub PR, then sync local main and clean up the branch.",
     deploy: "`/deploy`\nPull latest code from origin/main and restart the bridge.\nWarns if uncommitted files will be overwritten — use `/deploy force` to proceed.\nShows commit list on success.",
     new: "`/new`\nStart a fresh conversation (new session ID). Does NOT persist context — use `/wrapup` first.",
     status: "`/status`\nShow current mode, session ID, message count, token usage, context %, and episode count.",
@@ -465,29 +521,46 @@ export function createTelegramBot(
     msg += `Session: ${session ? session.slice(0, 8) + "..." : "none"}\n`;
     if (path) msg += `Path: \`${path}\`\n`;
     msg += "\n";
-    if (cloudBranch) {
-      msg += `Review: \`/review ${cloudBranch}\`\nMerge: \`/merge ${cloudBranch}\``;
-    } else if (activeProject.paths.local) {
-      msg += `To pick up locally:\n`;
-      msg += `\`cd ${activeProject.paths.local} && git pull\``;
-    } else {
-      msg += "Cloud-only project — no local path configured.";
+
+    // 2. Create or reuse PR after successful push
+    let prCreated = false;
+    if (gitResult.ok && cloudBranch && path) {
+      const prResult = await createOrReusePR(
+        cloudBranch,
+        cloudBranch.replace("cloud/", ""),
+        `Cloud sync from Isidore.\n\nBranch: \`${cloudBranch}\``,
+        path,
+      );
+      if (prResult.ok && prResult.pr) {
+        msg += `PR: ${prResult.pr.url}\n`;
+        msg += `Merge: \`/merge ${cloudBranch}\``;
+        prCreated = true;
+      }
+    }
+
+    if (!prCreated) {
+      // Fallback: old-style hints
+      if (cloudBranch) {
+        msg += `Review: \`/review ${cloudBranch}\`\nMerge: \`/merge ${cloudBranch}\``;
+      } else if (activeProject.paths.local) {
+        msg += `To pick up locally:\n`;
+        msg += `\`cd ${activeProject.paths.local} && git pull\``;
+      } else {
+        msg += "Cloud-only project — no local path configured.";
+      }
     }
 
     stopTyping();
     await ctx.reply(msg, { parse_mode: "Markdown" });
 
-    // 2. Run Codex review on the pushed commit (async, non-blocking)
-    if (gitResult.ok) {
+    // 3. Run Codex review and post to PR (async, non-blocking)
+    if (gitResult.ok && cloudBranch) {
       const projectDir = projects.getProjectPath(activeProject);
       if (projectDir) {
         const reviewTyping = startTypingLoop(ctx.chat.id);
         try {
           const codexBin = `${process.env.HOME}/.npm-global/bin/codex`;
-          const reviewBase = cloudBranch ? "main" : "HEAD~1";
-          const reviewArgs = cloudBranch
-            ? [codexBin, "review", "--base", reviewBase]
-            : [codexBin, "review", "--commit", "HEAD"];
+          const reviewArgs = [codexBin, "review", "--base", "main"];
           const reviewProc = Bun.spawn(reviewArgs, {
             cwd: projectDir,
             stdout: "pipe",
@@ -499,27 +572,60 @@ export function createTelegramBot(
 
           reviewTyping();
           if (reviewExit === 0 && reviewOut && !reviewOut.includes("CODEX_REVIEW_FAILED")) {
-            // Extract just the codex review output (last message from codex)
             const codexLine = reviewOut.split("\n").findIndex(l => l.startsWith("codex"));
             const reviewBody = codexLine >= 0
               ? reviewOut.slice(reviewOut.indexOf("\n", reviewOut.indexOf("codex")) + 1).trim()
               : reviewOut;
+
             if (reviewBody && reviewBody.length > 10) {
+              // Post review to PR as comment
+              const prPostResult = await upsertReviewComment(cloudBranch, reviewBody, projectDir);
               const truncated = reviewBody.length > 3500
                 ? reviewBody.slice(0, 3500) + "\n...(truncated)"
                 : reviewBody;
-              await ctx.reply(`**Codex Review:**\n${truncated}`, { parse_mode: "Markdown" }).catch(() =>
-                ctx.reply(`Codex Review:\n${truncated}`)
+              const prNote = prPostResult.ok ? " (posted to PR)" : "";
+              let autofixNote = "";
+
+              // Auto-fix if issues found and enabled
+              const hasIssues = /\[P[0-3]\]/.test(reviewBody);
+              if (hasIssues && config.codexAutofixEnabled) {
+                await ctx.replyWithChatAction("typing");
+                // Checkout cloud branch for fix
+                const coProc = Bun.spawn(["git", "checkout", cloudBranch], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+                if (await coProc.exited === 0) {
+                  const fixResult = await runCodexAutofix(reviewBody, projectDir);
+                  if (fixResult.fixed) {
+                    autofixNote = `\nAuto-fix: applied and pushed (\`${fixResult.commitHash}\`)`;
+                  } else {
+                    autofixNote = `\nAuto-fix: ${fixResult.output}`;
+                  }
+                  const returnProc = Bun.spawn(["git", "checkout", "main"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+                  const returnExit = await returnProc.exited;
+                  if (returnExit !== 0) {
+                    const returnErr = (await new Response(returnProc.stderr).text()).trim();
+                    autofixNote += `\nBranch restore failed: ${returnErr.slice(0, 200)}`;
+                  }
+                }
+              }
+
+              await ctx.reply(`**Codex Review${prNote}:**\n${truncated}${autofixNote}`, { parse_mode: "Markdown" }).catch(() =>
+                ctx.reply(`Codex Review${prNote}:\n${truncated}${autofixNote}`)
               );
             } else {
               await ctx.reply("Codex review: no issues found.");
             }
-          } else {
-            // Codex not available or failed — silent, review is advisory
+          } else if (reviewExit !== 0) {
+            const reason = reviewOut.includes("401") || reviewOut.includes("Unauthorized")
+              ? "auth expired — run `codex auth` on VPS"
+              : reviewOut.includes("429") || reviewOut.includes("rate")
+              ? "rate limit reached"
+              : reviewOut.includes("timeout") || reviewOut.includes("Timeout")
+              ? "timed out"
+              : `exited with code ${reviewExit}`;
+            await ctx.reply(`Codex review unavailable (${reason}).`).catch(() => {});
           }
         } catch {
           reviewTyping();
-          // Codex review is advisory — don't block sync on failure
         }
       }
     }
@@ -630,14 +736,54 @@ export function createTelegramBot(
       const codexOut = await new Response(codexProc.stdout).text();
       const codexExit = await codexProc.exited;
 
+      // Auto-fix: if review found issues and CODEX_AUTOFIX is enabled, fix before returning to main
+      const codexReviewBody = codexOut.trim();
+      const hasIssues = /\[P[0-3]\]/.test(codexReviewBody);
+      let autofixNote = "";
+      if (hasIssues && config.codexAutofixEnabled && codexExit === 0) {
+        await ctx.replyWithChatAction("typing");
+        const fixResult = await runCodexAutofix(codexReviewBody, projectDir);
+        if (fixResult.fixed) {
+          autofixNote = `\n**Auto-fix:** Applied and pushed (\`${fixResult.commitHash}\`). Re-review recommended.\n`;
+        } else {
+          autofixNote = `\n**Auto-fix:** ${fixResult.output}\n`;
+        }
+      }
+
       // Return to main
       Bun.spawn(["git", "checkout", "main"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
 
+      // Post review to PR as comment (if PR exists)
+      let prNote = "";
+      if (codexExit === 0 && codexReviewBody && codexReviewBody.length > 10) {
+        const prPostResult = await upsertReviewComment(branch, codexReviewBody, projectDir);
+        if (prPostResult.ok) prNote = " (posted to PR)";
+      }
+
+      // Check for PR URL
+      const pr = await findPR(branch, projectDir);
+
       // Build review message
       let msg = `**Review: \`${branch}\`**\n\n`;
+      if (pr) msg += `PR: ${pr.url}\n\n`;
       msg += `**Commits:**\n\`\`\`\n${commitLog}\n\`\`\`\n\n`;
       msg += `**Changes:**\n\`\`\`\n${stats}\n\`\`\`\n\n`;
-      msg += `**Codex Review:**\n${codexOut.slice(-3000) || (codexExit === 0 ? "No issues found." : "Review failed.")}\n\n`;
+      if (codexExit === 0 && codexReviewBody && codexReviewBody.length > 10) {
+        msg += `**Codex Review${prNote}:**\n${codexOut.slice(-3000)}\n\n`;
+      } else if (codexExit === 0) {
+        msg += `**Codex Review:** No issues found.\n\n`;
+      } else {
+        // Extract reason from output
+        const reason = codexOut.includes("401") || codexOut.includes("Unauthorized")
+          ? "Codex auth expired — run `codex auth` on VPS"
+          : codexOut.includes("timeout") || codexOut.includes("Timeout")
+          ? "Codex review timed out"
+          : codexOut.includes("rate") || codexOut.includes("429")
+          ? "Codex rate limit reached"
+          : `Codex exited with code ${codexExit}`;
+        msg += `**Codex Review:** Unavailable (${reason})\nReview the diff above manually.\n\n`;
+      }
+      if (autofixNote) msg += autofixNote;
       msg += `To merge: \`/merge ${branch}\``;
 
       // Chunk and send
@@ -668,49 +814,23 @@ export function createTelegramBot(
       return;
     }
 
-    await ctx.replyWithChatAction("typing");
+    const stopTyping = startTypingLoop(ctx.chat.id);
 
     try {
-      // Ensure we're on main — abort if checkout fails
-      const checkoutProc = Bun.spawn(["git", "checkout", "main"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
-      const checkoutExit = await checkoutProc.exited;
-      if (checkoutExit !== 0) {
-        const checkoutErr = (await new Response(checkoutProc.stderr).text()).trim();
-        await ctx.reply(`Cannot switch to main — dirty working tree?\n${checkoutErr.slice(0, 200)}`, { parse_mode: "Markdown" });
-        return;
+      const result = await mergePR(branch, projectDir);
+      stopTyping();
+
+      if (result.ok) {
+        await ctx.reply(`Merged \`${branch}\` → main via PR.\n${result.output}`, { parse_mode: "Markdown" });
+      } else if (result.output.includes("No open PR")) {
+        await ctx.reply(`No open PR found for \`${branch}\`.\nCreate one first with \`/sync\`, or push the branch and create a PR on GitHub.`, { parse_mode: "Markdown" });
+      } else if (result.output.includes("PR merged, but")) {
+        await ctx.reply(`${result.output.slice(0, 500)}\nThe PR was merged on GitHub. Run \`/pull\` to sync locally.`, { parse_mode: "Markdown" });
+      } else {
+        await ctx.reply(`Merge failed: ${result.output.slice(0, 500)}`, { parse_mode: "Markdown" });
       }
-
-      // Merge the branch
-      const mergeProc = Bun.spawn(["git", "merge", `origin/${branch}`], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
-      const mergeOut = (await new Response(mergeProc.stdout).text()).trim();
-      const mergeErr = (await new Response(mergeProc.stderr).text()).trim();
-      const mergeExit = await mergeProc.exited;
-
-      if (mergeExit !== 0) {
-        // Abort merge on failure
-        Bun.spawn(["git", "merge", "--abort"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
-        await ctx.reply(`Merge failed:\n\`\`\`\n${(mergeErr || mergeOut).slice(0, 500)}\n\`\`\``, { parse_mode: "Markdown" });
-        return;
-      }
-
-      // Push to origin
-      const pushProc = Bun.spawn(["git", "push", "origin", "main"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
-      const pushExit = await pushProc.exited;
-
-      if (pushExit !== 0) {
-        await ctx.reply(`Merged locally but push failed. Run \`git push origin main\` manually.`, { parse_mode: "Markdown" });
-        return;
-      }
-
-      // Delete remote branch
-      const deleteProc = Bun.spawn(["git", "push", "origin", "--delete", branch], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
-      await deleteProc.exited;
-
-      // Delete local branch
-      Bun.spawn(["git", "branch", "-d", branch], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
-
-      await ctx.reply(`Merged \`${branch}\` → main and pushed.\nBranch cleaned up.`, { parse_mode: "Markdown" });
     } catch (err) {
+      stopTyping();
       await ctx.reply(`Merge error: ${String(err).slice(0, 300)}`);
     }
   });

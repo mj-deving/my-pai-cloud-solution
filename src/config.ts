@@ -156,6 +156,9 @@ const EnvSchema = z.object({
   WORKSPACE_DAILY_MEMORY_CRON: z.string().optional(),
   WORKSPACE_IMPORTANCE_FLUSH_THRESHOLD: optionalInt(10, 500, 50),
 
+  // Codex auto-fix
+  CODEX_AUTOFIX: envBool(false),
+
   // Live status messages
   STATUS_EDIT_INTERVAL_MS: optionalInt(1000, 10_000, 2_500),
 });
@@ -291,6 +294,9 @@ export interface Config {
   workspaceGitEnabled: boolean;
   workspaceDailyMemoryCron: string;
   workspaceImportanceFlushThreshold: number;
+
+  // Codex auto-fix
+  codexAutofixEnabled: boolean;
 
   // Live status messages
   statusEditIntervalMs: number;
@@ -430,6 +436,9 @@ export function loadConfig(): Config {
     workspaceGitEnabled: env.WORKSPACE_GIT_ENABLED,
     workspaceDailyMemoryCron: env.WORKSPACE_DAILY_MEMORY_CRON || "55 22 * * *",
     workspaceImportanceFlushThreshold: env.WORKSPACE_IMPORTANCE_FLUSH_THRESHOLD,
+
+    // Codex auto-fix
+    codexAutofixEnabled: env.CODEX_AUTOFIX,
 
     // Live status messages
     statusEditIntervalMs: env.STATUS_EDIT_INTERVAL_MS,
