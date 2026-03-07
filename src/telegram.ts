@@ -261,7 +261,7 @@ export function createTelegramBot(
     msg += "**Git:**\n/sync · /pull · /review · /merge\n\n";
     msg += "**Quick:**\n/oneshot · /quick\n\n";
     msg += "**Pipeline:**\n/delegate · /workflow · /workflows · /cancel · /pipeline\n\n";
-    msg += "**Admin:**\n/schedule · /newproject · /deleteproject\n\n";
+    msg += "**Admin:**\n/deploy · /schedule · /branches · /newproject · /deleteproject · /reauth\n\n";
     msg += "Use `/help <command>` for details.";
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
