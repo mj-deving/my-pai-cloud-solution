@@ -594,12 +594,16 @@ export function createTelegramBot(
                 const coProc = Bun.spawn(["git", "checkout", cloudBranch], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
                 if (await coProc.exited === 0) {
                   const fixResult = await runCodexAutofix(reviewBody, projectDir);
-                  // Return to main
-                  Bun.spawn(["git", "checkout", "main"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
                   if (fixResult.fixed) {
                     autofixNote = `\nAuto-fix: applied and pushed (\`${fixResult.commitHash}\`)`;
                   } else {
                     autofixNote = `\nAuto-fix: ${fixResult.output}`;
+                  }
+                  const returnProc = Bun.spawn(["git", "checkout", "main"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+                  const returnExit = await returnProc.exited;
+                  if (returnExit !== 0) {
+                    const returnErr = (await new Response(returnProc.stderr).text()).trim();
+                    autofixNote += `\nBranch restore failed: ${returnErr.slice(0, 200)}`;
                   }
                 }
               }
@@ -751,7 +755,7 @@ export function createTelegramBot(
 
       // Post review to PR as comment (if PR exists)
       let prNote = "";
-      if (codexReviewBody && codexReviewBody.length > 10) {
+      if (codexExit === 0 && codexReviewBody && codexReviewBody.length > 10) {
         const prPostResult = await upsertReviewComment(branch, codexReviewBody, projectDir);
         if (prPostResult.ok) prNote = " (posted to PR)";
       }
