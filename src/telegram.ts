@@ -214,28 +214,28 @@ export function createTelegramBot(
   // /help — Command help
   const helpTexts: Record<string, string> = {
     workspace: "`/workspace` (alias `/home`)\nSwitch to workspace mode — autonomous operations, daily memory, agent interactions.",
-    project: "`/project <name>`\nSwitch to project mode for a git-tracked repo. Session is per-project.\nExample: `/project my-pai-cloud-solution`",
+    project: "`/project NAME`\nSwitch to project mode for a git-tracked repo. Session is per-project.\nExample: `/project my-pai-cloud-solution`",
     projects: "`/projects`\nList all registered projects with their session status.",
     wrapup: "`/wrapup`\nSession wrapup — synthesizes two files:\n- **MEMORY.md**: operational knowledge, session continuity, learnings\n- **CLAUDE.md**: architecture hygiene (remove stale, add new)\n\nRun before `/clear` to persist context across sessions.",
     keep: "`/keep`\nDismiss the auto-wrapup suggestion. Context continues growing.",
     sync: "`/sync`\nCommit + push current project changes, then show git status.",
     pull: "`/pull`\nPull latest from remote. Skips if uncommitted changes exist.\n`/pull --force` — discard all local changes and reset to origin/main.",
-    review: "`/review [cloud/<name>]`\nReview a cloud/* branch using Codex. No argument lists available branches.\nExample: `/review cloud/pipeline-fixes`",
-    merge: "`/merge cloud/<name>`\nMerge a reviewed cloud/* branch into main, push, and clean up the branch.",
+    review: "`/review [cloud/branch-name]`\nReview a cloud/* branch using Codex. No argument lists available branches.\nExample: `/review cloud/pipeline-fixes`",
+    merge: "`/merge cloud/branch-name`\nMerge a reviewed cloud/* branch into main, push, and clean up the branch.",
     deploy: "`/deploy`\nPull latest code from origin/main and restart the bridge.\nWarns if uncommitted files will be overwritten — use `/deploy force` to proceed.\nShows commit list on success.",
     new: "`/new`\nStart a fresh conversation (new session ID). Does NOT persist context — use `/wrapup` first.",
     status: "`/status`\nShow current mode, session ID, message count, token usage, context %, and episode count.",
     clear: "`/clear`\nGenerate session summary, archive the session, and start fresh.",
     compact: "`/compact`\nCompress conversation context to free up token space.",
     verbose: "`/verbose`\nToggle output format:\n- **Light** (default): strips noise (curl, time checks, ISC gates, audits). Keeps all content.\n- **Raw**: full unmodified Claude output.",
-    oneshot: "`/oneshot <message>`\nOne-shot question — fresh context, no session persistence.",
-    quick: "`/quick <message>`\nQuick answer using a lightweight model (haiku).",
-    delegate: "`/delegate <prompt>`\nDelegate a task to Gregor via the reverse pipeline.",
-    workflow: "`/workflow create <prompt>` — Create a multi-step workflow\n`/workflows` — List active workflows\n`/workflow <id>` — Workflow details\n`/cancel <id>` — Cancel a workflow",
+    oneshot: "`/oneshot MESSAGE`\nOne-shot question — fresh context, no session persistence.",
+    quick: "`/quick MESSAGE`\nQuick answer using a lightweight model (haiku).",
+    delegate: "`/delegate PROMPT`\nDelegate a task to Gregor via the reverse pipeline.",
+    workflow: "`/workflow create PROMPT` — Create a multi-step workflow\n`/workflows` — List active workflows\n`/workflow ID` — Workflow details\n`/cancel ID` — Cancel a workflow",
     pipeline: "`/pipeline`\nShow pipeline dashboard — pending/active tasks, recent results.",
     schedule: "`/schedule`\nManage scheduled tasks. Sub-commands: `enable`, `disable`, `run`, or list all.",
-    newproject: "`/newproject <name>`\nCreate a new project — GitHub repo, VPS clone, CLAUDE.md scaffold, registry entry.",
-    deleteproject: "`/deleteproject <name>`\nRemove a project from the registry.",
+    newproject: "`/newproject NAME`\nCreate a new project — GitHub repo, VPS clone, CLAUDE.md scaffold, registry entry.",
+    deleteproject: "`/deleteproject NAME`\nRemove a project from the registry.",
     branches: "`/branches`\nList all `cloud/*` branches on the remote for the active project.",
     reauth: "`/reauth`\nRe-authenticate the Claude CLI with a fresh OAuth token.\nUseful when auth expires on the VPS.",
     help: "`/help [command]`\nShow help for a specific command, or list all commands.",
@@ -262,7 +262,7 @@ export function createTelegramBot(
     msg += "**Quick:**\n/oneshot · /quick\n\n";
     msg += "**Pipeline:**\n/delegate · /workflow · /workflows · /cancel · /pipeline\n\n";
     msg += "**Admin:**\n/deploy · /schedule · /branches · /newproject · /deleteproject · /reauth\n\n";
-    msg += "Use `/help <command>` for details.";
+    msg += "Use `/help command` for details.";
     await ctx.reply(msg, { parse_mode: "Markdown" });
   });
 
@@ -570,7 +570,7 @@ export function createTelegramBot(
           await ctx.reply("No cloud/* branches found.");
         } else {
           const names = branches.split("\n").map(b => b.trim().replace("origin/", ""));
-          await ctx.reply(`**Cloud branches:**\n${names.map(n => `• \`${n}\``).join("\n")}\n\nUsage: \`/review cloud/<name>\``, { parse_mode: "Markdown" });
+          await ctx.reply(`**Cloud branches:**\n${names.map(n => `• \`${n}\``).join("\n")}\n\nUsage: \`/review cloud/branch-name\``, { parse_mode: "Markdown" });
         }
       } catch {
         await ctx.reply("Failed to list branches.");
@@ -580,7 +580,7 @@ export function createTelegramBot(
 
     // Validate branch name
     if (!branch.startsWith("cloud/")) {
-      await ctx.reply("Only cloud/* branches can be reviewed. Usage: `/review cloud/<name>`", { parse_mode: "Markdown" });
+      await ctx.reply("Only cloud/* branches can be reviewed. Usage: `/review cloud/branch-name`", { parse_mode: "Markdown" });
       return;
     }
 
@@ -659,7 +659,7 @@ export function createTelegramBot(
     }
 
     if (!branch || !branch.startsWith("cloud/")) {
-      await ctx.reply("Usage: `/merge cloud/<name>`", { parse_mode: "Markdown" });
+      await ctx.reply("Usage: `/merge cloud/branch-name`", { parse_mode: "Markdown" });
       return;
     }
 
