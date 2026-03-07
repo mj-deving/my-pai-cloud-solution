@@ -54,7 +54,7 @@ export async function findPR(
   if (!result.ok) return null;
 
   try {
-    const prs = JSON.parse(result.output.split("\n")[0] || "[]");
+    const prs = JSON.parse(result.output.trim() || "[]");
     if (prs.length > 0) {
       return { prNumber: prs[0].number, url: prs[0].url };
     }

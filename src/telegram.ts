@@ -817,9 +817,11 @@ export function createTelegramBot(
       stopTyping();
 
       if (result.ok) {
-        await ctx.reply(`Merged \`${branch}\` → main via PR.\nBranch cleaned up.`, { parse_mode: "Markdown" });
+        await ctx.reply(`Merged \`${branch}\` → main via PR.\n${result.output}`, { parse_mode: "Markdown" });
       } else if (result.output.includes("No open PR")) {
         await ctx.reply(`No open PR found for \`${branch}\`.\nCreate one first with \`/sync\`, or push the branch and create a PR on GitHub.`, { parse_mode: "Markdown" });
+      } else if (result.output.includes("PR merged, but")) {
+        await ctx.reply(`${result.output.slice(0, 500)}\nThe PR was merged on GitHub. Run \`/pull\` to sync locally.`, { parse_mode: "Markdown" });
       } else {
         await ctx.reply(`Merge failed: ${result.output.slice(0, 500)}`, { parse_mode: "Markdown" });
       }
