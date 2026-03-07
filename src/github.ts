@@ -192,7 +192,10 @@ export async function mergePR(
   // Delete local branch (may already be gone)
   const deleteResult = await runGit(["branch", "-d", branch]);
   if (!deleteResult.ok) {
-    return { ok: false, output: `PR merged, but local cleanup failed at \`git branch -d ${branch}\`: ${deleteResult.output}` };
+    return {
+      ok: true,
+      output: `Merged PR #${pr.prNumber} → main. Local branch cleanup skipped: ${deleteResult.output}`,
+    };
   }
 
   return { ok: true, output: `Merged PR #${pr.prNumber} → main. Branch \`${branch}\` deleted.` };
