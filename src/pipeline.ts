@@ -569,10 +569,12 @@ export class PipelineWatcher {
         }
 
         // Send result content (or error) as a separate message
+        // Skip for hook-only types — their result is just an internal marker, not useful output
+        const isHookOnly = hookOnlyTypes.has(task.type || "");
         const content = result.status === "completed"
           ? result.result?.trim()
           : result.error?.trim();
-        if (content) {
+        if (content && !isHookOnly) {
           const truncated = content.length > 3500
             ? content.slice(0, 3500) + "\n...(truncated)"
             : content;

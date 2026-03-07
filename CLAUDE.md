@@ -116,7 +116,7 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 - **Session:** `/clear` (summary + reset), `/compact`, `/verbose` (light/raw output), `/new`, `/oneshot`, `/quick`
 - **Git:** `/sync` (commit+push), `/pull`, `/review` (Codex branch review), `/merge` (merge cloud/* to main)
 - **Pipeline:** `/delegate`, `/workflow create`, `/workflows`, `/cancel`, `/branches`, `/pipeline`
-- **Admin:** `/schedule`, `/newproject`, `/deleteproject`, `/reauth` (mobile OAuth re-auth)
+- **Admin:** `/deploy` (self-deploy from Telegram), `/schedule`, `/newproject`, `/deleteproject`, `/reauth`
 
 ## Git Workflow (MANDATORY)
 
