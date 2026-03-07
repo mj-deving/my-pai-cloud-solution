@@ -198,11 +198,11 @@
 
 ---
 
-## Git Workflow (Cloud → Review → Merge)
+## Git Workflow (Cloud → PR → Review → Merge)
 
 ```
-  CLOUD ISIDORE                    VPS GIT                      MARIUS (Telegram/local)
-  ─────────────                    ───────                      ───────────────────────
+  CLOUD ISIDORE                    VPS GIT + GITHUB              MARIUS (Telegram/local)
+  ─────────────                    ──────────────────            ───────────────────────
 
   Makes changes                    (files modified in
   (workspace or                     project directory)
@@ -218,28 +218,48 @@
                          ├─ git push -u origin cloud/...
                          └─ git checkout main
                               │
+                         createOrReusePR()  ◄── github.ts (gh pr create, idempotent)
+                              │
                               ▼
                     Telegram reply:
-                    "Branch: cloud/my-pai-cloud-solution-20260306-1630
-                     Review: /review cloud/...
+                    "Branch: cloud/...
+                     PR: https://github.com/.../pull/N
                      Merge: /merge cloud/..."  ──────────► Marius sees in Telegram
+                              │
+                         (Codex CLI on VPS, async)
+                         codex review --base main
+                              │
+                         upsertReviewComment() ◄── posts to PR (<!-- codex-review --> marker)
+                              │
+                              ▼
+                    Telegram: "Codex Review (posted to PR): ..."
                                                                 │
                                                                 ▼
-                                               /review cloud/<branch>
+                                               /review cloud/<branch>  (optional, re-runs review)
                                                       │
-                                               (Codex CLI on VPS)
                                                codex review --base main
                                                       │
+                                               upsertReviewComment() ◄── updates PR comment
+                                                      │
+                                               findPR() → show PR URL
+                                                      │
                                                       ▼
-                                               Verdict shown in Telegram
+                                               Review shown in Telegram + PR
                                                       │
                                                       ▼
                                                /merge cloud/<branch>
                                                       │
-                                               git merge → push → delete branch
-                                                      │
+                                               mergePR() → gh pr merge --merge --delete-branch
+                                                      │     → git checkout main + pull
+                                                      │     → git branch -d (local cleanup)
                                                       ▼
-                                               "Merged + pushed. Branch cleaned up."
+                                               "Merged cloud/... → main via PR. Branch cleaned up."
+
+  FALLBACK (if gh/PR fails):
+  ──────────────────────────
+  /sync still shows /review + /merge hints (old-style)
+  /merge shows "No open PR" with create instructions
+  Codex failure: shows reason (auth expired, rate limit, timeout)
 
   RECOVERY:
   ─────────

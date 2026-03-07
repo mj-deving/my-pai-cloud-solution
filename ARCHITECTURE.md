@@ -1148,6 +1148,7 @@ ssh isidore_cloud 'gh auth status'
 | `resource-guard.ts` | Memory-gated dispatch. Checks `os.freemem()` before allowing tasks. | `ResourceGuard` |
 | `rate-limiter.ts` | Sliding-window failure tracking with cooldown period. | `RateLimiter` |
 | `verifier.ts` | Result verification via separate Claude one-shot. Fail-open. | `Verifier` |
+| `github.ts` | GitHub PR operations via `gh` CLI: create/find PRs, upsert review comments, merge PRs. | `runGh()`, `findPR()`, `createOrReusePR()`, `upsertReviewComment()`, `mergePR()` |
 | `format.ts` | Strips PAI Algorithm verbosity, chunks for Telegram, escapes Markdown. | `compactFormat()`, `chunkMessage()`, `escMd()` |
 | `config.ts` | Zod-validated env vars with range checks, feature flags, WORKSPACE_* config. | `Config`, `loadConfig()` |
 | `wrapup.ts` | Auto-commit tracked changes with branch guard (refuses wrong branch). | `lightweightWrapup()` |
