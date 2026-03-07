@@ -9,6 +9,8 @@ const REVIEW_MARKER = "<!-- codex-review -->";
 interface GhResult {
   ok: boolean;
   output: string;
+  stdout?: string;
+  stderr?: string;
 }
 
 interface PRInfo {
@@ -16,7 +18,7 @@ interface PRInfo {
   url: string;
 }
 
-/** Spawn `gh` CLI with args, return stdout+stderr */
+/** Spawn `gh` CLI with args */
 export async function runGh(
   args: string[],
   cwd: string,
@@ -36,7 +38,7 @@ export async function runGh(
     const exitCode = await proc.exited;
     clearTimeout(timer);
 
-    return { ok: exitCode === 0, output: (stdout + stderr).trim() };
+    return { ok: exitCode === 0, output: (stdout + stderr).trim(), stdout, stderr };
   } catch (err) {
     return { ok: false, output: `gh error: ${err}` };
   }
@@ -54,7 +56,7 @@ export async function findPR(
   if (!result.ok) return null;
 
   try {
-    const prs = JSON.parse(result.output.trim() || "[]");
+    const prs = JSON.parse(result.stdout?.trim() || "[]");
     if (prs.length > 0) {
       return { prNumber: prs[0].number, url: prs[0].url };
     }
