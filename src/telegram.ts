@@ -245,7 +245,12 @@ export function createTelegramBot(
     const arg = ctx.match?.trim().toLowerCase();
 
     if (arg && helpTexts[arg]) {
-      await ctx.reply(helpTexts[arg], { parse_mode: "Markdown" });
+      try {
+        await ctx.reply(helpTexts[arg], { parse_mode: "Markdown" });
+      } catch {
+        // Markdown parse failure (e.g. special chars) — fallback to plain text
+        await ctx.reply(helpTexts[arg]);
+      }
       return;
     }
 
