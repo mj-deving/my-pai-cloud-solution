@@ -535,6 +535,15 @@ export function createTelegramBot(
             } else {
               await ctx.reply("Codex review: no issues found.");
             }
+          } else if (reviewExit !== 0) {
+            const reason = reviewOut.includes("401") || reviewOut.includes("Unauthorized")
+              ? "auth expired — run `codex auth` on VPS"
+              : reviewOut.includes("429") || reviewOut.includes("rate")
+              ? "rate limit reached"
+              : reviewOut.includes("timeout") || reviewOut.includes("Timeout")
+              ? "timed out"
+              : `exited with code ${reviewExit}`;
+            await ctx.reply(`Codex review unavailable (${reason}).`).catch(() => {});
           }
         } catch {
           reviewTyping();
@@ -667,7 +676,21 @@ export function createTelegramBot(
       if (pr) msg += `PR: ${pr.url}\n\n`;
       msg += `**Commits:**\n\`\`\`\n${commitLog}\n\`\`\`\n\n`;
       msg += `**Changes:**\n\`\`\`\n${stats}\n\`\`\`\n\n`;
-      msg += `**Codex Review${prNote}:**\n${codexOut.slice(-3000) || (codexExit === 0 ? "No issues found." : "Review failed.")}\n\n`;
+      if (codexExit === 0 && codexReviewBody && codexReviewBody.length > 10) {
+        msg += `**Codex Review${prNote}:**\n${codexOut.slice(-3000)}\n\n`;
+      } else if (codexExit === 0) {
+        msg += `**Codex Review:** No issues found.\n\n`;
+      } else {
+        // Extract reason from output
+        const reason = codexOut.includes("401") || codexOut.includes("Unauthorized")
+          ? "Codex auth expired — run `codex auth` on VPS"
+          : codexOut.includes("timeout") || codexOut.includes("Timeout")
+          ? "Codex review timed out"
+          : codexOut.includes("rate") || codexOut.includes("429")
+          ? "Codex rate limit reached"
+          : `Codex exited with code ${codexExit}`;
+        msg += `**Codex Review:** Unavailable (${reason})\nReview the diff above manually.\n\n`;
+      }
       msg += `To merge: \`/merge ${branch}\``;
 
       // Chunk and send
