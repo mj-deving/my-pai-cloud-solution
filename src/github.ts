@@ -162,16 +162,38 @@ export async function mergePR(
     return mergeResult;
   }
 
-  // Sync local: checkout main + pull
-  const checkoutProc = Bun.spawn(["git", "checkout", "main"], { cwd, stdout: "pipe", stderr: "pipe" });
-  await checkoutProc.exited;
+  const runGit = async (args: string[]): Promise<GhResult> => {
+    try {
+      const proc = Bun.spawn(["git", ...args], {
+        cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const stdout = await new Response(proc.stdout).text();
+      const stderr = await new Response(proc.stderr).text();
+      const exitCode = await proc.exited;
+      return { ok: exitCode === 0, output: (stdout + stderr).trim() };
+    } catch (err) {
+      return { ok: false, output: `git error: ${err}` };
+    }
+  };
 
-  const pullProc = Bun.spawn(["git", "pull", "origin", "main"], { cwd, stdout: "pipe", stderr: "pipe" });
-  await pullProc.exited;
+  // Sync local: checkout main + pull
+  const checkoutResult = await runGit(["checkout", "main"]);
+  if (!checkoutResult.ok) {
+    return { ok: false, output: `PR merged, but local sync failed at \`git checkout main\`: ${checkoutResult.output}` };
+  }
+
+  const pullResult = await runGit(["pull", "origin", "main"]);
+  if (!pullResult.ok) {
+    return { ok: false, output: `PR merged, but local sync failed at \`git pull origin main\`: ${pullResult.output}` };
+  }
 
   // Delete local branch (may already be gone)
-  const deleteProc = Bun.spawn(["git", "branch", "-d", branch], { cwd, stdout: "pipe", stderr: "pipe" });
-  await deleteProc.exited;
+  const deleteResult = await runGit(["branch", "-d", branch]);
+  if (!deleteResult.ok) {
+    return { ok: false, output: `PR merged, but local cleanup failed at \`git branch -d ${branch}\`: ${deleteResult.output}` };
+  }
 
   return { ok: true, output: `Merged PR #${pr.prNumber} → main. Branch \`${branch}\` deleted.` };
 }
