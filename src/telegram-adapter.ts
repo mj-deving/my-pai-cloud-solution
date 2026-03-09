@@ -2,7 +2,7 @@
 // Does NOT rewrite telegram.ts — wraps the existing Bot instance.
 // Phase 2 will migrate command registration to the adapter interface.
 
-import { Bot } from "grammy";
+import { Bot, GrammyError } from "grammy";
 import type { Config } from "./config";
 import type { ClaudeInvoker } from "./claude";
 import type { SessionManager } from "./session";
@@ -62,9 +62,19 @@ export class TelegramAdapter implements MessengerAdapter {
   }
 
   async sendDirectMessage(text: string, options?: MessageOptions): Promise<void> {
-    await this.bot.api.sendMessage(this.userId, text, {
-      parse_mode: options?.parseMode === "HTML" ? "HTML" : "Markdown",
-    });
+    try {
+      await this.bot.api.sendMessage(this.userId, text, {
+        parse_mode: options?.parseMode === "HTML" ? "HTML" : "Markdown",
+      });
+    } catch (err) {
+      // Only retry without formatting on Markdown parse errors (HTTP 400)
+      // Let other errors (429 flood, network) propagate
+      if (err instanceof GrammyError && err.error_code === 400 && err.description.includes("parse")) {
+        await this.bot.api.sendMessage(this.userId, text);
+      } else {
+        throw err;
+      }
+    }
   }
 
   async sendStatusMessage(text: string, options?: MessageOptions): Promise<StatusMessageHandle> {

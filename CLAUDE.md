@@ -104,6 +104,7 @@ See `ARCHITECTURE.md` for full file reference (30+ modules). Entry points:
 - **`memory.ts`** — `MemoryStore`: SQLite episodic + semantic memory, FTS5, whiteboards
 - **`context.ts`** — `ContextBuilder`: scored retrieval, topic tracking, budget injection
 - **`pipeline.ts`** — `PipelineWatcher`: polls tasks/, Zod validation, concurrent dispatch
+- **`github.ts`** — GitHub PR operations via `gh` CLI: create/reuse PR, upsert review comment, merge PR
 - **`config.ts`** — Zod-validated env vars with range checks, feature flags
 
 ## Cross-Instance Continuity
@@ -122,7 +123,7 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 
 - **Never push to `main` directly.** A pre-push hook blocks it.
 - **Always create a `cloud/<description>` branch** for your changes.
-- **PR-based flow:** `/sync` pushes and creates a GitHub PR automatically. Codex review is posted as a PR comment. `/merge` merges the PR via `gh pr merge`, syncs local main, and cleans up the branch.
+- **PR-based flow:** `/sync` pushes and creates a GitHub PR automatically. Codex review is posted as a PR comment. If `CODEX_AUTOFIX=1`, review findings are auto-fixed via `codex exec --full-auto`. `/merge` merges the PR via `gh pr merge`, syncs local main, and cleans up the branch.
 - **Manual fallback:** `git checkout -b cloud/<description>` → commit → `git push -u origin cloud/<description>` → tell Marius.
 - Marius can also review via Codex CLI (`scripts/review-cloud.sh`) or GitHub PR comments.
 
@@ -132,7 +133,8 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 - **Commit messages:** Clear "why", prefixed by area when helpful (e.g., `fix:`, `feat:`, `docs:`)
 - **File naming:** kebab-case
 - **Paths:** `paths.local` and `paths.vps` in project registry accept `string | null` for cloud-only or local-only projects
-- **Reference:** `.ai/guides/bridge-mechanics.md` — full visual reference for message flow, hooks, wrapup, context tracking
+- **Knowledge base:** `.ai/guides/` — referenceable technical docs. Auto-populated when significant explanations, comparisons, or analyses are produced. Guides: `bridge-mechanics.md`, `design-decisions.md`, `memory-architecture-comparison.md`
+- **Plans:** `Plans/` — implementation plans with descriptive names (e.g., `openclaw-graduated-extraction.md`)
 
 ## VPS Details
 
