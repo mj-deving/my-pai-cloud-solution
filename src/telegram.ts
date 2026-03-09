@@ -1,7 +1,7 @@
 // telegram.ts — Telegram bot for Isidore Cloud bridge
 // Long polling (no webhook/HTTPS needed), sender validation, message chunking
 
-import { Bot, type Context } from "grammy";
+import { Bot, GrammyError, type Context } from "grammy";
 import type { Config } from "./config";
 import type { ClaudeInvoker } from "./claude";
 import type { SessionManager } from "./session";
@@ -134,12 +134,18 @@ export function createTelegramBot(
     return raw;
   }
 
-  /** Safe reply with Markdown — falls back to plain text if Telegram rejects the formatting. */
+  /** Safe reply with Markdown — falls back to plain text only on Markdown parse errors. */
   async function safeReply(ctx: Context, text: string, extra?: Record<string, unknown>): Promise<void> {
     try {
       await ctx.reply(text, { parse_mode: "Markdown", ...extra });
-    } catch {
-      await ctx.reply(text);
+    } catch (err) {
+      // Only retry without Markdown on parse errors (HTTP 400 "can't parse entities")
+      // Let other errors (429 flood, network) propagate to bot.catch
+      if (err instanceof GrammyError && err.error_code === 400 && err.description.includes("parse")) {
+        await ctx.reply(text);
+      } else {
+        throw err;
+      }
     }
   }
 
