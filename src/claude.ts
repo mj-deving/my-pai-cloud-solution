@@ -39,17 +39,17 @@ export type ProgressEvent =
 // Rate-limit error patterns in Claude CLI stderr
 const RATE_LIMIT_PATTERNS = ["rate_limit", "429", "overloaded", "Too many requests"];
 
-function isRateLimitError(stderr: string): boolean {
+export function isRateLimitError(stderr: string): boolean {
   return RATE_LIMIT_PATTERNS.some((p) => stderr.includes(p));
 }
 
 const AUTH_ERROR_PATTERNS = ["authentication_failed", "OAuth token", "authentication_error"];
 
-function isAuthError(text: string): boolean {
+export function isAuthError(text: string): boolean {
   return AUTH_ERROR_PATTERNS.some((p) => text.includes(p));
 }
 
-function isRecoverableError(errorDetail: string): boolean {
+export function isRecoverableError(errorDetail: string): boolean {
   if (isAuthError(errorDetail)) return false;
   if (isRateLimitError(errorDetail)) return false;
   if (errorDetail.includes("No conversation found with session ID")) return false;
@@ -266,6 +266,7 @@ export class ClaudeInvoker {
       let extractedLastTurnUsage: ClaudeResponse["usage"] | undefined;
       let extractedContextWindow: number | undefined;
       let authError = "";
+      let streamError = ""; // Captures non-auth errors from stream events
       const toolBlocks = new Map<number, string>(); // index → tool name
       const decoder = new TextDecoder();
       let buffer = "";
@@ -293,6 +294,7 @@ export class ClaudeInvoker {
                 setLastTurnUsage: (u: ClaudeResponse["usage"]) => { extractedLastTurnUsage = u; },
                 setContextWindow: (cw: number) => { extractedContextWindow = cw; },
                 setAuthError: (err: string) => { authError = err; },
+                setStreamError: (err: string) => { if (!streamError) streamError = err; },
               });
             } catch {
               // Unparseable line — ignore
@@ -315,6 +317,7 @@ export class ClaudeInvoker {
             setLastTurnUsage: (u: ClaudeResponse["usage"]) => { extractedLastTurnUsage = u; },
             setContextWindow: (cw: number) => { extractedContextWindow = cw; },
             setAuthError: (err: string) => { authError = err; },
+            setStreamError: (err: string) => { if (!streamError) streamError = err; },
           });
         } catch { /* ignore */ }
       }
@@ -332,13 +335,18 @@ export class ClaudeInvoker {
           await this.sessions.newSession();
           return this.sendStreaming(prompt, null, onProgress);
         }
-        // Use auth error from stream-json if detected, or fall back to accumulated text
-        // when stderr is empty (verbose mode sends all output to stdout as JSON)
+        // Error cascade: auth error → stream-captured error → stderr → accumulated text
+        // In verbose/streaming mode, stderr is often empty (all output routed to stdout as JSON)
         const errorDetail = authError
           ? `authentication_failed: ${authError}`
-          : stderr.trim()
-            ? stderr.slice(0, 500)
-            : accumulatedText.slice(0, 500);
+          : streamError
+            ? streamError.slice(0, 500)
+            : stderr.trim()
+              ? stderr.slice(0, 500)
+              : accumulatedText.slice(0, 500);
+        if (streamError) {
+          console.error(`[claude] Stream error captured: ${streamError.slice(0, 200)}`);
+        }
         // Auto-retry recoverable errors once with fresh session
         if (!isRetry && isRecoverableError(errorDetail)) {
           console.warn(`[claude] Recoverable error (exit ${exitCode}), retrying fresh: ${errorDetail.slice(0, 100)}`);
@@ -423,10 +431,19 @@ export class ClaudeInvoker {
       setLastTurnUsage: (u: ClaudeResponse["usage"]) => void;
       setContextWindow: (cw: number) => void;
       setAuthError?: (err: string) => void;
+      setStreamError?: (err: string) => void;
     },
   ): void {
     if (typeof parsed !== "object" || parsed === null) return;
     const obj = parsed as Record<string, unknown>;
+
+    // Capture top-level error events (e.g. CLI error objects in the stream)
+    if (obj.type === "error" && typeof obj.error === "object" && obj.error !== null) {
+      const errObj = obj.error as Record<string, unknown>;
+      const errMsg = typeof errObj.message === "string" ? errObj.message : JSON.stringify(errObj);
+      state.setStreamError?.(errMsg);
+      return;
+    }
 
     // Handle CLI result event (final event in stream-json output)
     if (obj.type === "result") {
@@ -460,9 +477,13 @@ export class ClaudeInvoker {
       if (typeof obj.session_id === "string" && obj.session_id) {
         state.setSessionId(obj.session_id);
       }
-      // Detect auth errors (returned as error field on assistant events)
+      // Detect errors (returned as error field on assistant events)
       if (typeof obj.error === "string" && obj.error) {
-        state.setAuthError?.(obj.error);
+        if (isAuthError(obj.error)) {
+          state.setAuthError?.(obj.error);
+        } else {
+          state.setStreamError?.(obj.error);
+        }
       }
 
       // Extract text + tool_use from message.content for live phase/tool detection

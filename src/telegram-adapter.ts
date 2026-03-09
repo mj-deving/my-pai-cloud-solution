@@ -62,9 +62,14 @@ export class TelegramAdapter implements MessengerAdapter {
   }
 
   async sendDirectMessage(text: string, options?: MessageOptions): Promise<void> {
-    await this.bot.api.sendMessage(this.userId, text, {
-      parse_mode: options?.parseMode === "HTML" ? "HTML" : "Markdown",
-    });
+    try {
+      await this.bot.api.sendMessage(this.userId, text, {
+        parse_mode: options?.parseMode === "HTML" ? "HTML" : "Markdown",
+      });
+    } catch {
+      // Markdown parse failure — retry without formatting
+      await this.bot.api.sendMessage(this.userId, text);
+    }
   }
 
   async sendStatusMessage(text: string, options?: MessageOptions): Promise<StatusMessageHandle> {

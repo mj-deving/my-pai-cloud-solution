@@ -98,6 +98,16 @@ export function createTelegramBot(
   synthesisLoop?: SynthesisLoopLike | null,
 ): Bot {
   const bot = new Bot(config.telegramBotToken);
+
+  // Global error handler — prevents unhandled GrammyErrors from crashing the process
+  bot.catch((err) => {
+    const ctx = err.ctx;
+    const e = err.error;
+    console.error(`[telegram] bot.catch — update ${ctx.update.update_id}:`, e);
+    // Best-effort reply to user (may fail if the error is from reply itself)
+    ctx.reply("Something went wrong processing that message. Please try again.").catch(() => {});
+  });
+
   const authManager = new AuthManager();
 
   // Cached git info to avoid running git on every message
@@ -122,6 +132,15 @@ export function createTelegramBot(
       return "Claude crashed with no output. Likely a hook failure — check VPS logs.";
     }
     return raw;
+  }
+
+  /** Safe reply with Markdown — falls back to plain text if Telegram rejects the formatting. */
+  async function safeReply(ctx: Context, text: string, extra?: Record<string, unknown>): Promise<void> {
+    try {
+      await ctx.reply(text, { parse_mode: "Markdown", ...extra });
+    } catch {
+      await ctx.reply(text);
+    }
   }
 
   /** Send "typing..." repeatedly until stopped. Telegram expires it after ~5s. */
@@ -324,7 +343,7 @@ export function createTelegramBot(
     msg += "**Pipeline:**\n/delegate · /workflow · /workflows · /cancel · /pipeline\n\n";
     msg += "**Admin:**\n/deploy · /schedule · /branches · /newproject · /deleteproject · /reauth\n\n";
     msg += "Use `/help command` for details.";
-    await ctx.reply(msg, { parse_mode: "Markdown" });
+    await safeReply(ctx, msg);
   });
 
   // /projects — List available projects with active marker
@@ -345,7 +364,7 @@ export function createTelegramBot(
       msg += `• **${p.displayName}** (${p.name})${marker}${sessionInfo}\n`;
     }
 
-    await ctx.reply(msg, { parse_mode: "Markdown" });
+    await safeReply(ctx, msg);
   });
 
   // /project <name> — Switch active project
@@ -421,7 +440,7 @@ export function createTelegramBot(
       msg += `\n\n\`\`\`\n${await buildStatusline()}\n\`\`\``;
     }
 
-    await ctx.reply(msg, { parse_mode: "Markdown" });
+    await safeReply(ctx, msg);
   });
 
   // /newproject <name> — Create a new project (GitHub repo + VPS dir + registry)
@@ -459,7 +478,7 @@ export function createTelegramBot(
     msg += `To clone locally:\n`;
     msg += `\`git clone https://github.com/${org}/${result.project.name}.git ~/projects/${result.project.name}\``;
 
-    await ctx.reply(msg, { parse_mode: "Markdown" });
+    await safeReply(ctx, msg);
   });
 
   // /deleteproject <name> — Remove a project from registry (exact match only)
@@ -489,7 +508,7 @@ export function createTelegramBot(
     }
     msg += `GitHub: \`gh repo delete mj-deving/${removed.name} --yes\``;
 
-    await ctx.reply(msg, { parse_mode: "Markdown" });
+    await safeReply(ctx, msg);
   });
 
   // /sync — Commit + push + status + Codex review
@@ -551,7 +570,7 @@ export function createTelegramBot(
     }
 
     stopTyping();
-    await ctx.reply(msg, { parse_mode: "Markdown" });
+    await safeReply(ctx, msg);
 
     // 3. Run Codex review and post to PR (async, non-blocking)
     if (gitResult.ok && cloudBranch) {
@@ -608,9 +627,7 @@ export function createTelegramBot(
                 }
               }
 
-              await ctx.reply(`**Codex Review${prNote}:**\n${truncated}${autofixNote}`, { parse_mode: "Markdown" }).catch(() =>
-                ctx.reply(`Codex Review${prNote}:\n${truncated}${autofixNote}`)
-              );
+              await safeReply(ctx, `**Codex Review${prNote}:**\n${truncated}${autofixNote}`);
             } else {
               await ctx.reply("Codex review: no issues found.");
             }
@@ -648,12 +665,12 @@ export function createTelegramBot(
       const pullResult = await projects.syncForcePull(activeProject);
       let msg = `**Force Pull: ${activeProject.displayName}**\n\n`;
       msg += `Git: ${pullResult.ok ? "reset to origin/main" : pullResult.output}`;
-      await ctx.reply(msg, { parse_mode: "Markdown" });
+      await safeReply(ctx, msg);
     } else {
       const pullResult = await projects.syncPull(activeProject);
       let msg = `**Pull: ${activeProject.displayName}**\n\n`;
       msg += `Git: ${pullResult.ok ? "pulled latest" : pullResult.output}`;
-      await ctx.reply(msg, { parse_mode: "Markdown" });
+      await safeReply(ctx, msg);
     }
   });
 
@@ -681,7 +698,7 @@ export function createTelegramBot(
           await ctx.reply("No cloud/* branches found.");
         } else {
           const names = branches.split("\n").map(b => b.trim().replace("origin/", ""));
-          await ctx.reply(`**Cloud branches:**\n${names.map(n => `• \`${n}\``).join("\n")}\n\nUsage: \`/review cloud/branch-name\``, { parse_mode: "Markdown" });
+          await safeReply(ctx, `**Cloud branches:**\n${names.map(n => `• \`${n}\``).join("\n")}\n\nUsage: \`/review cloud/branch-name\``);
         }
       } catch {
         await ctx.reply("Failed to list branches.");
@@ -691,7 +708,7 @@ export function createTelegramBot(
 
     // Validate branch name
     if (!branch.startsWith("cloud/")) {
-      await ctx.reply("Only cloud/* branches can be reviewed. Usage: `/review cloud/branch-name`", { parse_mode: "Markdown" });
+      await safeReply(ctx, "Only cloud/* branches can be reviewed. Usage: `/review cloud/branch-name`");
       return;
     }
 
@@ -704,7 +721,7 @@ export function createTelegramBot(
 
       const verifyProc = Bun.spawn(["git", "rev-parse", `origin/${branch}`], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
       if (await verifyProc.exited !== 0) {
-        await ctx.reply(`Branch \`origin/${branch}\` not found.`, { parse_mode: "Markdown" });
+        await safeReply(ctx, `Branch \`origin/${branch}\` not found.`);
         return;
       }
 
@@ -725,7 +742,7 @@ export function createTelegramBot(
         const trackExit = await trackProc.exited;
         if (trackExit !== 0) {
           const trackErr = (await new Response(trackProc.stderr).text()).trim();
-          await ctx.reply(`Cannot checkout \`${branch}\` — dirty working tree or branch conflict.\n${trackErr.slice(0, 200)}`, { parse_mode: "Markdown" });
+          await safeReply(ctx, `Cannot checkout \`${branch}\` — dirty working tree or branch conflict.\n${trackErr.slice(0, 200)}`);
           return;
         }
       }
@@ -789,7 +806,7 @@ export function createTelegramBot(
       // Chunk and send
       const chunks = chunkMessage(msg, 4000);
       for (const chunk of chunks) {
-        await ctx.reply(chunk, { parse_mode: "Markdown" }).catch(() => ctx.reply(chunk));
+        await safeReply(ctx, chunk);
       }
     } catch (err) {
       await ctx.reply(`Review failed: ${String(err).slice(0, 200)}`);
@@ -810,7 +827,7 @@ export function createTelegramBot(
     }
 
     if (!branch || !branch.startsWith("cloud/")) {
-      await ctx.reply("Usage: `/merge cloud/branch-name`", { parse_mode: "Markdown" });
+      await safeReply(ctx, "Usage: `/merge cloud/branch-name`");
       return;
     }
 
@@ -821,13 +838,13 @@ export function createTelegramBot(
       stopTyping();
 
       if (result.ok) {
-        await ctx.reply(`Merged \`${branch}\` → main via PR.\n${result.output}`, { parse_mode: "Markdown" });
+        await safeReply(ctx, `Merged \`${branch}\` → main via PR.\n${result.output}`);
       } else if (result.output.includes("No open PR")) {
-        await ctx.reply(`No open PR found for \`${branch}\`.\nCreate one first with \`/sync\`, or push the branch and create a PR on GitHub.`, { parse_mode: "Markdown" });
+        await safeReply(ctx, `No open PR found for \`${branch}\`.\nCreate one first with \`/sync\`, or push the branch and create a PR on GitHub.`);
       } else if (result.output.includes("PR merged, but")) {
-        await ctx.reply(`${result.output.slice(0, 500)}\nThe PR was merged on GitHub. Run \`/pull\` to sync locally.`, { parse_mode: "Markdown" });
+        await safeReply(ctx, `${result.output.slice(0, 500)}\nThe PR was merged on GitHub. Run \`/pull\` to sync locally.`);
       } else {
-        await ctx.reply(`Merge failed: ${result.output.slice(0, 500)}`, { parse_mode: "Markdown" });
+        await safeReply(ctx, `Merge failed: ${result.output.slice(0, 500)}`);
       }
     } catch (err) {
       stopTyping();
@@ -875,7 +892,7 @@ export function createTelegramBot(
           msg += "\nSend `/deploy force` to proceed, or `/sync` first to save changes.";
 
           stopTyping();
-          await ctx.reply(msg, { parse_mode: "Markdown" });
+          await safeReply(ctx, msg);
           return;
         }
       }
@@ -899,7 +916,7 @@ export function createTelegramBot(
       if (exitCode !== 0) {
         stopTyping();
         const errDetail = stderr ? `\n\`\`\`\n${stderr.slice(0, 500)}\n\`\`\`` : "";
-        await ctx.reply(`Deploy failed.${errDetail}`, { parse_mode: "Markdown" });
+        await safeReply(ctx, `Deploy failed.${errDetail}`);
         return;
       }
 
@@ -917,7 +934,7 @@ export function createTelegramBot(
         msg += "\n\nRestarting in 3s...";
 
         stopTyping();
-        await ctx.reply(msg, { parse_mode: "Markdown" });
+        await safeReply(ctx, msg);
 
         setTimeout(() => {
           Bun.spawn(["sudo", "systemctl", "restart", "isidore-cloud-bridge"], {
@@ -929,7 +946,7 @@ export function createTelegramBot(
       }
 
       stopTyping();
-      await ctx.reply(`Deploy returned unexpected output:\n\`\`\`\n${stdout.slice(0, 500)}\n\`\`\``, { parse_mode: "Markdown" });
+      await safeReply(ctx, `Deploy returned unexpected output:\n\`\`\`\n${stdout.slice(0, 500)}\n\`\`\``);
     } catch (err) {
       stopTyping();
       await ctx.reply(`Deploy error: ${String(err).slice(0, 300)}`);
@@ -977,7 +994,7 @@ export function createTelegramBot(
     if (modeManager) {
       msg += `\n\n\`\`\`\n${await buildStatusline()}\n\`\`\``;
     }
-    await ctx.reply(msg, { parse_mode: "Markdown" });
+    await safeReply(ctx, msg);
   });
 
   // /clear — Archive current session and start fresh (with session summary)
@@ -1108,11 +1125,10 @@ export function createTelegramBot(
 
     try {
       const taskId = await reversePipeline.delegateToGregor(prompt, projectName);
-      await ctx.reply(
+      await safeReply(ctx,
         `**Delegated to Gregor**\nTask: \`${taskId.slice(0, 8)}...\`\n` +
           (projectName ? `Project: ${projectName}\n` : "") +
           `Status: pending\n\nYou'll be notified when the result arrives.`,
-        { parse_mode: "Markdown" },
       );
     } catch (err) {
       await ctx.reply(`Delegation failed: ${err}`);
@@ -1148,7 +1164,7 @@ export function createTelegramBot(
           await ctx.reply(`Workflow not found: "${rest}"`);
           return;
         }
-        await ctx.reply(orchestrator.getWorkflowSummary(wf), { parse_mode: "Markdown" });
+        await safeReply(ctx, orchestrator.getWorkflowSummary(wf));
         return;
       }
 
@@ -1168,7 +1184,7 @@ export function createTelegramBot(
         const completed = wf.steps.filter((s) => s.status === "completed").length;
         msg += `\`${wf.id.slice(0, 8)}...\` [${wf.status}] ${completed}/${wf.steps.length} steps — ${wf.description.slice(0, 50)}\n`;
       }
-      await ctx.reply(msg, { parse_mode: "Markdown" });
+      await safeReply(ctx, msg);
       return;
     }
 
@@ -1203,10 +1219,9 @@ export function createTelegramBot(
         .map((s) => `  ${s.id} (${s.assignee}) ${s.description}`)
         .join("\n");
 
-      await ctx.reply(
+      await safeReply(ctx,
         `**Workflow created: \`${wf.id.slice(0, 8)}...\`**\n` +
           `Steps: ${wf.steps.length}\n\n${stepSummary}`,
-        { parse_mode: "Markdown" },
       );
       return;
     }
@@ -1223,7 +1238,7 @@ export function createTelegramBot(
       return;
     }
 
-    await ctx.reply(orchestrator.getWorkflowSummary(wf), { parse_mode: "Markdown" });
+    await safeReply(ctx, orchestrator.getWorkflowSummary(wf));
   });
 
   // /workflows — List all workflows
@@ -1252,7 +1267,7 @@ export function createTelegramBot(
       msg += `\`${wf.id.slice(0, 8)}...\` [${wf.status}] ${completed}/${wf.steps.length} steps — ${wf.description.slice(0, 50)}\n`;
     }
 
-    await ctx.reply(msg, { parse_mode: "Markdown" });
+    await safeReply(ctx, msg);
   });
 
   // /cancel <id> — Cancel active workflow
@@ -1276,7 +1291,7 @@ export function createTelegramBot(
 
     const cancelled = await orchestrator.cancelWorkflow(wf.id);
     if (cancelled) {
-      await ctx.reply(`Workflow \`${wf.id.slice(0, 8)}...\` cancelled.`, { parse_mode: "Markdown" });
+      await safeReply(ctx, `Workflow \`${wf.id.slice(0, 8)}...\` cancelled.`);
     } else {
       await ctx.reply(`Cannot cancel — workflow is ${wf.status}.`);
     }
@@ -1306,7 +1321,7 @@ export function createTelegramBot(
       msg += `  Age: ${ageMin}min\n\n`;
     }
 
-    await ctx.reply(msg, { parse_mode: "Markdown" });
+    await safeReply(ctx, msg);
   });
 
   // /pipeline — Dashboard: forward + reverse pipeline + workflow status
@@ -1356,7 +1371,7 @@ export function createTelegramBot(
       msg += `**Rate Limiter:** disabled\n`;
     }
 
-    await ctx.reply(msg, { parse_mode: "Markdown" });
+    await safeReply(ctx, msg);
   });
 
   // /workspace or /home — Switch to workspace mode
@@ -1621,7 +1636,7 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
 
     const url = authManager.startAuth();
 
-    await ctx.reply(
+    await safeReply(ctx,
       `🔐 **OAuth Re-authentication**\n\n` +
       `${statusText}\n\n` +
       `**Steps:**\n` +
@@ -1631,7 +1646,7 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
       `4. Paste it here as your next message\n\n` +
       `⏱ You have 5 minutes.\n\n` +
       `[Authenticate →](${url})`,
-      { parse_mode: "Markdown", link_preview_options: { is_disabled: true } },
+      { link_preview_options: { is_disabled: true } },
     );
   });
 
@@ -1670,7 +1685,7 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
         msg += `\`${s.name}\` [${status}]\n  Cron: \`${s.cron_expr}\`\n  Last: ${lastRun} | Next: ${nextRun}\n\n`;
       }
       msg += "Commands:\n`/schedule enable <name>`\n`/schedule disable <name>`\n`/schedule run <name>`";
-      await ctx.reply(msg, { parse_mode: "Markdown" });
+      await safeReply(ctx, msg);
     }
   });
 
