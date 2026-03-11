@@ -1,75 +1,152 @@
 # PAI Cloud Solution
 
-Deploy Isidore Cloud (PAI assistant) to a VPS for 24/7 mobile access via Telegram, email, and SSH.
+> Turn Claude Code into an always-on AI agent you can reach from anywhere.
 
-## Architecture
+---
 
-All channels share one conversation via a session ID file:
+## The Problem
 
-- **SSH** — Interactive `claude` in tmux (deep work)
-- **Telegram** — `claude --resume` programmatic bridge (mobile)
-- **Email** — `claude --resume` programmatic bridge (async)
-- **Cron** — One-shot `claude -p` (scheduled automation)
+Claude Code is powerful — but it lives in your terminal. Close the lid and it's gone. You can't message it from your phone on the train. You can't have it running background tasks while you sleep. You can't hand it a project and check back tomorrow.
 
-## Naming Convention
+## What This Is
 
-| Aspect | Local (WSL2) | VPS |
-|--------|-------------|-----|
-| Identity | Isidore | Isidore Cloud |
-| Linux user | mj | `isidore_cloud` |
-| SSH alias | N/A | `isidore_cloud` |
+A cloud runtime that deploys Claude Code to a VPS as a 24/7 AI agent, accessible over Telegram. It wraps the CLI with persistent memory, context injection, autonomous scheduling, and inter-agent collaboration — turning a local dev tool into an always-available assistant.
+
+```
+You
+│
+├── At your desk
+│   └── Terminal → claude                    ← local instance
+│
+├── On your phone / anywhere
+│   └── Telegram → Bridge → claude --resume  ← cloud agent (this project)
+│       ├── SQLite memory (episodic + semantic)
+│       ├── Context injection (scored retrieval)
+│       ├── Dual-mode (workspace / project)
+│       └── Statusline on every reply
+│
+├── Scheduled tasks
+│   └── Scheduler → claude -p "task"         ← one-shot, no session
+│       ├── Daily synthesis
+│       ├── Daily memory summary
+│       └── Weekly health review
+│
+└── Inter-agent collaboration
+    └── Shared pipeline (/var/lib/pai-pipeline/)
+        ├── Forward tasks (other agents → cloud agent)
+        ├── Reverse delegation (cloud agent → other agents)
+        └── DAG workflows (multi-step, mixed assignees)
+```
+
+## What's Built
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **Telegram bridge** | Production | Grammy bot → Claude CLI wrapper with session management, auth, 30+ commands |
+| **Dual-mode system** | Production | Workspace mode (autonomous, auto-session) and project mode (focused git-repo work) |
+| **Memory system** | Production | SQLite episodic + semantic memory, FTS5 full-text search, importance scoring |
+| **Context injection** | Production | Topic-based retrieval, budget-aware allocation, importance masking |
+| **Compact formatter** | Production | Mobile-friendly output with Markdown escaping, chunked for Telegram's 4096-char limit |
+| **Error resilience** | Production | `bot.catch` global handler, `safeReply` with parse-error fallback, streaming error capture |
+| **Inter-agent pipeline** | Production | Cross-user task queue with Zod validation, concurrent dispatch, atomic writes |
+| **DAG orchestrator** | Production | Workflow decomposition, parallel execution, completion routing |
+| **Scheduler** | Production | SQLite-backed cron — daily synthesis, weekly review, custom tasks |
+| **PR-based git workflow** | Production | Auto-branch, PR creation, Codex review (local + GitHub), merge via Telegram |
+| **Dashboard** | Production | HTTP API + SSE + dark-themed Kanban board |
+| **Policy engine** | Production | YAML-based action authorization |
+| **Injection scanning** | Production | 18-pattern regex detection (log-only) |
+| **Synthesis loop** | Production | Periodic knowledge distillation, per-domain synthesis, whiteboard generation |
+| **Agent definitions** | Production | Declarative agent specs with tier-based sub-delegation |
+| **Daily memory** | Production | Cron-scheduled episode summary → markdown → git |
+| **PRD executor** | Built, not enabled | Autonomous PRD detection, parsing, and execution |
+| **Email bridge** | Planned | IMAP polling + SMTP response (architecture in place) |
+
+41 tests across 2 test files. Type-checked with `tsc --noEmit`.
+
+## Quick Start
+
+### Prerequisites
+
+- A VPS (Ubuntu/Debian, 2GB RAM is enough)
+- [Bun](https://bun.sh) runtime
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) with a Max subscription
+- A Telegram bot token (free, via [@BotFather](https://t.me/BotFather))
+
+### Setup
+
+```bash
+git clone https://github.com/mj-deving/my-pai-cloud-solution.git
+cd my-pai-cloud-solution
+bun install
+```
+
+Configure `bridge.env` with your Telegram bot token and allowed user ID, then:
+
+```bash
+bun run src/bridge.ts
+```
+
+For full VPS deployment (systemd services, SSH setup, PAI hooks), see the [Deployment Guide](ARCHITECTURE.md#deployment-guide) in ARCHITECTURE.md.
+
+### Development
+
+```bash
+bun test              # 41 tests: format + claude error detection
+npx tsc --noEmit      # type check
+bun run src/bridge.ts # run locally
+```
+
+## Tech Stack
+
+- **Runtime:** [Bun](https://bun.sh) — runs TypeScript directly, no build step
+- **Telegram:** [Grammy](https://grammy.dev) — bot framework with middleware
+- **Database:** SQLite via `bun:sqlite` — episodic memory, semantic memory, FTS5, scheduler
+- **Validation:** [Zod](https://zod.dev) — all cross-agent JSON boundaries + env config
+- **Process management:** systemd — two services (bridge + tmux)
+- **Code review:** [Codex CLI](https://github.com/openai/codex) — two-layer review (local pre-commit + GitHub PR bot)
+
+No Docker. No Kubernetes. No cloud functions. Just a VPS and systemd.
+
+## Where This Is Going
+
+**Full parity.** The cloud agent should handle everything the local instance can — including headless browser automation. Voice is the only local-only capability.
+
+**Autonomy.** The PRD executor, scheduler, daily memory, and synthesis loop are already built. The infrastructure for proactive, self-directed behavior exists — it needs enabling and hardening.
+
+**Agent convergence.** Co-located agent frameworks (like [OpenClaw](https://github.com/claw-project/OpenClaw)) run on the same VPS. Rather than adopting their runtime, the strategy is graduated extraction — absorb capabilities, don't merge codebases. Phase 1: fast-path API calls. Phase 2: operational tooling. Phase 3: gateway + plugins.
+
+**Multi-channel.** Email bridge architecture is in place. The goal is a unified inbox — Telegram, email, and future channels all feed one conversation.
+
+**Replicable.** This is designed so anyone can fork it and deploy their own cloud AI agent. See [Replicating This System](ARCHITECTURE.md#replicating-this-system) in ARCHITECTURE.md.
 
 ## Project Structure
 
 ```
 src/
-  bridge.ts                # Main entry: wires Telegram + pipeline + orchestrator
-  telegram.ts              # Telegram bot (Grammy) — auth, commands, message forwarding
-  claude.ts                # Claude CLI --resume wrapper with timeout handling
-  session.ts               # Shared session ID management
-  projects.ts              # Project registry, handoff state, git sync
-  pipeline.ts              # Cross-user task queue (Gregor → Isidore) with concurrency pool, per-task timeout
-  reverse-pipeline.ts      # Reverse delegation (Isidore → Gregor)
-  orchestrator.ts          # DAG-based workflow decomposition, execution, completion results
-  branch-manager.ts        # Task-specific branch isolation with lock persistence
-  resource-guard.ts        # Memory-gated dispatch (Phase 6A)
-  rate-limiter.ts          # Failure-rate circuit breaker (Phase 6A)
-  verifier.ts              # Result verification via separate Claude one-shot (Phase 6B)
-  format.ts                # Compact mobile-friendly formatter + Markdown escaping
-  wrapup.ts                # Auto-commit tracked changes with branch guard
-  config.ts                # Environment configuration
-  isidore-cloud-session.ts # CLI session management tool
+  bridge.ts          # Entry point — wires Telegram + pipeline + orchestrator
+  telegram.ts        # Grammy bot: auth, 30+ commands, statusline, error handling
+  claude.ts          # Claude CLI wrapper: --resume, stream-json, importance scoring
+  memory.ts          # SQLite episodic + semantic memory, FTS5, whiteboards
+  context.ts         # Scored retrieval, topic tracking, budget injection
+  pipeline.ts        # Inter-agent task queue, Zod validation, concurrent dispatch
+  orchestrator.ts    # DAG workflow decomposition + execution
+  mode.ts            # Dual-mode manager (workspace/project)
+  config.ts          # Zod-validated env vars, feature flags
+  format.ts          # Mobile formatter, Markdown escaping, chunking
+  github.ts          # PR operations via gh CLI
+  ...                # 40 modules total — see ARCHITECTURE.md for full reference
 scripts/
-  setup-vps.sh             # Phase 1: VPS user, deps, coexistence check
-  deploy-key.sh            # Deploy SSH key to isidore_cloud user
-  deploy.sh                # Full deployment (code, PAI, services)
-  auth-health-check.sh     # Cron: OAuth token monitoring
-  run-task.sh              # Cron: one-shot task runner
-  sync-knowledge.sh        # Bidirectional knowledge sync (local <-> VPS)
+  deploy.sh          # Full deployment (rsync + bun install + restart)
+  setup-vps.sh       # VPS provisioning (user, deps, coexistence)
 systemd/
-  isidore-cloud-bridge.service  # Telegram + pipeline + orchestrator service
-  isidore-cloud-tmux.service    # Persistent tmux session
+  isidore-cloud-bridge.service   # Main service
+  isidore-cloud-tmux.service     # Persistent tmux session
 ```
 
-## Setup
-
-1. Run `setup-vps.sh` via SSH to create user, install deps
-2. Run `deploy-key.sh` locally to set up SSH key
-3. Authenticate Claude: `ssh -L 7160:localhost:7160 isidore_cloud` then `claude /login`
-4. Run `deploy.sh` to sync code, PAI, and services
-5. Configure `bridge.env` with Telegram bot token
-6. Enable services: `sudo systemctl enable --now isidore-cloud-bridge isidore-cloud-tmux`
-
-## Knowledge Sync
-
-Local Isidore and Isidore Cloud share knowledge via a private GitHub repo (`mj-deving/pai-knowledge`). Relationship notes, learnings, and user profile sync automatically at session boundaries.
-
-## Requirements
-
-- Bun runtime
-- Claude Code CLI
-- Telegram bot token (via @BotFather)
+Full file reference with descriptions: [ARCHITECTURE.md](ARCHITECTURE.md#file-reference)
 
 ---
 
-**Author:** mj-deving
+**Author:** [mj-deving](https://github.com/mj-deving)
+
+Built with [Claude Code](https://claude.ai/code) and [Codex](https://github.com/openai/codex).

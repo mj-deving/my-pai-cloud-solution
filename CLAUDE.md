@@ -34,15 +34,33 @@ ssh isidore_cloud 'sudo systemctl restart isidore-cloud-bridge'
 ssh isidore_cloud 'sudo journalctl -u isidore-cloud-bridge -f'
 ```
 
-No test suite exists. Verify changes by deploying and testing via Telegram commands or pipeline task files.
-
 ```bash
+# Run tests (41 tests: format + claude error detection)
+bun test
+
+# Type check
+npx tsc --noEmit
+
 # Review a cloud/* branch (local, via Codex CLI)
 bash scripts/review-cloud.sh cloud/<branch-name>
 
 # Install pre-push hook on VPS (blocks direct pushes to main)
 bash scripts/install-vps-hook.sh
 ```
+
+### Two-Layer Review Workflow
+
+**Layer 1 (local, before commit):**
+1. Make changes
+2. `npx tsc --noEmit` + `bun test`
+3. `codex review --base HEAD` on the diff
+4. Fix findings
+5. Commit + push to `cloud/` branch
+
+**Layer 2 (GitHub, after push):**
+6. PR created → Codex bot auto-reviews on GitHub
+7. Fix any new findings, push again
+8. `/merge` when clean
 
 ## Architecture
 
@@ -59,6 +77,7 @@ Every Telegram reply includes a **statusline** showing current mode, time, messa
 
 ```
 Telegram message → Grammy bot (telegram.ts)
+  → bot.catch (global error handler — prevents unhandled crashes)
   → Auth middleware (checks Telegram user ID)
   → ClaudeInvoker.send() (claude.ts)
     → Bun.spawn: claude [--resume <session-id>] -p "message" --output-format stream-json
@@ -66,6 +85,7 @@ Telegram message → Grammy bot (telegram.ts)
   → compactFormat() (format.ts) — strips PAI Algorithm verbosity
   → chunkMessage() — splits at 4000 chars for Telegram API
   → Append statusline (mode/time/msg count/context%)
+  → safeReply() — Markdown with parse-error-only fallback to plain text
   → Reply to user
   → ModeManager.recordMessage() — track session metrics
   → Auto-wrapup check (suggest-only at 70% context fill, both modes)
@@ -99,13 +119,14 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 See `ARCHITECTURE.md` for full file reference (30+ modules). Entry points:
 
 - **`bridge.ts`** — wires everything together, graceful shutdown
-- **`telegram.ts`** — Grammy bot: commands, message forwarding, statusline, auto-wrapup
-- **`claude.ts`** — `ClaudeInvoker`: spawns CLI, stream-json parsing, importance scoring
+- **`telegram.ts`** — Grammy bot: commands, message forwarding, statusline, auto-wrapup, `bot.catch`, `safeReply`
+- **`claude.ts`** — `ClaudeInvoker`: spawns CLI, stream-json parsing, importance scoring, `streamError` capture
 - **`memory.ts`** — `MemoryStore`: SQLite episodic + semantic memory, FTS5, whiteboards
 - **`context.ts`** — `ContextBuilder`: scored retrieval, topic tracking, budget injection
 - **`pipeline.ts`** — `PipelineWatcher`: polls tasks/, Zod validation, concurrent dispatch
 - **`github.ts`** — GitHub PR operations via `gh` CLI: create/reuse PR, upsert review comment, merge PR
 - **`config.ts`** — Zod-validated env vars with range checks, feature flags
+- **`src/__tests__/`** — `bun test` suite: `format.test.ts` (chunkMessage, escMd), `claude.test.ts` (error detection, extractToolDetail)
 
 ## Cross-Instance Continuity
 
