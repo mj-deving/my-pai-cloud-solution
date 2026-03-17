@@ -123,7 +123,8 @@ export class ClaudeInvoker {
       return {
         sessionId: "",
         result: resp.result,
-        usage: resp.usage,
+        // Don't set usage — prevents ModeManager from overwriting CLI context tracking
+        // with unrelated Sonnet token counts
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

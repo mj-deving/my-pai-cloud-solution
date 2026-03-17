@@ -1838,10 +1838,17 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
     };
 
     // Route: direct API fast-path for simple messages, CLI for complex work
+    // P1 fix: only use direct path when context injection is enabled (memory coherence)
     const route = classifyMessage(message, modeManager?.getCurrentMode() ?? { type: "workspace" });
+    const canUseDirect = config.directApiEnabled && config.directApiKey && config.contextInjectionEnabled;
     let response;
-    if (route === "direct" && config.directApiEnabled && config.directApiKey) {
+    if (route === "direct" && canUseDirect) {
       response = await claude.sendDirect(message);
+      // P1 fix: fall back to CLI if direct API fails
+      if (response.error) {
+        console.warn(`[telegram] Direct API failed, falling back to CLI: ${response.error}`);
+        response = await claude.send(message, onProgress);
+      }
     } else {
       response = await claude.send(message, onProgress);
     }

@@ -35,15 +35,30 @@ export async function sendDirect(
     body.system = systemPrompt;
   }
 
-  const resp = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": config.apiKey,
-      "anthropic-version": API_VERSION,
-    },
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+
+  let resp: Response;
+  try {
+    resp = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": config.apiKey,
+        "anthropic-version": API_VERSION,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("[direct-api] Request timed out (30s)");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
