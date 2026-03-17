@@ -35,8 +35,11 @@ ssh isidore_cloud 'sudo journalctl -u isidore-cloud-bridge -f'
 ```
 
 ```bash
-# Run tests (41 tests: format + claude error detection)
+# Run tests (147 tests across 10 files)
 bun test
+
+# Pre-commit verification (type check + tests + Codex review)
+bash scripts/review-and-fix.sh
 
 # Type check
 npx tsc --noEmit
@@ -126,7 +129,10 @@ See `ARCHITECTURE.md` for full file reference (30+ modules). Entry points:
 - **`pipeline.ts`** — `PipelineWatcher`: polls tasks/, Zod validation, concurrent dispatch
 - **`github.ts`** — GitHub PR operations via `gh` CLI: create/reuse PR, upsert review comment, merge PR
 - **`config.ts`** — Zod-validated env vars with range checks, feature flags
-- **`src/__tests__/`** — `bun test` suite: `format.test.ts` (chunkMessage, escMd), `claude.test.ts` (error detection, extractToolDetail)
+- **`message-classifier.ts`** — Routes messages to direct API (Sonnet) or CLI (Opus) based on complexity
+- **`direct-api.ts`** — Lightweight Anthropic API client via `Bun.fetch()` (Graduated Extraction Phase 1)
+- **`review-learning.ts`** — Parses Codex P0-P3 findings, stores as knowledge entries in memory.db
+- **`src/__tests__/`** — 147 tests across 10 files: format, claude, config, schemas, rate-limiter, review-learning, message-classifier, direct-api, memory, session
 
 ## Cross-Instance Continuity
 
@@ -154,7 +160,7 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 - **Commit messages:** Clear "why", prefixed by area when helpful (e.g., `fix:`, `feat:`, `docs:`)
 - **File naming:** kebab-case
 - **Paths:** `paths.local` and `paths.vps` in project registry accept `string | null` for cloud-only or local-only projects
-- **Knowledge base:** `.ai/guides/` — referenceable technical docs. Auto-populated when significant explanations, comparisons, or analyses are produced. Guides: `bridge-mechanics.md`, `design-decisions.md`, `memory-architecture-comparison.md`
+- **Knowledge base:** `.ai/guides/` — referenceable technical docs. Auto-populated when significant explanations, comparisons, or analyses are produced. Guides: `bridge-mechanics.md`, `design-decisions.md`, `memory-architecture-comparison.md`, `tdd-review-workflow.md`
 - **Plans:** `Plans/` — implementation plans with descriptive names (e.g., `openclaw-graduated-extraction.md`)
 
 ## VPS Details
