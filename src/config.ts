@@ -161,6 +161,12 @@ const EnvSchema = z.object({
 
   // Live status messages
   STATUS_EDIT_INTERVAL_MS: optionalInt(1000, 10_000, 2_500),
+
+  // Direct API fast-path (Graduated Extraction Phase 1)
+  DIRECT_API_ENABLED: envBool(false),
+  DIRECT_API_KEY: z.string().optional(),
+  DIRECT_API_MODEL: z.string().optional(),
+  DIRECT_API_MAX_TOKENS: optionalInt(256, 16384, 4096),
 });
 
 export interface Config {
@@ -300,6 +306,12 @@ export interface Config {
 
   // Live status messages
   statusEditIntervalMs: number;
+
+  // Direct API fast-path (Graduated Extraction Phase 1)
+  directApiEnabled: boolean;
+  directApiKey: string;
+  directApiModel: string;
+  directApiMaxTokens: number;
 }
 
 export function loadConfig(): Config {
@@ -442,5 +454,11 @@ export function loadConfig(): Config {
 
     // Live status messages
     statusEditIntervalMs: env.STATUS_EDIT_INTERVAL_MS,
+
+    // Direct API fast-path
+    directApiEnabled: env.DIRECT_API_ENABLED,
+    directApiKey: env.DIRECT_API_KEY || "",
+    directApiModel: env.DIRECT_API_MODEL || "claude-sonnet-4-6",
+    directApiMaxTokens: env.DIRECT_API_MAX_TOKENS,
   };
 }

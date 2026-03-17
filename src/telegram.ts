@@ -24,6 +24,7 @@ import { formatStatusline, type GitInfo } from "./statusline";
 import { AuthManager } from "./auth";
 import { createOrReusePR, upsertReviewComment, mergePR, findPR, runGh } from "./github";
 import { parseReviewFindings, storeReviewFindings } from "./review-learning";
+import { classifyMessage } from "./message-classifier";
 
 /** Run codex exec --full-auto to fix review issues, commit + push if changes made */
 async function runCodexAutofix(
@@ -1836,7 +1837,14 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
       }
     };
 
-    const response = await claude.send(message, onProgress);
+    // Route: direct API fast-path for simple messages, CLI for complex work
+    const route = classifyMessage(message, modeManager?.getCurrentMode() ?? { type: "workspace" });
+    let response;
+    if (route === "direct" && config.directApiEnabled && config.directApiKey) {
+      response = await claude.sendDirect(message);
+    } else {
+      response = await claude.send(message, onProgress);
+    }
 
     stopTyping();
 

@@ -103,6 +103,44 @@ export class ClaudeInvoker {
     return this.cwd;
   }
 
+  // Direct API fast-path — bypass CLI for simple messages
+  async sendDirect(message: string): Promise<ClaudeResponse> {
+    const { sendDirect: apiSend } = await import("./direct-api");
+
+    // Build context from memory if available
+    let systemPrompt: string | null = null;
+    if (this.contextBuilder) {
+      systemPrompt = await this.contextBuilder.buildContext(message) ?? null;
+    }
+
+    try {
+      const resp = await apiSend(message, systemPrompt, {
+        apiKey: this.config.directApiKey,
+        model: this.config.directApiModel,
+        maxTokens: this.config.directApiMaxTokens,
+      });
+
+      return {
+        sessionId: "",
+        result: resp.result,
+        usage: resp.usage,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[claude] Direct API error: ${msg}`);
+
+      if (msg.includes("429") || msg.includes("Rate limited")) {
+        this.rateLimiter?.recordFailure();
+      }
+
+      return {
+        sessionId: "",
+        result: "",
+        error: msg,
+      };
+    }
+  }
+
   // Send a message to the active session and get a response
   // If onProgress is provided, uses stream-json for live status updates
   async send(message: string, onProgress?: (event: ProgressEvent) => void, _isRetry = false): Promise<ClaudeResponse> {
