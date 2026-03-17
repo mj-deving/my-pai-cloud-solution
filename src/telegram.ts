@@ -23,6 +23,7 @@ import type { ModeManager } from "./mode";
 import { formatStatusline, type GitInfo } from "./statusline";
 import { AuthManager } from "./auth";
 import { createOrReusePR, upsertReviewComment, mergePR, findPR, runGh } from "./github";
+import { parseReviewFindings, storeReviewFindings } from "./review-learning";
 
 /** Run codex exec --full-auto to fix review issues, commit + push if changes made */
 async function runCodexAutofix(
@@ -654,6 +655,18 @@ export function createTelegramBot(
                 }
               }
 
+              // Store review findings in memory.db for learning loop
+              if (memoryStore) {
+                const findings = parseReviewFindings(reviewBody);
+                if (findings.length > 0) {
+                  const stored = await storeReviewFindings(memoryStore, findings, {
+                    branch: cloudBranch,
+                    project: projects.getActiveProjectName() ?? undefined,
+                  });
+                  console.log(`[telegram] Stored ${stored} review findings in memory.db`);
+                }
+              }
+
               await safeReply(ctx, `**Codex Review${prNote}:**\n${truncated}${autofixNote}`);
             } else {
               await ctx.reply("Codex review: no issues found.");
@@ -796,6 +809,18 @@ export function createTelegramBot(
 
       // Return to main
       Bun.spawn(["git", "checkout", "main"], { cwd: projectDir, stdout: "pipe", stderr: "pipe" });
+
+      // Store review findings in memory.db for learning loop
+      if (memoryStore && codexExit === 0 && codexReviewBody) {
+        const findings = parseReviewFindings(codexReviewBody);
+        if (findings.length > 0) {
+          const stored = await storeReviewFindings(memoryStore, findings, {
+            branch,
+            project: projects.getActiveProjectName() ?? undefined,
+          });
+          console.log(`[telegram] Stored ${stored} review findings in memory.db`);
+        }
+      }
 
       // Post review to PR as comment (if PR exists)
       let prNote = "";
