@@ -53,10 +53,9 @@ async function main() {
   const projectManager = new ProjectManager(config, sessions);
   await projectManager.loadRegistry();
 
-  // Initialize ModeManager — always starts in workspace mode
+  // Initialize ModeManager — starts in workspace, may restore project mode after state load
   const modeManager = new ModeManager();
   claude.setWorkingDirectory(config.workspaceDir);
-  console.log(`[bridge] Mode: workspace (clean start)`);
 
   // Create workspace directory if needed
   {
@@ -183,8 +182,21 @@ async function main() {
 
   // Load project state (after memory store is wired, so it can use memory.db)
   await projectManager.loadState();
-  // Always start in workspace mode — clear any stale active project from previous session
-  await projectManager.clearActiveProject();
+  // Restore previous project mode if one was active, otherwise stay in workspace
+  const previousProject = projectManager.getActiveProjectName();
+  if (previousProject) {
+    const projectEntry = projectManager.getActiveProject();
+    const projectPath = projectEntry ? projectManager.getProjectPath(projectEntry) : null;
+    if (projectPath) {
+      modeManager.switchToProject(previousProject);
+      claude.setWorkingDirectory(projectPath);
+      console.log(`[bridge] Mode: project (restored: ${previousProject})`);
+    } else {
+      // Project exists in state but path not available on this machine — fall back to workspace
+      await projectManager.clearActiveProject();
+      console.log(`[bridge] Previous project ${previousProject} not available, staying in workspace`);
+    }
+  }
 
   // Phase 3 V2-B: Context Injection
   if (config.contextInjectionEnabled && memoryStore) {
