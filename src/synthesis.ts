@@ -32,6 +32,7 @@ export class SynthesisLoop {
   private notifyCallback: ((msg: string) => Promise<void>) | null = null;
   private whiteboardEnabled = false;
   private messenger: import("./messenger-adapter").MessengerAdapter | null = null;
+  private lastCheckpointMs = 0;
 
   constructor(
     private config: Config,
@@ -234,6 +235,7 @@ export class SynthesisLoop {
       role: "system",
       content: summaryContent,
       summary: `Synthesized ${result.entriesDistilled} knowledge entries from ${result.domainsProcessed} domains`,
+      importance: result.domainsProcessed === 0 ? 1 : 3,
     });
 
     // Step 11: Notify if callback is set
@@ -261,7 +263,19 @@ export class SynthesisLoop {
       await this.updateWhiteboards(lastSynthesizedId, episodes);
     }
 
-    // Step 13: Return result
+    // Step 13: WAL checkpoint — at most once per hour
+    const now = Date.now();
+    if (now - this.lastCheckpointMs > 3_600_000) {
+      try {
+        this.db.exec("PRAGMA wal_checkpoint(PASSIVE)");
+        this.lastCheckpointMs = now;
+        console.log("[synthesis] WAL checkpoint completed");
+      } catch (err) {
+        console.warn(`[synthesis] WAL checkpoint failed: ${err}`);
+      }
+    }
+
+    // Step 14: Return result
     return result;
   }
 
