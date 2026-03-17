@@ -638,6 +638,7 @@ export class TaskOrchestrator {
         role: "system",
         content: `Workflow ${status}: ${wf.description}\nSteps: ${completed}/${wf.steps.length} completed, ${failed} failed`,
         summary: `Workflow ${wf.id.slice(0, 8)} ${status}: ${completed}/${wf.steps.length} steps`,
+        importance: failed > 0 ? 6 : 4,
         metadata: { workflowId: wf.id, status: wf.status, stepCount: wf.steps.length },
       }).catch((err) => {
         console.warn(`[orchestrator] Failed to record outcome episode for ${wf.id}: ${err}`);

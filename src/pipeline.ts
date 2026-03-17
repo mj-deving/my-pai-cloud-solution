@@ -535,6 +535,12 @@ export class PipelineWatcher {
       // Phase C: Record pipeline outcome episode in memory
       if (this.memoryStore) {
         const summary = `Pipeline task ${task.id} ${result.status}: ${(result.result || result.error || "").slice(0, 200)}`;
+        // Score pipeline task importance by type
+        const taskId = task.id || "";
+        const pipelineImportance = taskId.includes("daily-memory") ? 8
+          : taskId.includes("health") ? 3
+          : taskId.includes("synthesis") ? 2
+          : 3;
         this.memoryStore.record({
           timestamp: new Date().toISOString(),
           source: "pipeline",
@@ -543,6 +549,7 @@ export class PipelineWatcher {
           role: "system",
           content: `Task: ${task.prompt.slice(0, 500)}\nResult: ${(result.result || result.error || "").slice(0, 500)}`,
           summary,
+          importance: pipelineImportance,
           metadata: { taskId: task.id, status: result.status, from: task.from, priority: task.priority || "normal" },
         }).catch((err) => {
           console.warn(`[pipeline] Failed to record outcome episode for ${task.id}: ${err}`);

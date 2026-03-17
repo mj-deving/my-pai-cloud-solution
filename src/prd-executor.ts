@@ -85,6 +85,7 @@ export class PRDExecutor {
           role: "system",
           content: `PRD detected: ${prd.title}\nRequirements: ${prd.requirements.join(", ")}\nComplexity: ${prd.estimatedComplexity}`,
           summary: `PRD: ${prd.title} (${prd.estimatedComplexity})`,
+          importance: 4,
         });
       }
 
@@ -178,6 +179,7 @@ Execute this step and report what you did.`;
           role: "assistant",
           content: response.result.slice(0, 2000),
           summary: `PRD step ${i + 1}/${prd.suggestedSteps.length}: ${step.description}`,
+          importance: 4,
         });
       }
     }

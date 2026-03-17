@@ -83,6 +83,27 @@ export interface SynthesisLoopLike {
   run(): Promise<unknown>;
 }
 
+/** Rule-based importance scoring for user messages. */
+function scoreUserMessage(text: string): number {
+  const t = text.trim().toLowerCase();
+  const len = t.length;
+
+  // Short acknowledgments / greetings
+  if (len < 20 && /^(ja|ok|nein|no|yes|danke|thanks|hi|hey|hallo|👍|alles klar|gut|fine|cool)\.?!?$/i.test(t)) return 2;
+
+  // System/status commands
+  if (t.startsWith("/")) return 3;
+
+  // Bug reports / feature requests (keywords)
+  if (/\b(bug|fehler|error|crash|fix|broken|kaputt|implement|feature|add|bauen|build)\b/i.test(t)) return 7;
+
+  // Substantive messages (>100 chars)
+  if (len > 100) return 6;
+
+  // Default
+  return 5;
+}
+
 export function createTelegramBot(
   config: Config,
   claude: ClaudeInvoker,
@@ -1847,7 +1868,8 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
       const project = projects.getActiveProjectName() ?? undefined;
       const sessionId = (await sessions.current()) ?? undefined;
 
-      // User message: record directly (importance defaults to 5)
+      // User message: rule-based importance scoring
+      const userImportance = scoreUserMessage(message);
       memoryStore.record({
         timestamp: now,
         source: "telegram",
@@ -1855,6 +1877,7 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
         session_id: sessionId,
         role: "user",
         content: message.slice(0, 1000),
+        importance: userImportance,
       }).catch(err => console.warn(`[telegram] Memory record (user) error: ${err}`));
 
       // Assistant message: generate summary + importance via haiku, strip formatting, cap content
@@ -1891,6 +1914,7 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
             role: "assistant",
             content: response.result.slice(0, 1000),
             summary: formatted.slice(0, 200),
+            importance: 3,
           }).catch(e => console.warn(`[telegram] Memory record fallback error: ${e}`));
           console.warn(`[telegram] Memory rating error: ${err}`);
         }

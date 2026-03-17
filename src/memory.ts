@@ -131,7 +131,7 @@ export class MemoryStore {
   /** Record an episode to memory. */
   async record(episode: Omit<Episode, "id">): Promise<number> {
     const metadataJson = episode.metadata ? JSON.stringify(episode.metadata) : null;
-    const importance = episode.importance ?? 5;
+    const importance = episode.importance ?? 3;
     const result = this.db
       .query(
         `INSERT INTO episodes (timestamp, source, project, session_id, role, content, summary, metadata, importance, access_count, last_accessed)
