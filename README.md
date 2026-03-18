@@ -54,14 +54,19 @@ You
 | **PR-based git workflow** | Production | Auto-branch, PR creation, Codex review (local + GitHub), merge via Telegram |
 | **Dashboard** | Production | HTTP API + SSE + dark-themed Kanban board |
 | **Policy engine** | Production | YAML-based action authorization |
-| **Injection scanning** | Production | 18-pattern regex detection (log-only) |
+| **Injection scanning** | Production | 18-pattern regex detection, blocking mode on gateway (403 on high risk) |
 | **Synthesis loop** | Production | Periodic knowledge distillation, per-domain synthesis, whiteboard generation |
 | **Agent definitions** | Production | Declarative agent specs with tier-based sub-delegation |
 | **Daily memory** | Production | Cron-scheduled episode summary → markdown → git |
+| **Health monitor** | Production | Periodic subsystem checks, Telegram delivery tracking, sliding-window rate detection |
+| **HTTP gateway** | Production | REST API on dashboard (/api/send, /api/session, /api/status) with bearer auth and injection blocking |
+| **Backup scripts** | Production | WAL-safe memory.db + bridge.env backup with 7-day rotation, cron-scheduled |
+| **BridgeContext** | Production | Typed subsystem bag replacing positional constructor args, Plugin interface (type-only) |
+| **Direct API fast-path** | Built, not enabled | Sonnet API for simple messages, classifier-based routing (Graduated Extraction Phase 1) |
 | **PRD executor** | Built, not enabled | Autonomous PRD detection, parsing, and execution |
 | **Email bridge** | Planned | IMAP polling + SMTP response (architecture in place) |
 
-41 tests across 2 test files. Type-checked with `tsc --noEmit`.
+221 tests across 15 test files. Type-checked with `tsc --noEmit`.
 
 ## Quick Start
 
@@ -91,7 +96,7 @@ For full VPS deployment (systemd services, SSH setup, PAI hooks), see the [Deplo
 ### Development
 
 ```bash
-bun test              # 41 tests: format + claude error detection
+bun test              # 221 tests across 15 files
 npx tsc --noEmit      # type check
 bun run src/bridge.ts # run locally
 ```
@@ -113,7 +118,7 @@ No Docker. No Kubernetes. No cloud functions. Just a VPS and systemd.
 
 **Autonomy.** The PRD executor, scheduler, daily memory, and synthesis loop are already built. The infrastructure for proactive, self-directed behavior exists — it needs enabling and hardening.
 
-**Agent convergence.** Co-located agent frameworks (like [OpenClaw](https://github.com/claw-project/OpenClaw)) run on the same VPS. Rather than adopting their runtime, the strategy is graduated extraction — absorb capabilities, don't merge codebases. Phase 1: fast-path API calls. Phase 2: operational tooling. Phase 3: gateway + plugins.
+**Agent convergence.** Co-located agent frameworks (like [OpenClaw](https://github.com/claw-project/OpenClaw)) run on the same VPS. Rather than adopting their runtime, the strategy is graduated extraction — absorb capabilities, don't merge codebases. Phase 1 (Sonnet fast-path) is implemented. Phase 2 (HealthMonitor, backup scripts) is deployed. Phase 3A (gateway routes on dashboard) is deployed. Phase 3B (plugin architecture) has type foundations.
 
 **Multi-channel.** Email bridge architecture is in place. The goal is a unified inbox — Telegram, email, and future channels all feed one conversation.
 
@@ -132,12 +137,15 @@ src/
   orchestrator.ts    # DAG workflow decomposition + execution
   mode.ts            # Dual-mode manager (workspace/project)
   config.ts          # Zod-validated env vars, feature flags
+  health-monitor.ts  # Periodic health checks, Telegram delivery tracking
+  types.ts           # BridgeContext bag + Plugin interface
   format.ts          # Mobile formatter, Markdown escaping, chunking
   github.ts          # PR operations via gh CLI
   ...                # 40 modules total — see ARCHITECTURE.md for full reference
 scripts/
   deploy.sh          # Full deployment (rsync + bun install + restart)
   setup-vps.sh       # VPS provisioning (user, deps, coexistence)
+  backup.sh          # WAL-safe backup with rotation (memory.db + bridge.env)
 systemd/
   isidore-cloud-bridge.service   # Main service
   isidore-cloud-tmux.service     # Persistent tmux session

@@ -977,6 +977,14 @@ Checks Claude OAuth token health every 4 hours. If auth fails, logs to `~/.claud
 | SSH private key (local) | `~/.ssh/id_ed25519_isidore_cloud` | File permissions (600) |
 | GitHub deploy key (VPS) | `~/.ssh/id_ed25519_github` | File permissions (600) |
 
+### Runtime Security
+
+- **DASHBOARD_TOKEN** — Mandatory when dashboard is enabled. Rejects unauthenticated requests.
+- **Gateway injection scan** — `/api/send` runs `scanForInjection()` on input; blocks high-risk messages (HTTP 403).
+- **Concurrency cap** — Max 2 simultaneous sends through the gateway, 8KB body limit.
+- **BridgeContext immutability** — Frozen via `Object.freeze` after construction; subsystem references cannot be swapped at runtime.
+- **Backup permissions** — `backup.sh` sets umask 0077; backup files are owner-read-only.
+
 ### What's NOT in the Repo
 
 - No API keys, tokens, or secrets in any committed file
@@ -1150,7 +1158,9 @@ ssh isidore_cloud 'gh auth status'
 | `verifier.ts` | Result verification via separate Claude one-shot. Fail-open. | `Verifier` |
 | `github.ts` | GitHub PR operations via `gh` CLI: create/find PRs, upsert review comments, merge PRs. | `runGh()`, `findPR()`, `createOrReusePR()`, `upsertReviewComment()`, `mergePR()` |
 | `format.ts` | Strips PAI Algorithm verbosity, chunks for Telegram, escapes Markdown. | `compactFormat()`, `chunkMessage()`, `escMd()` |
+| `health-monitor.ts` | Periodic subsystem checks (memory, rateLimiter, resourceGuard), sliding-window Telegram delivery tracking, cached snapshots. | `HealthMonitor` |
 | `config.ts` | Zod-validated env vars with range checks, feature flags, WORKSPACE_* config. | `Config`, `loadConfig()` |
+| `types.ts` | `BridgeContext` interface (typed subsystem bag, replaces positional args) + `Plugin` interface (type-only, for future use). | `BridgeContext`, `Plugin` |
 | `wrapup.ts` | Auto-commit tracked changes with branch guard (refuses wrong branch). | `lightweightWrapup()` |
 
 ### Scripts (`scripts/`)
@@ -1161,6 +1171,7 @@ ssh isidore_cloud 'gh auth status'
 | `deploy-key.sh` | Deploys your SSH public key to the VPS `authorized_keys`. | Once, during initial setup |
 | `deploy.sh` | Full deployment: rsync code + git fetch/reset + bun install. Excludes `CLAUDE.local.md`. | Every time you update the code |
 | `auth-health-check.sh` | Checks Claude OAuth health. Runs via cron every 4 hours. | Automatically via cron |
+| `backup.sh` | WAL-safe backup of memory.db + bridge.env with 7-day rotation, 0077 umask. | Automatically via cron |
 | `run-task.sh` | Runs a one-shot Claude task. For cron-based automation. | Manually or via cron |
 | `project-sync.sh` | Git operations: `pull` (skips if dirty), `push` (auto-branches to `cloud/*`), `force-pull` (reset to origin/main), `clone`. | Called by ProjectManager (not directly) |
 | `review-cloud.sh` | Review a `cloud/*` branch using Codex CLI. Lists branches if no arg. | Manually from local machine |
@@ -1261,6 +1272,10 @@ ssh isidore_cloud 'crontab -l'
 - **Dual-mode system** — Workspace/project modes, statusline, auto-wrapup, /workspace + /wrapup + /keep
 - **Daily memory** — Cron-scheduled workspace episode summary to markdown + git
 - **Importance-triggered synthesis** — Workspace mode auto-flush when importance sum exceeds threshold
+- **Graduated Extraction Phase 1** — Sonnet fast-path via direct API (message-classifier + direct-api, feature-flagged)
+- **Graduated Extraction Phase 2** — HealthMonitor (subsystem checks, delivery tracking), backup.sh (WAL-safe, 7-day rotation)
+- **Graduated Extraction Phase 3A** — Gateway routes on dashboard (/api/send, /api/health)
+- **Graduated Extraction Phase 3B** — Type foundations: BridgeContext (typed subsystem bag), Plugin interface (type-only)
 
 ### Planned
 
@@ -1315,5 +1330,5 @@ Want to build this for your own AI assistant? Here's what you need:
 
 ---
 
-*Last updated: 2026-03-04 (Dual-mode system, memory persistence, synthesis, daily memory, auto-wrapup)*
+*Last updated: 2026-03-18 (Graduated Extraction phases 1-3B, HealthMonitor, BridgeContext, security hardening, 221 tests)*
 *Author: mj-deving + Isidore (PAI)*

@@ -32,6 +32,10 @@ ssh isidore_cloud 'sudo systemctl restart isidore-cloud-bridge'
 
 # View live bridge logs
 ssh isidore_cloud 'sudo journalctl -u isidore-cloud-bridge -f'
+
+# Backup memory.db + bridge.env (WAL checkpoint, 7-day rotation)
+bash scripts/backup.sh
+# Cron: 0 3 * * * /home/isidore_cloud/projects/my-pai-cloud-solution/scripts/backup.sh
 ```
 
 ```bash
@@ -115,7 +119,8 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 - **PAI hooks:** 16 hooks enabled on VPS (security, context loading, ratings, PRD sync, learnings). 7 disabled (Kitty terminal, voice). See `.ai/guides/bridge-mechanics.md`.
 - **Atomic writes:** Pipeline results use write-to-tmp + rename to prevent reading partial files.
 - **Zod validation:** All cross-agent JSON boundaries validated via Zod schemas. Config env vars validated with range checks.
-- **Feature flags:** All major subsystems gated behind env vars (default: off). Enables incremental rollout.
+- **Mandatory dashboard auth:** `DASHBOARD_TOKEN` is required when `DASHBOARD_ENABLED=1`. Bridge refuses to start without it. Gateway routes (`/api/send`) run injection scan and block high-risk prompts with 403. Concurrency capped at 2 simultaneous sends.
+- **Feature flags:** All major subsystems gated behind env vars (default: off). Enables incremental rollout. New: `HEALTH_MONITOR_ENABLED`, `DIRECT_API_ENABLED`, `DASHBOARD_TOKEN` (mandatory when dashboard on).
 
 ### Module Responsibilities
 
@@ -147,6 +152,7 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 - **Git:** `/sync` (commit+push), `/pull`, `/review` (Codex branch review), `/merge` (merge cloud/* to main)
 - **Pipeline:** `/delegate`, `/workflow create`, `/workflows`, `/cancel`, `/branches`, `/pipeline`
 - **Admin:** `/deploy` (self-deploy from Telegram), `/schedule`, `/newproject`, `/deleteproject`, `/reauth`
+- **Gateway:** `POST /api/send` (invoke Claude via HTTP), `GET /api/session`, `GET /api/status`, `GET /api/health-monitor` -- all on dashboard port (:3456), require `DASHBOARD_TOKEN` bearer auth
 
 ## Git Workflow (MANDATORY)
 
