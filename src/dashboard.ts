@@ -16,6 +16,11 @@ import type { MemoryStore } from "./memory";
 import type { PRDExecutor } from "./prd-executor";
 import type { SynthesisLoop } from "./synthesis";
 import { getDashboardHtml } from "./dashboard-html";
+import { scanForInjection } from "./injection-scan";
+import type { HealthMonitor } from "./health-monitor";
+import type { ClaudeInvoker } from "./claude";
+import type { SessionManager } from "./session";
+import type { ModeManager } from "./mode";
 
 interface SSEClient {
   controller: ReadableStreamDefaultController;
@@ -53,6 +58,10 @@ export class Dashboard {
     private memoryStore: MemoryStore | null = null,
     private prdExecutor: PRDExecutor | null = null,
     private synthesisLoop: SynthesisLoop | null = null,
+    private healthMonitor: HealthMonitor | null = null,
+    private claude: ClaudeInvoker | null = null,
+    private sessions: SessionManager | null = null,
+    private modeManager: ModeManager | null = null,
   ) {
     this.pipelineDir = config.pipelineDir;
     this.resultsDir = join(config.pipelineDir, "results");
@@ -94,12 +103,15 @@ export class Dashboard {
           if (path === "/api/memory") return this.jsonResponse(this.getMemoryData());
           if (path === "/api/prds") return this.jsonResponse(this.getPRDsData());
           if (path === "/api/synthesis") return this.jsonResponse(this.getSynthesisData());
+          if (path === "/api/health-monitor") return this.jsonResponse(this.getHealthMonitorData());
+          if (path === "/api/session") return this.jsonResponse(this.getSessionData());
+          if (path === "/api/send" && req.method === "POST") return await this.handleSend(req);
           if (path === "/events") return this.handleSSE(req);
 
           return new Response("Not Found", { status: 404 });
         } catch (err) {
           console.error(`[dashboard] Route error ${path}: ${err}`);
-          return this.jsonResponse({ error: String(err) }, 500);
+          return this.jsonResponse({ error: "Internal server error" }, 500);
         }
       },
     });
@@ -361,6 +373,11 @@ export class Dashboard {
   private async getTaskData(filename: string | null): Promise<Record<string, unknown>> {
     if (!filename) return { error: "filename parameter required" };
 
+    // Sanitize: prevent path traversal
+    if (filename.includes("/") || filename.includes("\\") || filename.includes("..")) {
+      return { error: "invalid filename" };
+    }
+
     // Search in results/, ack/, then tasks/
     for (const dir of [this.resultsDir, this.ackDir, this.tasksDir]) {
       try {
@@ -374,6 +391,85 @@ export class Dashboard {
     }
 
     return { error: "Task not found" };
+  }
+
+  // --- Gateway routes (Graduated Extraction Phase 3A) ---
+
+  private getHealthMonitorData(): Record<string, unknown> {
+    if (!this.healthMonitor) return { enabled: false };
+    return { enabled: true, ...this.healthMonitor.getSnapshot() };
+  }
+
+  private getSessionData(): Record<string, unknown> {
+    return {
+      sessionId: null, // sessions.current() is async — return sync data only
+      mode: this.modeManager?.getCurrentMode() ?? null,
+      uptime: Date.now() - this.startTime,
+    };
+  }
+
+  private sendInFlight = 0;
+  private static MAX_CONCURRENT_SENDS = 2;
+  private static MAX_BODY_BYTES = 8_192; // 8KB limit
+
+  private async handleSend(req: Request): Promise<Response> {
+    // Body size guard
+    const contentLength = parseInt(req.headers.get("Content-Length") || "0", 10);
+    if (contentLength > Dashboard.MAX_BODY_BYTES) {
+      return this.jsonResponse({ error: "Request body too large (max 8KB)" }, 413);
+    }
+
+    // Parse body
+    let body: { message?: string };
+    try {
+      const raw = await req.text();
+      if (raw.length > Dashboard.MAX_BODY_BYTES) {
+        return this.jsonResponse({ error: "Request body too large (max 8KB)" }, 413);
+      }
+      body = JSON.parse(raw) as { message?: string };
+    } catch {
+      return this.jsonResponse({ error: "Invalid JSON body" }, 400);
+    }
+
+    const message = body.message?.trim();
+    if (!message) {
+      return this.jsonResponse({ error: "message field is required and must be non-empty" }, 400);
+    }
+
+    // Injection scan — block high risk
+    const scan = scanForInjection(message);
+    if (scan.risk === "high") {
+      return this.jsonResponse(
+        { error: "Blocked: injection risk detected", matched: scan.matched, risk: scan.risk },
+        403,
+      );
+    }
+
+    // Route: if no claude invoker, return error
+    if (!this.claude) {
+      return this.jsonResponse({ error: "Claude invoker not available" }, 503);
+    }
+
+    // Concurrency guard — prevent resource exhaustion
+    if (this.sendInFlight >= Dashboard.MAX_CONCURRENT_SENDS) {
+      return this.jsonResponse({ error: "Too many concurrent requests (max 2)" }, 429);
+    }
+
+    this.sendInFlight++;
+    try {
+      // Use oneShot (fresh context, no session pollution)
+      const response = await this.claude.oneShot(message);
+      return this.jsonResponse({
+        result: response.result,
+        error: response.error,
+        route: "cli",
+      });
+    } catch (err) {
+      console.error(`[dashboard] /api/send error: ${err}`);
+      return this.jsonResponse({ error: "Send failed" }, 500);
+    } finally {
+      this.sendInFlight--;
+    }
   }
 
   // --- Helpers ---

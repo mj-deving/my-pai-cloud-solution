@@ -1,6 +1,5 @@
 // telegram-adapter.ts — TelegramAdapter wrapping existing createTelegramBot()
-// Does NOT rewrite telegram.ts — wraps the existing Bot instance.
-// Phase 2 will migrate command registration to the adapter interface.
+// Accepts BridgeContext bag instead of 12 positional args (Graduated Extraction Phase 3B).
 
 import { Bot, GrammyError } from "grammy";
 import type { Config } from "./config";
@@ -23,42 +22,30 @@ import type { SynthesisLoopLike } from "./telegram";
 import type { MemoryStore } from "./memory";
 import type { Scheduler } from "./scheduler";
 import type { ModeManager } from "./mode";
+import type { BridgeContext } from "./types";
 
 export class TelegramAdapter implements MessengerAdapter {
   private bot: Bot;
   private userId: number;
   private maxChunkSize: number;
 
-  constructor(
-    config: Config,
-    claude: ClaudeInvoker,
-    sessions: SessionManager,
-    projects: ProjectManager,
-    reversePipeline?: ReversePipelineWatcher | null,
-    orchestrator?: TaskOrchestrator | null,
-    branchManager?: BranchManager | null,
-    rateLimiter?: RateLimiter | null,
-    memoryStore?: MemoryStore | null,
-    scheduler?: Scheduler | null,
-    modeManager?: ModeManager | null,
-    synthesisLoop?: SynthesisLoopLike | null,
-  ) {
+  constructor(ctx: BridgeContext) {
     this.bot = createTelegramBot(
-      config,
-      claude,
-      sessions,
-      projects,
-      reversePipeline,
-      orchestrator,
-      branchManager,
-      rateLimiter,
-      memoryStore,
-      scheduler,
-      modeManager,
-      synthesisLoop,
+      ctx.config,
+      ctx.claude,
+      ctx.sessions,
+      ctx.projects,
+      ctx.reversePipeline,
+      ctx.orchestrator,
+      ctx.branchManager,
+      ctx.rateLimiter,
+      ctx.memoryStore,
+      ctx.scheduler,
+      ctx.modeManager,
+      ctx.synthesisLoop as SynthesisLoopLike | null,
     );
-    this.userId = config.telegramAllowedUserId;
-    this.maxChunkSize = config.telegramMaxChunkSize;
+    this.userId = ctx.config.telegramAllowedUserId;
+    this.maxChunkSize = ctx.config.telegramMaxChunkSize;
   }
 
   async sendDirectMessage(text: string, options?: MessageOptions): Promise<void> {
@@ -108,15 +95,12 @@ export class TelegramAdapter implements MessengerAdapter {
     await this.bot.api.sendChatAction(this.userId, "typing");
   }
 
-  // Phase 1: no-op — commands already registered inside createTelegramBot()
-  // Phase 2 will migrate command registration to use this method
   registerCommand(_command: string, _handler: CommandHandler): void {
-    // Commands are registered inside telegram.ts for Phase 1
+    // Commands are registered inside telegram.ts
   }
 
-  // Phase 1: no-op — message handler already registered inside createTelegramBot()
   registerMessageHandler(_handler: MessageHandler): void {
-    // Message handler registered inside telegram.ts for Phase 1
+    // Message handler registered inside telegram.ts
   }
 
   async start(): Promise<void> {
@@ -144,7 +128,6 @@ export class TelegramAdapter implements MessengerAdapter {
 
   /**
    * Escape hatch: access the raw Grammy Bot instance.
-   * Should NOT be used by bridge.ts — exists for edge cases during Phase 1 transition.
    * @deprecated Will be removed when all consumers use MessengerAdapter interface.
    */
   getRawBot(): Bot {
