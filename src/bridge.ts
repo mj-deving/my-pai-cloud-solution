@@ -28,6 +28,8 @@ import { SynthesisLoop } from "./synthesis";
 import { AgentLoader } from "./agent-loader";
 import { ModeManager } from "./mode";
 import { DailyMemoryWriter } from "./daily-memory";
+import { HealthMonitor } from "./health-monitor";
+import type { BridgeContext } from "./types";
 
 async function main() {
   console.log("[bridge] Starting Isidore Cloud communication bridge...");
@@ -199,8 +201,9 @@ async function main() {
   }
 
   // Phase 3 V2-B: Context Injection
+  let contextBuilder: ContextBuilder | null = null;
   if (config.contextInjectionEnabled && memoryStore) {
-    const contextBuilder = new ContextBuilder(memoryStore, config);
+    contextBuilder = new ContextBuilder(memoryStore, config);
     claude.setContextBuilder(contextBuilder);
     // Phase D: Log observation masking status
     if (config.observationMaskingEnabled) {
@@ -281,26 +284,83 @@ async function main() {
     console.log("[bridge] Synthesis loop disabled (SYNTHESIS_ENABLED=0)");
   }
 
+  // Phase 2 GE: Health Monitor
+  let healthMonitor: HealthMonitor | null = null;
+  if (config.healthMonitorEnabled) {
+    healthMonitor = new HealthMonitor(config);
+    // Register subsystem checks
+    if (memoryStore) {
+      healthMonitor.registerCheck("memory", () => {
+        try {
+          memoryStore!.getStats();
+          return { name: "memory", status: "ok" };
+        } catch (err) {
+          return { name: "memory", status: "down", message: String(err) };
+        }
+      });
+    }
+    if (rateLimiter) {
+      healthMonitor.registerCheck("rateLimiter", () => {
+        const status = rateLimiter!.getStatus();
+        return {
+          name: "rateLimiter",
+          status: status.paused ? "degraded" : "ok",
+          message: status.paused ? "Rate limiter paused" : undefined,
+        };
+      });
+    }
+    if (resourceGuard) {
+      healthMonitor.registerCheck("resourceGuard", () => {
+        const status = resourceGuard!.getStatus();
+        return {
+          name: "resourceGuard",
+          status: status.freeMb < status.thresholdMb ? "degraded" : "ok",
+          message: `${status.freeMb}MB free / ${status.thresholdMb}MB threshold`,
+        };
+      });
+    }
+    healthMonitor.start();
+    console.log(`[bridge] Health monitor enabled (poll: ${config.healthMonitorPollMs}ms)`);
+  } else {
+    console.log("[bridge] Health monitor disabled (HEALTH_MONITOR_ENABLED=0)");
+  }
+
+  // Build BridgeContext bag (Phase 3B: replaces positional constructor args)
+  // Some fields (dashboard, messenger, prdExecutor) are filled in later as they're wired
+  const ctx: BridgeContext = {
+    config,
+    claude,
+    sessions,
+    projects: projectManager,
+    modeManager,
+    memoryStore,
+    contextBuilder,
+    pipeline: null, // wired after messenger creation
+    reversePipeline,
+    orchestrator,
+    branchManager,
+    rateLimiter,
+    resourceGuard,
+    healthMonitor,
+    scheduler,
+    synthesisLoop,
+    prdExecutor: null, // wired after dashboard creation
+    agentRegistry,
+    idempotencyStore,
+    policyEngine,
+    agentLoader,
+    dashboard: null, // wired after dashboard creation
+    messenger: null, // wired after messenger creation
+  };
+
   // Phase 1: Create messenger adapter based on config
   let messenger: MessengerAdapter;
   if (config.messengerType === "telegram") {
-    messenger = new TelegramAdapter(
-      config,
-      claude,
-      sessions,
-      projectManager,
-      reversePipeline,
-      orchestrator,
-      branchManager,
-      rateLimiter,
-      memoryStore,
-      scheduler,
-      modeManager,
-      synthesisLoop,
-    );
+    messenger = new TelegramAdapter(ctx);
   } else {
     throw new Error(`Unsupported messenger type: ${config.messengerType}`);
   }
+  ctx.messenger = messenger;
 
   // Wire messenger to subsystems for live Telegram status updates (pre-pipeline)
   if (orchestrator) orchestrator.setMessenger(messenger);
@@ -414,6 +474,7 @@ async function main() {
   let pipeline: PipelineWatcher | null = null;
   if (config.pipelineEnabled) {
     pipeline = new PipelineWatcher(config);
+    ctx.pipeline = pipeline;
     // Wire orchestrator hook for type:"orchestrate" tasks
     if (orchestrator) {
       pipeline.setOrchestrator(orchestrator);
@@ -482,6 +543,7 @@ async function main() {
   let prdExecutor: PRDExecutor | null = null;
   if (config.prdExecutorEnabled) {
     prdExecutor = new PRDExecutor(config, claude, projectManager, memoryStore, orchestrator, messenger);
+    ctx.prdExecutor = prdExecutor;
     // Wire to pipeline for type:"prd" routing
     if (pipeline) {
       pipeline.setPRDExecutor(prdExecutor);
@@ -498,11 +560,16 @@ async function main() {
       config, pipeline, orchestrator, reversePipeline,
       rateLimiter, resourceGuard, agentRegistry, idempotencyStore,
       memoryStore, prdExecutor, synthesisLoop,
+      healthMonitor, claude, sessions, modeManager,
     );
+    ctx.dashboard = dashboard;
     dashboard.start();
   } else {
     console.log("[bridge] Dashboard disabled (DASHBOARD_ENABLED=0)");
   }
+
+  // Freeze BridgeContext to prevent subsystem mutation (security: P2 finding)
+  Object.freeze(ctx);
 
   // Phase C: Wire notify callback to synthesis loop
   if (synthesisLoop) {
@@ -573,6 +640,8 @@ async function main() {
     scheduler?.close();
     // V2-D: Graceful PRD abort
     prdExecutor?.stop();
+    // Phase 2 GE: Stop health monitor
+    healthMonitor?.stop();
     dashboard?.stop();
     rateLimiter?.stop();
     reversePipeline?.stop();

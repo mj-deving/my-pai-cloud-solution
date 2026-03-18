@@ -162,6 +162,10 @@ const EnvSchema = z.object({
   // Live status messages
   STATUS_EDIT_INTERVAL_MS: optionalInt(1000, 10_000, 2_500),
 
+  // Health Monitor (Graduated Extraction Phase 2)
+  HEALTH_MONITOR_ENABLED: envBool(false),
+  HEALTH_MONITOR_POLL_MS: optionalInt(10_000, 600_000, 60_000),
+
   // Direct API fast-path (Graduated Extraction Phase 1)
   DIRECT_API_ENABLED: envBool(false),
   DIRECT_API_KEY: z.string().optional(),
@@ -307,6 +311,10 @@ export interface Config {
   // Live status messages
   statusEditIntervalMs: number;
 
+  // Health Monitor (Graduated Extraction Phase 2)
+  healthMonitorEnabled: boolean;
+  healthMonitorPollMs: number;
+
   // Direct API fast-path (Graduated Extraction Phase 1)
   directApiEnabled: boolean;
   directApiKey: string;
@@ -326,7 +334,7 @@ export function loadConfig(): Config {
   const env = result.data;
   const home = process.env.HOME || "/home/isidore_cloud";
 
-  return {
+  const config: Config = {
     telegramBotToken: env.TELEGRAM_BOT_TOKEN,
     telegramAllowedUserId: env.TELEGRAM_ALLOWED_USER_ID,
 
@@ -455,10 +463,22 @@ export function loadConfig(): Config {
     // Live status messages
     statusEditIntervalMs: env.STATUS_EDIT_INTERVAL_MS,
 
+    // Health Monitor
+    healthMonitorEnabled: env.HEALTH_MONITOR_ENABLED,
+    healthMonitorPollMs: env.HEALTH_MONITOR_POLL_MS,
+
     // Direct API fast-path
     directApiEnabled: env.DIRECT_API_ENABLED,
     directApiKey: env.DIRECT_API_KEY || "",
     directApiModel: env.DIRECT_API_MODEL || "claude-sonnet-4-6",
     directApiMaxTokens: env.DIRECT_API_MAX_TOKENS,
   };
+
+  // Post-parse validation: DASHBOARD_TOKEN is mandatory when dashboard is enabled
+  if (config.dashboardEnabled && !config.dashboardToken) {
+    throw new Error("DASHBOARD_TOKEN is required when DASHBOARD_ENABLED=1 (security: prevents unauthenticated access to dashboard and gateway routes)");
+  }
+
+  return config;
 }
+

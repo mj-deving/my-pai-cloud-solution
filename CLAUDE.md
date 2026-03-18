@@ -35,7 +35,7 @@ ssh isidore_cloud 'sudo journalctl -u isidore-cloud-bridge -f'
 ```
 
 ```bash
-# Run tests (147 tests across 10 files)
+# Run tests (218 tests across 15 files)
 bun test
 
 # Pre-commit verification (type check + tests + Codex review)
@@ -132,7 +132,9 @@ See `ARCHITECTURE.md` for full file reference (30+ modules). Entry points:
 - **`message-classifier.ts`** — Routes messages to direct API (Sonnet) or CLI (Opus) based on complexity
 - **`direct-api.ts`** — Lightweight Anthropic API client via `Bun.fetch()` (Graduated Extraction Phase 1)
 - **`review-learning.ts`** — Parses Codex P0-P3 findings, stores as knowledge entries in memory.db
-- **`src/__tests__/`** — 147 tests across 10 files: format, claude, config, schemas, rate-limiter, review-learning, message-classifier, direct-api, memory, session
+- **`health-monitor.ts`** — `HealthMonitor`: periodic subsystem checks, Telegram delivery tracking, `/health` + `/diag` commands
+- **`types.ts`** — `BridgeContext` bag (replaces positional constructor args) + `Plugin` interface (type-only)
+- **`src/__tests__/`** — 218 tests across 15 files: format, claude, config, schemas, rate-limiter, review-learning, message-classifier, direct-api, memory, session, statusline, injection-scan, prd-parser, health-monitor, gateway
 
 ## Cross-Instance Continuity
 

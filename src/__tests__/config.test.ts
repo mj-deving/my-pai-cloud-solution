@@ -63,6 +63,7 @@ describe("loadConfig", () => {
     Object.assign(process.env, MINIMAL_ENV, {
       MEMORY_ENABLED: "1",
       DASHBOARD_ENABLED: "1",
+      DASHBOARD_TOKEN: "test-token",
     });
     const config = loadConfig();
     expect(config.memoryEnabled).toBe(true);
