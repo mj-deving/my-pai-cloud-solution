@@ -1,0 +1,239 @@
+// a2a-server.test.ts — Tests for A2A (Agent-to-Agent) server
+import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { A2AServer } from "../a2a-server";
+import type { Config } from "../config";
+import type { ClaudeInvoker } from "../claude";
+
+const testConfig = {
+  dashboardToken: "test-token-123",
+  a2aEnabled: true,
+  dashboardEnabled: true,
+  dashboardPort: 3456,
+  dashboardBind: "127.0.0.1",
+} as Config;
+
+function makeMockClaude(result = "Hello from Isidore"): ClaudeInvoker {
+  return {
+    oneShot: mock(() =>
+      Promise.resolve({ sessionId: "test-session", result, error: undefined }),
+    ),
+    send: mock((_msg: string, onProgress?: (e: any) => void) => {
+      // Simulate progress events then resolve
+      if (onProgress) {
+        onProgress({ type: "text_chunk", text: "Streaming " });
+        onProgress({ type: "text_chunk", text: "reply" });
+      }
+      return Promise.resolve({
+        sessionId: "test-session",
+        result: "Streaming reply",
+        error: undefined,
+      });
+    }),
+  } as any;
+}
+
+function makeA2ARequest(method: string, text: string, id = "req-1"): string {
+  return JSON.stringify({
+    jsonrpc: "2.0",
+    id,
+    method,
+    params: {
+      message: {
+        role: "user",
+        parts: [{ type: "text", text }],
+      },
+    },
+  });
+}
+
+describe("A2AServer", () => {
+  let server: A2AServer;
+  let mockClaude: ClaudeInvoker;
+
+  beforeEach(() => {
+    mockClaude = makeMockClaude();
+    server = new A2AServer(testConfig, mockClaude);
+  });
+
+  // 1. getAgentCard returns valid card with required fields
+  test("getAgentCard returns valid card with required fields", () => {
+    const card = server.getAgentCard();
+    expect(card).toHaveProperty("name");
+    expect(card).toHaveProperty("description");
+    expect(card).toHaveProperty("url");
+    expect(card).toHaveProperty("version");
+    expect(card).toHaveProperty("capabilities");
+    expect(card).toHaveProperty("skills");
+    expect(card).toHaveProperty("authentication");
+    expect(card.capabilities).toHaveProperty("streaming");
+    expect(card.capabilities).toHaveProperty("pushNotifications");
+    expect(Array.isArray(card.skills)).toBe(true);
+    expect(card.skills.length).toBeGreaterThan(0);
+  });
+
+  // 2. Agent card has correct name
+  test("agent card has correct name 'Isidore Cloud'", () => {
+    const card = server.getAgentCard();
+    expect(card.name).toBe("Isidore Cloud");
+    expect(card.version).toBe("2.0.0");
+    expect(card.capabilities.streaming).toBe(true);
+    expect(card.capabilities.pushNotifications).toBe(false);
+    expect(card.authentication.schemes).toContain("bearer");
+  });
+
+  // 3. handleRequest returns null for unknown routes
+  test("handleRequest returns null for unknown routes", async () => {
+    const req = new Request("http://localhost/api/something");
+    const url = new URL(req.url);
+    const resp = await server.handleRequest(req, url);
+    expect(resp).toBeNull();
+  });
+
+  // 4. Agent card endpoint returns 200 with correct content-type
+  test("agent card endpoint returns 200 with correct content-type", async () => {
+    const req = new Request("http://localhost/.well-known/agent-card.json");
+    const url = new URL(req.url);
+    const resp = await server.handleRequest(req, url);
+    expect(resp).not.toBeNull();
+    expect(resp!.status).toBe(200);
+    expect(resp!.headers.get("Content-Type")).toBe("application/json");
+    const body = ((await resp!.json()) as any) as any;
+    expect(body.name).toBe("Isidore Cloud");
+  });
+
+  // 5. Send endpoint requires auth (returns 401 without token)
+  test("send endpoint requires auth", async () => {
+    const req = new Request("http://localhost/a2a/message/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: makeA2ARequest("message/send", "hello"),
+    });
+    const url = new URL(req.url);
+    const resp = await server.handleRequest(req, url);
+    expect(resp).not.toBeNull();
+    expect(resp!.status).toBe(401);
+  });
+
+  // 6. Send endpoint invokes Claude and returns JSON-RPC response
+  test("send endpoint invokes Claude and returns JSON-RPC response", async () => {
+    const req = new Request("http://localhost/a2a/message/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer test-token-123",
+      },
+      body: makeA2ARequest("message/send", "What is PAI?"),
+    });
+    const url = new URL(req.url);
+    const resp = await server.handleRequest(req, url);
+    expect(resp).not.toBeNull();
+    expect(resp!.status).toBe(200);
+    const body = (await resp!.json()) as any;
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.id).toBe("req-1");
+    expect(body.result.message.role).toBe("agent");
+    expect(body.result.message.parts[0].type).toBe("text");
+    expect(body.result.message.parts[0].text).toBe("Hello from Isidore");
+    expect(mockClaude.oneShot).toHaveBeenCalledTimes(1);
+  });
+
+  // 7. Stream endpoint requires auth
+  test("stream endpoint requires auth", async () => {
+    const req = new Request("http://localhost/a2a/message/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: makeA2ARequest("message/stream", "hello"),
+    });
+    const url = new URL(req.url);
+    const resp = await server.handleRequest(req, url);
+    expect(resp).not.toBeNull();
+    expect(resp!.status).toBe(401);
+  });
+
+  // 8. Stream endpoint returns SSE content-type
+  test("stream endpoint returns SSE content-type", async () => {
+    const req = new Request("http://localhost/a2a/message/stream", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer test-token-123",
+      },
+      body: makeA2ARequest("message/stream", "Tell me about memory"),
+    });
+    const url = new URL(req.url);
+    const resp = await server.handleRequest(req, url);
+    expect(resp).not.toBeNull();
+    expect(resp!.status).toBe(200);
+    expect(resp!.headers.get("Content-Type")).toBe("text/event-stream");
+
+    // Read the stream to completion and verify it contains SSE data
+    const reader = resp!.body!.getReader();
+    const decoder = new TextDecoder();
+    let fullText = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      fullText += decoder.decode(value, { stream: true });
+    }
+    // Should contain data lines with JSON-RPC
+    expect(fullText).toContain("data:");
+    expect(fullText).toContain('"jsonrpc":"2.0"');
+  });
+
+  // 9. Invalid JSON-RPC request returns error
+  test("invalid JSON-RPC request returns error", async () => {
+    const req = new Request("http://localhost/a2a/message/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer test-token-123",
+      },
+      body: JSON.stringify({ not: "a valid jsonrpc message" }),
+    });
+    const url = new URL(req.url);
+    const resp = await server.handleRequest(req, url);
+    expect(resp).not.toBeNull();
+    expect(resp!.status).toBe(400);
+    const body = (await resp!.json()) as any;
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe(-32600);
+  });
+
+  // 10. Agent card endpoint does NOT require auth
+  test("agent card endpoint does not require auth (no Authorization header)", async () => {
+    // No auth header — should still return 200
+    const req = new Request("http://localhost/.well-known/agent-card.json");
+    const url = new URL(req.url);
+    const resp = await server.handleRequest(req, url);
+    expect(resp).not.toBeNull();
+    expect(resp!.status).toBe(200);
+  });
+
+  // 11. Send with Claude error returns JSON-RPC error
+  test("send with Claude error returns JSON-RPC error", async () => {
+    const errorClaude = {
+      oneShot: mock(() =>
+        Promise.resolve({ sessionId: "s", result: "", error: "CLI crashed" }),
+      ),
+    } as any;
+    const errorServer = new A2AServer(testConfig, errorClaude);
+
+    const req = new Request("http://localhost/a2a/message/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer test-token-123",
+      },
+      body: makeA2ARequest("message/send", "fail please"),
+    });
+    const url = new URL(req.url);
+    const resp = await errorServer.handleRequest(req, url);
+    expect(resp).not.toBeNull();
+    const body = (await resp!.json()) as any;
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe(-32000);
+    expect(body.error.message).toContain("CLI crashed");
+  });
+});

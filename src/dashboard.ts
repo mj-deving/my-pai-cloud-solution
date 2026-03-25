@@ -22,6 +22,7 @@ import type { ClaudeInvoker } from "./claude";
 import type { SessionManager } from "./session";
 import type { ModeManager } from "./mode";
 import type { BridgeContext } from "./types";
+import type { A2AServer } from "./a2a-server";
 
 interface SSEClient {
   controller: ReadableStreamDefaultController;
@@ -57,6 +58,7 @@ export class Dashboard {
   private claude: ClaudeInvoker | null;
   private sessions: SessionManager | null;
   private modeManager: ModeManager | null;
+  private a2aServer: A2AServer | null = null;
   private pipelineDir: string;
   private resultsDir: string;
   private ackDir: string;
@@ -93,13 +95,19 @@ export class Dashboard {
       hostname: this.config.dashboardBind,
       port: this.config.dashboardPort,
       fetch: async (req) => {
-        // Auth check
+        const url = new URL(req.url);
+        const path = url.pathname;
+
+        // Session 2: A2A routes — delegate to A2AServer (handles its own auth)
+        if (this.a2aServer && (path.startsWith("/.well-known/") || path.startsWith("/a2a/"))) {
+          const a2aResponse = await this.a2aServer.handleRequest(req, url);
+          if (a2aResponse) return a2aResponse;
+        }
+
+        // Auth check (after A2A delegation — agent card is public)
         if (!this.checkAuth(req)) {
           return new Response("Unauthorized", { status: 401 });
         }
-
-        const url = new URL(req.url);
-        const path = url.pathname;
 
         try {
           if (path === "/" || path === "/index.html") {
@@ -135,6 +143,11 @@ export class Dashboard {
     this.pollTimer = setInterval(() => this.sseSnapshot(), this.config.dashboardSsePollMs);
 
     console.log(`[dashboard] Listening on http://${this.config.dashboardBind}:${this.config.dashboardPort}`);
+  }
+
+  // Session 2: Wire A2A server for route delegation
+  setA2AServer(server: A2AServer): void {
+    this.a2aServer = server;
   }
 
   stop(): void {

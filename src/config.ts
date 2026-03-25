@@ -180,6 +180,12 @@ const EnvSchema = z.object({
   MCP_MEMORY_ENABLED: envBool(false),
   MCP_CONTEXT_ENABLED: envBool(false),
 
+  // Session 2: A2A Server (requires DASHBOARD_ENABLED=1)
+  A2A_ENABLED: envBool(false),
+
+  // Session 2: Bridge context injection mode (hooks vs legacy)
+  BRIDGE_CONTEXT_INJECTION: z.enum(["legacy", "hooks"]).optional().default("legacy"),
+
   // Session 1: Loop Detection (safety — defaults to true)
   LOOP_DETECTION_ENABLED: envBool(true),
   LOOP_DETECTION_WARN_THRESHOLD: optionalInt(2, 20, 3),
@@ -342,6 +348,12 @@ export interface Config {
   // Session 1: MCP Servers
   mcpMemoryEnabled: boolean;
   mcpContextEnabled: boolean;
+
+  // Session 2: A2A Server
+  a2aEnabled: boolean;
+
+  // Session 2: Bridge context injection mode
+  bridgeContextInjection: "legacy" | "hooks";
 
   // Session 1: Loop Detection (safety)
   loopDetectionEnabled: boolean;
@@ -509,6 +521,12 @@ export function loadConfig(): Config {
     mcpMemoryEnabled: env.MCP_MEMORY_ENABLED,
     mcpContextEnabled: env.MCP_CONTEXT_ENABLED,
 
+    // Session 2: A2A Server
+    a2aEnabled: env.A2A_ENABLED,
+
+    // Session 2: Bridge context injection mode
+    bridgeContextInjection: env.BRIDGE_CONTEXT_INJECTION,
+
     // Session 1: Loop Detection (safety)
     loopDetectionEnabled: env.LOOP_DETECTION_ENABLED,
     loopDetectionWarnThreshold: env.LOOP_DETECTION_WARN_THRESHOLD,
@@ -519,6 +537,11 @@ export function loadConfig(): Config {
   // Post-parse validation: DASHBOARD_TOKEN is mandatory when dashboard is enabled
   if (config.dashboardEnabled && !config.dashboardToken) {
     throw new Error("DASHBOARD_TOKEN is required when DASHBOARD_ENABLED=1 (security: prevents unauthenticated access to dashboard and gateway routes)");
+  }
+
+  // A2A requires Dashboard (shared HttpServer — Anthropic "simplest solution" principle)
+  if (config.a2aEnabled && !config.dashboardEnabled) {
+    throw new Error("A2A_ENABLED=1 requires DASHBOARD_ENABLED=1 (A2A routes mount on dashboard server)");
   }
 
   if (config.loopDetectionEnabled &&

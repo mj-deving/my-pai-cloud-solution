@@ -29,6 +29,7 @@ import { AgentLoader } from "./agent-loader";
 import { ModeManager } from "./mode";
 import { DailyMemoryWriter } from "./daily-memory";
 import { HealthMonitor } from "./health-monitor";
+import { A2AServer } from "./a2a-server";
 import type { BridgeContext } from "./types";
 
 async function main() {
@@ -353,6 +354,7 @@ async function main() {
     messenger: null, // wired after messenger creation
     summaryDag: null, // wired when DAG_ENABLED
     loopDetector: null, // wired when LOOP_DETECTION_ENABLED
+    a2aServer: null, // wired when A2A_ENABLED
   };
 
   // Phase 1: Create messenger adapter based on config
@@ -563,6 +565,18 @@ async function main() {
     dashboard.start();
   } else {
     console.log("[bridge] Dashboard disabled (DASHBOARD_ENABLED=0)");
+  }
+
+  // Session 2: A2A Server (requires DASHBOARD_ENABLED — validated in config.ts)
+  if (config.a2aEnabled && dashboard) {
+    const a2aServer = new A2AServer(config, claude);
+    ctx.a2aServer = a2aServer;
+    dashboard.setA2AServer(a2aServer);
+    console.log("[bridge] A2A server enabled (mounted on dashboard routes)");
+  } else if (config.a2aEnabled) {
+    console.log("[bridge] A2A requires DASHBOARD_ENABLED=1, skipping");
+  } else {
+    console.log("[bridge] A2A server disabled (A2A_ENABLED=0)");
   }
 
   // Freeze BridgeContext to prevent subsystem mutation (security: P2 finding)

@@ -42,6 +42,11 @@ export const PipelineTaskSchema = z.object({
   // Phase 1: Idempotency fields
   op_id: z.string().optional(),
   auto_op_id: z.boolean().optional(),
+  // Session 2: A2A envelope fields (backward compatible — Gregor's existing tasks still validate)
+  sender: z.string().optional(),
+  recipient: z.string().optional(),
+  intent: z.string().optional(),
+  correlation_id: z.string().optional(),
 }).strict();
 
 export type PipelineTask = z.infer<typeof PipelineTaskSchema>;

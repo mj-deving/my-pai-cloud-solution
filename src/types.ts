@@ -25,6 +25,7 @@ import type { AgentLoader } from "./agent-loader";
 import type { MessengerAdapter } from "./messenger-adapter";
 import type { SummaryDAG } from "./summary-dag";
 import type { LoopDetector } from "./loop-detection";
+import type { A2AServer } from "./a2a-server";
 
 /**
  * BridgeContext — typed bag of all initialized subsystems.
@@ -61,6 +62,9 @@ export interface BridgeContext {
   // Session 1: DAG Memory + Loop Detection
   summaryDag: SummaryDAG | null;
   loopDetector: LoopDetector | null;
+
+  // Session 2: A2A Server
+  a2aServer: A2AServer | null;
 }
 
 /**
