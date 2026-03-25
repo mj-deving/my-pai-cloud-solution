@@ -5,6 +5,8 @@ import type { Config } from "./config";
 import type { SessionManager } from "./session";
 import { readFile } from "node:fs/promises";
 import { ClaudeJsonOutputSchema, safeParse } from "./schemas";
+import { RecoveryPolicy } from "./turn-recovery";
+import type { RetryState } from "./turn-recovery";
 
 export interface ClaudeResponse {
   sessionId: string;
@@ -76,6 +78,7 @@ export class ClaudeInvoker {
   private contextBuilder?: ContextBuilderLike;
   private algoLiteTemplate: string | null = null;
   private activeProc: { kill(signal?: number): void; killed: boolean } | null = null;
+  private recoveryPolicy = new RecoveryPolicy();
 
   constructor(
     private config: Config,
@@ -162,7 +165,8 @@ export class ClaudeInvoker {
 
   // Send a message to the active session and get a response
   // If onProgress is provided, uses stream-json for live status updates
-  async send(message: string, onProgress?: (event: ProgressEvent) => void, _isRetry = false): Promise<ClaudeResponse> {
+  async send(message: string, onProgress?: (event: ProgressEvent) => void, _retryState?: RetryState): Promise<ClaudeResponse> {
+    const retryState = _retryState || this.recoveryPolicy.initialState();
     // V2-B: Prepend memory context if context builder is wired
     let prompt = message;
     if (this.contextBuilder) {
@@ -174,7 +178,7 @@ export class ClaudeInvoker {
 
     // If onProgress provided, use streaming path
     if (onProgress) {
-      return this.sendStreaming(prompt, sessionId, onProgress, _isRetry);
+      return this.sendStreaming(prompt, sessionId, onProgress, retryState);
     }
 
     // Build args: use --resume only if we have a real session ID from a prior Claude response
@@ -214,22 +218,19 @@ export class ClaudeInvoker {
       clearTimeout(timeout);
 
       if (exitCode !== 0) {
-        // Phase 6A: Detect rate-limit errors and record for cooldown
-        if (isRateLimitError(stderr)) {
+        // Use RecoveryPolicy for retry decisions (handles stale sessions, rate limits, etc.)
+        const category = this.recoveryPolicy.classify(stderr, exitCode);
+        if (category === "quota") this.rateLimiter?.recordFailure();
+        const decision = this.recoveryPolicy.shouldRetry(category, retryState);
+        if (decision.retry) {
+          console.warn(`[claude] ${category} error (exit ${exitCode}), retrying: ${stderr.slice(0, 100)}`);
           this.rateLimiter?.recordFailure();
-        }
-        // If session ID is stale/expired, clear it and retry without --resume
-        if (sessionId && stderr.includes("No conversation found with session ID")) {
-          console.warn(`[claude] Stale session ${sessionId.slice(0, 8)}..., clearing and retrying fresh`);
-          await this.sessions.newSession();
-          return this.send(message);
-        }
-        // Auto-retry recoverable errors once with fresh session
-        if (!_isRetry && isRecoverableError(stderr)) {
-          console.warn(`[claude] Recoverable error (exit ${exitCode}), retrying fresh: ${stderr.slice(0, 100)}`);
-          this.rateLimiter?.recordFailure();
-          await this.sessions.newSession();
-          const retryResult = await this.send(message, onProgress, true);
+          if (decision.action === "fresh_session" || decision.action === "cache_bust") {
+            await this.sessions.newSession();
+          }
+          if (decision.waitMs > 0) await Bun.sleep(decision.waitMs);
+          const nextState = this.recoveryPolicy.nextState(retryState, stderr.slice(0, 200), decision.action);
+          const retryResult = await this.send(message, onProgress, nextState);
           retryResult.retried = true;
           return retryResult;
         }
@@ -274,11 +275,14 @@ export class ClaudeInvoker {
         };
       }
     } catch (err) {
-      if (!_isRetry && isRecoverableError(String(err))) {
-        console.warn(`[claude] Spawn exception, retrying fresh: ${String(err).slice(0, 100)}`);
+      const category = this.recoveryPolicy.classify(String(err));
+      const decision = this.recoveryPolicy.shouldRetry(category, retryState);
+      if (decision.retry) {
+        console.warn(`[claude] Spawn exception (${category}), retrying: ${String(err).slice(0, 100)}`);
         this.rateLimiter?.recordFailure();
         await this.sessions.newSession();
-        const retryResult = await this.send(message, onProgress, true);
+        const nextState = this.recoveryPolicy.nextState(retryState, String(err).slice(0, 200), decision.action);
+        const retryResult = await this.send(message, onProgress, nextState);
         retryResult.retried = true;
         return retryResult;
       }
@@ -295,8 +299,9 @@ export class ClaudeInvoker {
     prompt: string,
     sessionId: string | null,
     onProgress: (event: ProgressEvent) => void,
-    isRetry = false,
+    retryState?: RetryState,
   ): Promise<ClaudeResponse> {
+    const state = retryState || this.recoveryPolicy.initialState();
     const args = [this.config.claudeBinary];
     if (sessionId) {
       args.push("--resume", sessionId);
@@ -390,14 +395,6 @@ export class ClaudeInvoker {
       clearTimeout(timeout);
 
       if (exitCode !== 0) {
-        if (isRateLimitError(stderr)) {
-          this.rateLimiter?.recordFailure();
-        }
-        if (sessionId && stderr.includes("No conversation found with session ID")) {
-          console.warn(`[claude] Stale session ${sessionId.slice(0, 8)}..., clearing and retrying fresh`);
-          await this.sessions.newSession();
-          return this.sendStreaming(prompt, null, onProgress);
-        }
         // Error cascade: auth error → stream-captured error → stderr → accumulated text
         // In verbose/streaming mode, stderr is often empty (all output routed to stdout as JSON)
         const errorDetail = authError
@@ -410,13 +407,19 @@ export class ClaudeInvoker {
         if (streamError) {
           console.error(`[claude] Stream error captured: ${streamError.slice(0, 200)}`);
         }
-        // Auto-retry recoverable errors once with fresh session
-        if (!isRetry && isRecoverableError(errorDetail)) {
-          console.warn(`[claude] Recoverable error (exit ${exitCode}), retrying fresh: ${errorDetail.slice(0, 100)}`);
+        // Use RecoveryPolicy for retry decisions
+        const category = this.recoveryPolicy.classify(errorDetail, exitCode);
+        const decision = this.recoveryPolicy.shouldRetry(category, state);
+        if (decision.retry) {
+          console.warn(`[claude] ${category} error (exit ${exitCode}), retrying: ${errorDetail.slice(0, 100)}`);
           this.rateLimiter?.recordFailure();
-          await this.sessions.newSession();
+          if (decision.action === "fresh_session" || decision.action === "cache_bust") {
+            await this.sessions.newSession();
+          }
+          if (decision.waitMs > 0) await Bun.sleep(decision.waitMs);
           onProgress({ type: "phase", phase: "RETRY" });
-          const retryResult = await this.sendStreaming(prompt, null, onProgress, true);
+          const nextState = this.recoveryPolicy.nextState(state, errorDetail.slice(0, 200), decision.action);
+          const retryResult = await this.sendStreaming(prompt, null, onProgress, nextState);
           retryResult.retried = true;
           return retryResult;
         }
@@ -441,12 +444,16 @@ export class ClaudeInvoker {
         contextWindow: extractedContextWindow,
       };
     } catch (err) {
-      if (!isRetry && isRecoverableError(String(err))) {
-        console.warn(`[claude] Spawn exception (streaming), retrying fresh: ${String(err).slice(0, 100)}`);
+      const category = this.recoveryPolicy.classify(String(err));
+      const decision = this.recoveryPolicy.shouldRetry(category, state);
+      if (decision.retry) {
+        console.warn(`[claude] Spawn exception (streaming, ${category}), retrying: ${String(err).slice(0, 100)}`);
         this.rateLimiter?.recordFailure();
         await this.sessions.newSession();
+        if (decision.waitMs > 0) await Bun.sleep(decision.waitMs);
         onProgress({ type: "phase", phase: "RETRY" });
-        const retryResult = await this.sendStreaming(prompt, null, onProgress, true);
+        const nextState = this.recoveryPolicy.nextState(state, String(err).slice(0, 200), decision.action);
+        const retryResult = await this.sendStreaming(prompt, null, onProgress, nextState);
         retryResult.retried = true;
         return retryResult;
       }
@@ -696,6 +703,7 @@ export class ClaudeInvoker {
   }
 
   // One-shot invocation (no session resume — for cron/automation)
+  // Uses RecoveryPolicy for hook-failure rescue (ISC-24)
   async oneShot(message: string): Promise<ClaudeResponse> {
     // V2-B: Prepend memory context if context builder is wired
     let prompt = message;
@@ -735,16 +743,16 @@ export class ClaudeInvoker {
       clearTimeout(timeout);
 
       if (exitCode !== 0) {
-        // Phase 6A: Detect rate-limit errors and record for cooldown
-        if (isRateLimitError(stderr)) {
+        // Classify error via RecoveryPolicy
+        const category = this.recoveryPolicy.classify(stderr || "exit-" + exitCode, exitCode);
+        if (category === "quota") {
           this.rateLimiter?.recordFailure();
         }
-        // Hook failures cause exit code 1 but Claude may still produce valid output.
-        // Try parsing stdout before giving up.
-        if (stdout.trim()) {
+        // Hook failure rescue: non-zero exit but stdout may have valid output
+        if (category === "hook_failure" && stdout.trim()) {
           const rescueParse = safeParse(ClaudeJsonOutputSchema, stdout, "claude/oneShot-rescue");
           if (rescueParse.success && rescueParse.data.result) {
-            console.warn(`[claude] oneShot exited ${exitCode} but rescued output (hook failure?)`);
+            console.warn(`[claude] oneShot exited ${exitCode} but rescued output (${category})`);
             return {
               sessionId: rescueParse.data.session_id || "",
               result: rescueParse.data.result,
@@ -815,15 +823,15 @@ export class ClaudeInvoker {
       clearTimeout(timeout);
 
       if (exitCode !== 0) {
-        if (isRateLimitError(stderr)) {
+        const category = this.recoveryPolicy.classify(stderr || "exit-" + exitCode, exitCode);
+        if (category === "quota") {
           this.rateLimiter?.recordFailure();
         }
-        // Hook failures cause exit code 1 but Claude may still produce valid output.
-        // Try parsing stdout before giving up.
-        if (stdout.trim()) {
+        // Hook failure rescue: non-zero exit but stdout may have valid output
+        if (category === "hook_failure" && stdout.trim()) {
           const rescueParse = safeParse(ClaudeJsonOutputSchema, stdout, "claude/quickShot-rescue");
           if (rescueParse.success && rescueParse.data.result) {
-            console.warn(`[claude] quickShot exited ${exitCode} but rescued output (hook failure?)`);
+            console.warn(`[claude] quickShot exited ${exitCode} but rescued output (${category})`);
             return {
               sessionId: rescueParse.data.session_id || "",
               result: rescueParse.data.result,
