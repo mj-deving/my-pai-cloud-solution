@@ -70,7 +70,8 @@ export class Summarizer {
         };
       }
       needsAggressive = true;
-    } catch {
+    } catch (err) {
+      console.warn(`[summarizer] Normal tier failed, trying aggressive: ${err instanceof Error ? err.message : err}`);
       needsAggressive = true;
     }
 
@@ -84,7 +85,8 @@ export class Summarizer {
           sourceEpisodeIds,
           tokenCount: this.tokenEstimate(aggressiveResult),
         };
-      } catch {
+      } catch (err) {
+        console.warn(`[summarizer] Aggressive tier failed, falling to deterministic: ${err instanceof Error ? err.message : err}`);
         // Fall through to deterministic
       }
     }

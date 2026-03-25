@@ -203,6 +203,7 @@ export class ClaudeInvoker {
       // Timeout handling
       const timeout = setTimeout(() => {
         proc.kill();
+        this.activeProc = null;
       }, this.config.maxClaudeTimeoutMs);
 
       const stdout = await new Response(proc.stdout).text();
@@ -317,6 +318,7 @@ export class ClaudeInvoker {
 
       const timeout = setTimeout(() => {
         proc.kill();
+        this.activeProc = null;
       }, this.config.maxClaudeTimeoutMs);
 
       // Read NDJSON stream line by line

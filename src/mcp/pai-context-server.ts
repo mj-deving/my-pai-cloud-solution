@@ -90,6 +90,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+// Graceful shutdown — checkpoint WAL on exit
+process.on("SIGTERM", () => { dag.close(); process.exit(0); });
+process.on("SIGINT", () => { dag.close(); process.exit(0); });
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
@@ -98,5 +102,6 @@ async function main() {
 
 main().catch((err) => {
   console.error("[pai-context] Fatal:", err);
+  dag.close();
   process.exit(1);
 });

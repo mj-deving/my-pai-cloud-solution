@@ -232,12 +232,15 @@ export class SummaryDAG {
   /** Expand a summary — return its source episodes. */
   expand(summaryId: number): DAGEpisode[] {
     const summary = this.getById(summaryId);
-    if (!summary) return [];
-    const placeholders = summary.sourceEpisodeIds.map(() => "?").join(",");
-    if (placeholders.length === 0) return [];
+    if (!summary || summary.sourceEpisodeIds.length === 0) return [];
+    const ids = summary.sourceEpisodeIds.filter(
+      (id): id is number => typeof id === "number" && Number.isInteger(id)
+    );
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(",");
     const rows = this.db
       .query(`SELECT * FROM episodes WHERE id IN (${placeholders}) ORDER BY id ASC`)
-      .all(...summary.sourceEpisodeIds) as Array<Record<string, unknown>>;
+      .all(...ids) as Array<Record<string, unknown>>;
     return rows.map((r) => this.rowToEpisode(r));
   }
 
