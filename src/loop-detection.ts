@@ -22,10 +22,20 @@ export interface LoopDetectorConfig {
   maxSessions?: number;
 }
 
-/** Produce a deterministic key for a tool call: tool name + sorted args. */
+/** Produce a deterministic key for a tool call: tool name + deep-sorted args. */
 export function hashToolCall(tool: string, args: Record<string, unknown>): string {
-  const sortedArgs = JSON.stringify(args, Object.keys(args).sort());
-  return `${tool}:${sortedArgs}`;
+  return `${tool}:${stableStringify(args)}`;
+}
+
+/** Deep-sort object keys for deterministic JSON serialization. */
+function stableStringify(value: unknown): string {
+  if (value === null || value === undefined) return String(value);
+  if (typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  const pairs = keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`);
+  return `{${pairs.join(",")}}`;
 }
 
 export class LoopDetector {

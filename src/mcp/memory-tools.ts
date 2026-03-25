@@ -54,11 +54,12 @@ export class MemoryToolHandlers {
   }
 
   recall(input: RecallInput): { episodes: DAGEpisode[] } {
-    const episodes = this.dag.searchFTS(input.query);
     if (input.project) {
-      return { episodes: episodes.filter((e) => e.project === input.project) };
+      // Use scoredQuery with project filter to avoid LIMIT 20 masking project matches
+      const result = this.dag.scoredQuery(input.query, { project: input.project, maxResults: 20 });
+      return { episodes: result.episodes };
     }
-    return { episodes };
+    return { episodes: this.dag.searchFTS(input.query) };
   }
 
   search(input: SearchInput): { episodes: DAGEpisode[]; totalTokens: number } {

@@ -78,13 +78,17 @@ export class Summarizer {
     if (needsAggressive) {
       try {
         const aggressiveResult = await this.llmSummarize(truncated, opts, true);
-        return {
-          text: aggressiveResult,
-          tier: "aggressive",
-          episodeCount,
-          sourceEpisodeIds,
-          tokenCount: this.tokenEstimate(aggressiveResult),
-        };
+        const aggressiveTokens = this.tokenEstimate(aggressiveResult);
+        if (aggressiveTokens <= opts.maxTokens * 1.5) {
+          return {
+            text: aggressiveResult,
+            tier: "aggressive",
+            episodeCount,
+            sourceEpisodeIds,
+            tokenCount: aggressiveTokens,
+          };
+        }
+        // Aggressive still over budget — fall through to deterministic
       } catch (err) {
         console.warn(`[summarizer] Aggressive tier failed, falling to deterministic: ${err instanceof Error ? err.message : err}`);
         // Fall through to deterministic
@@ -152,7 +156,7 @@ export class Summarizer {
       },
       body: JSON.stringify({
         model: this.deps.directApiModel,
-        max_tokens: Math.min(opts.maxTokens * 4, this.deps.directApiMaxTokens),
+        max_tokens: Math.min(opts.maxTokens, this.deps.directApiMaxTokens),
         messages: [{ role: "user", content: prompt }],
       }),
     });
