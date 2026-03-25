@@ -84,10 +84,13 @@ async function main() {
         const summary = `Tool: ${tool_name}`;
         const timestamp = new Date().toISOString();
 
+        // Detect project from cwd for project-scoped retrieval
+        const project = process.cwd().split("/").pop() || null;
+
         db.run(
-          `INSERT INTO episodes (timestamp, source, session_id, role, content, summary, importance)
-           VALUES (?, 'telegram', ?, 'system', ?, ?, ?)`,
-          [timestamp, session_id || null, content, summary, importance]
+          `INSERT INTO episodes (timestamp, source, project, session_id, role, content, summary, importance, access_count, last_accessed)
+           VALUES (?, 'telegram', ?, ?, 'system', ?, ?, ?, 0, ?)`,
+          [timestamp, project, session_id || null, content, summary, importance, timestamp]
         );
       } finally {
         db.close();

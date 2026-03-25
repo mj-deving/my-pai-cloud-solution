@@ -23,9 +23,11 @@ describe("RecoveryPolicy", () => {
       expect(policy.classify("No conversation found with session ID abc123")).toBe("stale_session");
     });
 
-    it("classifies hook failure errors correctly", () => {
+    it("classifies hook failure errors correctly (exit code 1 only)", () => {
       expect(policy.classify("hook failure", 1)).toBe("hook_failure");
-      expect(policy.classify("some error", 2)).toBe("hook_failure");
+      // Exit codes > 1 are infrastructure errors, classified as transient
+      expect(policy.classify("some error", 2)).toBe("transient");
+      expect(policy.classify("OOM killed", 137)).toBe("transient");
     });
 
     it("classifies empty response correctly", () => {

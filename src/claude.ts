@@ -224,7 +224,7 @@ export class ClaudeInvoker {
         const decision = this.recoveryPolicy.shouldRetry(category, retryState);
         if (decision.retry) {
           console.warn(`[claude] ${category} error (exit ${exitCode}), retrying: ${stderr.slice(0, 100)}`);
-          this.rateLimiter?.recordFailure();
+          if (category !== "quota") this.rateLimiter?.recordFailure();
           if (decision.action === "fresh_session" || decision.action === "cache_bust") {
             await this.sessions.newSession();
           }

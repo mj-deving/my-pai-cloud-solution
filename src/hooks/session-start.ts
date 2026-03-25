@@ -38,8 +38,8 @@ async function main() {
 
     const sections: string[] = [];
 
-    // Load recent project-scoped episodes
-    const projectEpisodes = queryMemory(`project:${projectName}`, {
+    // Load recent project-scoped episodes (empty message → recency-only, filtered by project)
+    const projectEpisodes = queryMemory("", {
       dbPath,
       maxResults: 5,
       maxChars: 2000,

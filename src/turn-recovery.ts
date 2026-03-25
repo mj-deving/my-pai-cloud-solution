@@ -102,10 +102,11 @@ export class RecoveryPolicy {
     if (errorDetail.includes("No conversation found with session ID"))
       return "stale_session";
 
-    // Hook failure: non-zero exit but stdout may be valid
-    if (exitCode !== undefined && exitCode !== 0) return "hook_failure";
+    // Hook failure: exit code 1 specifically (hooks exit 1 on error, stdout may still be valid)
+    // Exit codes > 1 are infrastructure errors (2=misuse, 137=OOM, etc.) — treat as transient
+    if (exitCode === 1) return "hook_failure";
 
-    // Everything else is transient
+    // Everything else is transient (including exit codes > 1)
     return "transient";
   }
 

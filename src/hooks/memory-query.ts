@@ -48,8 +48,6 @@ export function queryMemory(message: string, options: MemoryQueryOptions): Score
     .split(/\s+/)
     .filter((w) => w.length > 3);
 
-  if (words.length === 0) return [];
-
   const db = new Database(options.dbPath, { readonly: true });
 
   try {
@@ -60,7 +58,24 @@ export function queryMemory(message: string, options: MemoryQueryOptions): Score
 
     let rows: Array<Record<string, unknown>>;
 
-    if (hasFts) {
+    // No search words — fall back to recency-only query (used by session-start hook)
+    if (words.length === 0) {
+      const conditions: string[] = [];
+      const bindings: (string | number)[] = [];
+      if (options.project) {
+        conditions.push("project = ?");
+        bindings.push(options.project);
+      }
+      bindings.push(maxResults * 3);
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+      rows = db
+        .query(
+          `SELECT *, 0 as rank FROM episodes ${where}
+           ORDER BY datetime(timestamp) DESC
+           LIMIT ?`,
+        )
+        .all(...bindings) as Array<Record<string, unknown>>;
+    } else if (hasFts) {
       // FTS5 search with OR semantics for partial matches
       const ftsQuery = words.join(" OR ");
       const conditions: string[] = ["episodes_fts MATCH ?"];

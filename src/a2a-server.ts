@@ -102,7 +102,8 @@ export class A2AServer {
    * Returns the agent card describing Isidore Cloud's capabilities.
    */
   getAgentCard(): AgentCard {
-    const baseUrl = `http://${this.config.dashboardBind}:${this.config.dashboardPort}`;
+    // Use A2A_PUBLIC_URL if set (for reverse proxy / public-facing), fall back to dashboard bind
+    const baseUrl = process.env.A2A_PUBLIC_URL || `http://${this.config.dashboardBind}:${this.config.dashboardPort}`;
     return {
       name: "Isidore Cloud",
       description:
@@ -284,7 +285,8 @@ export class A2AServer {
   // --- Auth ---
 
   private checkAuth(req: Request): boolean {
-    if (!this.config.dashboardToken) return true;
+    // Fail closed — if token is somehow missing, deny access
+    if (!this.config.dashboardToken) return false;
     const authHeader = req.headers.get("Authorization");
     return authHeader === `Bearer ${this.config.dashboardToken}`;
   }
