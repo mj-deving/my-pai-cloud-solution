@@ -75,11 +75,29 @@ export class ClaudeInvoker {
   private rateLimiter?: { recordFailure(): void };
   private contextBuilder?: ContextBuilderLike;
   private algoLiteTemplate: string | null = null;
+  private activeProc: { kill(signal?: number): void; killed: boolean } | null = null;
 
   constructor(
     private config: Config,
     private sessions: SessionManager,
   ) {}
+
+  /** Kill the active Claude child process (used by loop detection hard stop). */
+  cancel(): boolean {
+    if (this.activeProc && !this.activeProc.killed) {
+      try {
+        this.activeProc.kill();
+        console.log("[claude] Active process cancelled by loop detector");
+        return true;
+      } catch (err) {
+        console.warn(`[claude] Failed to cancel process: ${err}`);
+        return false;
+      } finally {
+        this.activeProc = null;
+      }
+    }
+    return false;
+  }
 
   // Phase 6A: Wire rate limiter for failure detection
   setRateLimiter(rl: { recordFailure(): void }): void {
@@ -180,6 +198,7 @@ export class ClaudeInvoker {
           SKIP_KNOWLEDGE_SYNC: "1",
         },
       });
+      this.activeProc = proc;
 
       // Timeout handling
       const timeout = setTimeout(() => {
@@ -189,6 +208,7 @@ export class ClaudeInvoker {
       const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
+      this.activeProc = null;
 
       clearTimeout(timeout);
 
@@ -293,6 +313,7 @@ export class ClaudeInvoker {
           SKIP_KNOWLEDGE_SYNC: "1",
         },
       });
+      this.activeProc = proc;
 
       const timeout = setTimeout(() => {
         proc.kill();
@@ -363,6 +384,7 @@ export class ClaudeInvoker {
 
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
+      this.activeProc = null;
       clearTimeout(timeout);
 
       if (exitCode !== 0) {

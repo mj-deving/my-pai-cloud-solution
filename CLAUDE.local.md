@@ -14,8 +14,8 @@
 - None — clean stopping point
 
 ## Next Steps
-1. Test Algorithm mode streaming on Telegram (3 test options saved in MEMORY.md)
-2. Fix bridge restart losing project mode (restore from memory.db or notify)
+1. ~~Test Algorithm mode streaming on Telegram~~ — DONE (4 commits, 2026-02-27)
+2. ~~Fix bridge restart losing project mode~~ — DONE (commit 152, 2026-03-05)
 3. Enable PRD_EXECUTOR_ENABLED on VPS bridge.env
 4. Test /wrapup, /help, /projects on Telegram
 5. Monitor rate limit (94% of 7-day as of today)

@@ -10,6 +10,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "grammy": "^1.40.0",
     "yaml": "^2.8.2",
     "zod": "^4.3.6"

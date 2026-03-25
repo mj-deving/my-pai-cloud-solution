@@ -23,6 +23,8 @@ import type { Dashboard } from "./dashboard";
 import type { PolicyEngine } from "./policy";
 import type { AgentLoader } from "./agent-loader";
 import type { MessengerAdapter } from "./messenger-adapter";
+import type { SummaryDAG } from "./summary-dag";
+import type { LoopDetector } from "./loop-detection";
 
 /**
  * BridgeContext — typed bag of all initialized subsystems.
@@ -55,6 +57,10 @@ export interface BridgeContext {
   agentLoader: AgentLoader | null;
   dashboard: Dashboard | null;
   messenger: MessengerAdapter | null;
+
+  // Session 1: DAG Memory + Loop Detection
+  summaryDag: SummaryDAG | null;
+  loopDetector: LoopDetector | null;
 }
 
 /**

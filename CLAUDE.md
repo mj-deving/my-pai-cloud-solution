@@ -39,7 +39,7 @@ bash scripts/backup.sh
 ```
 
 ```bash
-# Run tests (218 tests across 15 files)
+# Run tests (270 tests across 20 files)
 bun test
 
 # Pre-commit verification (type check + tests + Codex review)
@@ -139,7 +139,11 @@ See `ARCHITECTURE.md` for full file reference (30+ modules). Entry points:
 - **`review-learning.ts`** — Parses Codex P0-P3 findings, stores as knowledge entries in memory.db
 - **`health-monitor.ts`** — `HealthMonitor`: periodic subsystem checks, Telegram delivery tracking, `/health` + `/diag` commands
 - **`types.ts`** — `BridgeContext` bag (replaces positional constructor args) + `Plugin` interface (type-only)
-- **`src/__tests__/`** — 218 tests across 15 files: format, claude, config, schemas, rate-limiter, review-learning, message-classifier, direct-api, memory, session, statusline, injection-scan, prd-parser, health-monitor, gateway
+- **`summary-dag.ts`** — `SummaryDAG`: hierarchical DAG summaries over episodes, fresh-tail protection, FTS5 UPDATE trigger
+- **`summarizer.ts`** — `Summarizer`: three-tier fallback (normal→aggressive→deterministic) with two-phase tool-arg truncation
+- **`loop-detection.ts`** — `LoopDetector`: per-session tool-call hashing, 3-phase escalation (warn→instruct→hard stop), Map-based LRU
+- **`src/mcp/`** — MCP servers: `pai-memory-server.ts` (8 tools), `pai-context-server.ts` (2 tools), `memory-tools.ts`, `context-tools.ts`, `shared.ts`
+- **`src/__tests__/`** — 270 tests across 20 files: format, claude, config, schemas, rate-limiter, review-learning, message-classifier, direct-api, memory, session, statusline, injection-scan, prd-parser, health-monitor, gateway, summary-dag, summarizer, loop-detection, mcp-memory, mcp-context
 
 ## Cross-Instance Continuity
 
@@ -168,8 +172,8 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 - **Commit messages:** Clear "why", prefixed by area when helpful (e.g., `fix:`, `feat:`, `docs:`)
 - **File naming:** kebab-case
 - **Paths:** `paths.local` and `paths.vps` in project registry accept `string | null` for cloud-only or local-only projects
-- **Knowledge base:** `.ai/guides/` — referenceable technical docs. Auto-populated when significant explanations, comparisons, or analyses are produced. Guides: `bridge-mechanics.md`, `design-decisions.md`, `memory-architecture-comparison.md`, `tdd-review-workflow.md`
-- **Plans:** `Plans/` — implementation plans with descriptive names (e.g., `openclaw-graduated-extraction.md`)
+- **Knowledge base:** `.ai/guides/` — referenceable technical docs. Guides: `bridge-mechanics.md`, `design-decisions.md`, `memory-architecture-comparison.md`, `tdd-review-workflow.md`, `channels-maestro-evolution.md`
+- **Plans:** `Plans/` — implementation plans. Active: `pai-evolution-master-plan.md` (v4, 4-session evolution plan covering DAG memory, A2A, Maestro features)
 
 ## VPS Details
 

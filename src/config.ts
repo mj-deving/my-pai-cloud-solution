@@ -171,6 +171,20 @@ const EnvSchema = z.object({
   DIRECT_API_KEY: z.string().optional(),
   DIRECT_API_MODEL: z.string().optional(),
   DIRECT_API_MAX_TOKENS: optionalInt(256, 16384, 4096),
+
+  // Session 1: DAG Memory
+  DAG_ENABLED: envBool(false),
+  DAG_FRESH_TAIL_SIZE: optionalInt(5, 100, 20),
+
+  // Session 1: MCP Servers
+  MCP_MEMORY_ENABLED: envBool(false),
+  MCP_CONTEXT_ENABLED: envBool(false),
+
+  // Session 1: Loop Detection (safety — defaults to true)
+  LOOP_DETECTION_ENABLED: envBool(true),
+  LOOP_DETECTION_WARN_THRESHOLD: optionalInt(2, 20, 3),
+  LOOP_DETECTION_INSTRUCT_THRESHOLD: optionalInt(3, 30, 4),
+  LOOP_DETECTION_HARD_STOP_THRESHOLD: optionalInt(4, 50, 5),
 });
 
 export interface Config {
@@ -320,6 +334,20 @@ export interface Config {
   directApiKey: string;
   directApiModel: string;
   directApiMaxTokens: number;
+
+  // Session 1: DAG Memory
+  dagEnabled: boolean;
+  dagFreshTailSize: number;
+
+  // Session 1: MCP Servers
+  mcpMemoryEnabled: boolean;
+  mcpContextEnabled: boolean;
+
+  // Session 1: Loop Detection (safety)
+  loopDetectionEnabled: boolean;
+  loopDetectionWarnThreshold: number;
+  loopDetectionInstructThreshold: number;
+  loopDetectionHardStopThreshold: number;
 }
 
 export function loadConfig(): Config {
@@ -472,11 +500,31 @@ export function loadConfig(): Config {
     directApiKey: env.DIRECT_API_KEY || "",
     directApiModel: env.DIRECT_API_MODEL || "claude-sonnet-4-6",
     directApiMaxTokens: env.DIRECT_API_MAX_TOKENS,
+
+    // Session 1: DAG Memory
+    dagEnabled: env.DAG_ENABLED,
+    dagFreshTailSize: env.DAG_FRESH_TAIL_SIZE,
+
+    // Session 1: MCP Servers
+    mcpMemoryEnabled: env.MCP_MEMORY_ENABLED,
+    mcpContextEnabled: env.MCP_CONTEXT_ENABLED,
+
+    // Session 1: Loop Detection (safety)
+    loopDetectionEnabled: env.LOOP_DETECTION_ENABLED,
+    loopDetectionWarnThreshold: env.LOOP_DETECTION_WARN_THRESHOLD,
+    loopDetectionInstructThreshold: env.LOOP_DETECTION_INSTRUCT_THRESHOLD,
+    loopDetectionHardStopThreshold: env.LOOP_DETECTION_HARD_STOP_THRESHOLD,
   };
 
   // Post-parse validation: DASHBOARD_TOKEN is mandatory when dashboard is enabled
   if (config.dashboardEnabled && !config.dashboardToken) {
     throw new Error("DASHBOARD_TOKEN is required when DASHBOARD_ENABLED=1 (security: prevents unauthenticated access to dashboard and gateway routes)");
+  }
+
+  if (config.loopDetectionEnabled &&
+      !(config.loopDetectionWarnThreshold < config.loopDetectionInstructThreshold &&
+        config.loopDetectionInstructThreshold < config.loopDetectionHardStopThreshold)) {
+    throw new Error("Loop detection thresholds must be ordered: warn < instruct < hardStop");
   }
 
   return config;

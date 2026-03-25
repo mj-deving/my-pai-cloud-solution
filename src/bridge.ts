@@ -351,6 +351,8 @@ async function main() {
     agentLoader,
     dashboard: null, // wired after dashboard creation
     messenger: null, // wired after messenger creation
+    summaryDag: null, // wired when DAG_ENABLED
+    loopDetector: null, // wired when LOOP_DETECTION_ENABLED
   };
 
   // Phase 1: Create messenger adapter based on config
@@ -556,12 +558,7 @@ async function main() {
   // Phase 2: Dashboard web server
   let dashboard: Dashboard | null = null;
   if (config.dashboardEnabled) {
-    dashboard = new Dashboard(
-      config, pipeline, orchestrator, reversePipeline,
-      rateLimiter, resourceGuard, agentRegistry, idempotencyStore,
-      memoryStore, prdExecutor, synthesisLoop,
-      healthMonitor, claude, sessions, modeManager,
-    );
+    dashboard = new Dashboard(ctx);
     ctx.dashboard = dashboard;
     dashboard.start();
   } else {

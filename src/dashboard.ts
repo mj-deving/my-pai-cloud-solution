@@ -21,6 +21,7 @@ import type { HealthMonitor } from "./health-monitor";
 import type { ClaudeInvoker } from "./claude";
 import type { SessionManager } from "./session";
 import type { ModeManager } from "./mode";
+import type { BridgeContext } from "./types";
 
 interface SSEClient {
   controller: ReadableStreamDefaultController;
@@ -41,32 +42,46 @@ export class Dashboard {
   private dirCache: Map<string, DirCacheEntry> = new Map();
   private static DIR_CACHE_TTL_MS = 10_000;
 
+  private config: Config;
+  private pipeline: PipelineWatcher | null;
+  private orchestrator: TaskOrchestrator | null;
+  private reversePipeline: ReversePipelineWatcher | null;
+  private rateLimiter: RateLimiter | null;
+  private resourceGuard: ResourceGuard | null;
+  private agentRegistry: AgentRegistry | null;
+  private idempotencyStore: IdempotencyStore | null;
+  private memoryStore: MemoryStore | null;
+  private prdExecutor: PRDExecutor | null;
+  private synthesisLoop: SynthesisLoop | null;
+  private healthMonitor: HealthMonitor | null;
+  private claude: ClaudeInvoker | null;
+  private sessions: SessionManager | null;
+  private modeManager: ModeManager | null;
   private pipelineDir: string;
   private resultsDir: string;
   private ackDir: string;
   private tasksDir: string;
 
-  constructor(
-    private config: Config,
-    private pipeline: PipelineWatcher | null = null,
-    private orchestrator: TaskOrchestrator | null = null,
-    private reversePipeline: ReversePipelineWatcher | null = null,
-    private rateLimiter: RateLimiter | null = null,
-    private resourceGuard: ResourceGuard | null = null,
-    private agentRegistry: AgentRegistry | null = null,
-    private idempotencyStore: IdempotencyStore | null = null,
-    private memoryStore: MemoryStore | null = null,
-    private prdExecutor: PRDExecutor | null = null,
-    private synthesisLoop: SynthesisLoop | null = null,
-    private healthMonitor: HealthMonitor | null = null,
-    private claude: ClaudeInvoker | null = null,
-    private sessions: SessionManager | null = null,
-    private modeManager: ModeManager | null = null,
-  ) {
-    this.pipelineDir = config.pipelineDir;
-    this.resultsDir = join(config.pipelineDir, "results");
-    this.ackDir = join(config.pipelineDir, "ack");
-    this.tasksDir = join(config.pipelineDir, "tasks");
+  constructor(ctx: BridgeContext) {
+    this.config = ctx.config;
+    this.pipeline = ctx.pipeline;
+    this.orchestrator = ctx.orchestrator;
+    this.reversePipeline = ctx.reversePipeline;
+    this.rateLimiter = ctx.rateLimiter;
+    this.resourceGuard = ctx.resourceGuard;
+    this.agentRegistry = ctx.agentRegistry;
+    this.idempotencyStore = ctx.idempotencyStore;
+    this.memoryStore = ctx.memoryStore;
+    this.prdExecutor = ctx.prdExecutor;
+    this.synthesisLoop = ctx.synthesisLoop;
+    this.healthMonitor = ctx.healthMonitor;
+    this.claude = ctx.claude;
+    this.sessions = ctx.sessions;
+    this.modeManager = ctx.modeManager;
+    this.pipelineDir = ctx.config.pipelineDir;
+    this.resultsDir = join(ctx.config.pipelineDir, "results");
+    this.ackDir = join(ctx.config.pipelineDir, "ack");
+    this.tasksDir = join(ctx.config.pipelineDir, "tasks");
   }
 
   start(): void {

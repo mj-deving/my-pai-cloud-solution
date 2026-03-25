@@ -2,6 +2,10 @@ import { describe, test, expect, beforeAll, afterAll, mock } from "bun:test";
 import { Dashboard } from "../dashboard";
 import type { Config } from "../config";
 import type { ClaudeInvoker } from "../claude";
+import type { SessionManager } from "../session";
+import type { ProjectManager } from "../projects";
+import type { ModeManager } from "../mode";
+import type { BridgeContext } from "../types";
 
 // Minimal config for dashboard tests
 const TEST_TOKEN = "test-bearer-token-123";
@@ -19,10 +23,40 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
   } as Config;
 }
 
+function makeCtx(overrides: Partial<BridgeContext> = {}): BridgeContext {
+  const config = overrides.config ?? makeConfig();
+  return {
+    config,
+    claude: null as unknown as ClaudeInvoker,
+    sessions: null as unknown as SessionManager,
+    projects: null as unknown as ProjectManager,
+    modeManager: null as unknown as ModeManager,
+    memoryStore: null,
+    contextBuilder: null,
+    pipeline: null,
+    reversePipeline: null,
+    orchestrator: null,
+    branchManager: null,
+    rateLimiter: null,
+    resourceGuard: null,
+    healthMonitor: null,
+    scheduler: null,
+    synthesisLoop: null,
+    prdExecutor: null,
+    agentRegistry: null,
+    idempotencyStore: null,
+    policyEngine: null,
+    agentLoader: null,
+    dashboard: null,
+    messenger: null,
+    ...overrides,
+  } as BridgeContext;
+}
+
 let dashboard: Dashboard;
 
 beforeAll(() => {
-  dashboard = new Dashboard(makeConfig());
+  dashboard = new Dashboard(makeCtx());
   dashboard.start();
 });
 
@@ -141,14 +175,10 @@ describe("Gateway /api/send happy path", () => {
       oneShot: mock(() => Promise.resolve({ result: "Hello from Claude!", error: null })),
     } as unknown as ClaudeInvoker;
 
-    sendDashboard = new Dashboard(
-      makeConfig({ dashboardPort: SEND_PORT }),
-      null, null, null, null, null, null, null, null, null, null,
-      null, // healthMonitor
-      mockClaude, // claude
-      null, // sessions
-      null, // modeManager
-    );
+    sendDashboard = new Dashboard(makeCtx({
+      config: makeConfig({ dashboardPort: SEND_PORT }),
+      claude: mockClaude,
+    }));
     sendDashboard.start();
   });
 
