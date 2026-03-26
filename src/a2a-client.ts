@@ -1,26 +1,44 @@
 // a2a-client.ts — A2A protocol client for outbound agent communication
 // Discovers agents via /.well-known/agent-card.json, sends messages via JSON-RPC 2.0
 
+import { z } from "zod";
 import type { Config } from "./config";
 
-interface AgentCard {
-  name: string;
-  description: string;
-  url: string;
-  version: string;
-  capabilities: {
-    streaming: boolean;
-    pushNotifications: boolean;
-  };
-  skills: Array<{
-    id: string;
-    name: string;
-    description: string;
-  }>;
-  authentication: {
-    schemes: string[];
-  };
-}
+// Zod schemas for runtime validation of external JSON
+const AgentCardSchema = z.object({
+  name: z.string().min(1),
+  description: z.string(),
+  url: z.string(),
+  version: z.string(),
+  capabilities: z.object({
+    streaming: z.boolean(),
+    pushNotifications: z.boolean(),
+  }),
+  skills: z.array(
+    z.object({
+      id: z.string().min(1),
+      name: z.string().min(1),
+      description: z.string(),
+    }),
+  ),
+  authentication: z.object({
+    schemes: z.array(z.string()),
+  }),
+});
+
+type AgentCard = z.infer<typeof AgentCardSchema>;
+
+const JsonRpcErrorSchema = z.object({
+  code: z.number(),
+  message: z.string(),
+});
+
+const JsonRpcResponseSchema = z.object({
+  jsonrpc: z.literal("2.0"),
+  id: z.union([z.string(), z.number()]),
+  result: z.record(z.string(), z.unknown()).optional(),
+  error: JsonRpcErrorSchema.optional(),
+});
 
 interface A2AClientResponse {
   success: boolean;
@@ -34,7 +52,7 @@ export class A2AClient {
 
   constructor(private config: Config) {}
 
-  /** Discover an agent by fetching its agent card. */
+  /** Discover an agent by fetching its agent card. Validates response via Zod. */
   async discover(baseUrl: string): Promise<AgentCard | null> {
     const cardUrl = `${baseUrl.replace(/\/$/, "")}/.well-known/agent-card.json`;
     try {
@@ -45,7 +63,15 @@ export class A2AClient {
         );
         return null;
       }
-      const card = (await response.json()) as AgentCard;
+      const rawCard = await response.json();
+      const parseResult = AgentCardSchema.safeParse(rawCard);
+      if (!parseResult.success) {
+        console.warn(
+          `[a2a-client] Invalid agent card from ${baseUrl}: ${parseResult.error.issues[0]?.message}`,
+        );
+        return null;
+      }
+      const card = parseResult.data;
       this.discoveredAgents.set(baseUrl, card);
       console.log(
         `[a2a-client] Discovered agent: ${card.name} at ${baseUrl}`,
@@ -59,7 +85,7 @@ export class A2AClient {
     }
   }
 
-  /** Send a message to a remote agent via A2A protocol. */
+  /** Send a message to a remote agent via A2A protocol. Validates JSON-RPC response. */
   async send(
     baseUrl: string,
     message: string,
@@ -114,33 +140,46 @@ export class A2AClient {
         };
       }
 
-      const result = (await response.json()) as Record<string, unknown>;
-
-      if (result.error) {
-        const err = result.error as { message?: string; code?: number };
+      // Validate JSON-RPC response structure
+      const rawResult = await response.json();
+      const parseResult = JsonRpcResponseSchema.safeParse(rawResult);
+      if (!parseResult.success) {
         return {
           success: false,
-          error: err.message || "Unknown JSON-RPC error",
+          error: `Malformed JSON-RPC response: ${parseResult.error.issues[0]?.message}`,
+        };
+      }
+      const parsed = parseResult.data;
+
+      if (parsed.error) {
+        return {
+          success: false,
+          error: `${parsed.error.code}: ${parsed.error.message}`,
         };
       }
 
-      // Extract text from A2A response
-      const taskResult = result.result as
-        | Record<string, unknown>
-        | undefined;
-      const artifacts = taskResult?.artifacts as
-        | Array<{ parts: Array<{ type: string; text: string }> }>
-        | undefined;
-      const textParts =
-        artifacts
-          ?.flatMap((a) => a.parts)
-          .filter((p) => p.type === "text")
-          .map((p) => p.text) ?? [];
+      if (!parsed.result) {
+        return {
+          success: false,
+          error: "No result in JSON-RPC response",
+        };
+      }
+
+      // Extract text from A2A response artifacts
+      const artifacts = Array.isArray(parsed.result.artifacts)
+        ? parsed.result.artifacts
+        : [];
+      const textParts = artifacts
+        .flatMap((a: any) =>
+          Array.isArray(a.parts) ? a.parts : [],
+        )
+        .filter((p: any) => p.type === "text" && p.text)
+        .map((p: any) => p.text as string);
 
       return {
         success: true,
-        result: textParts.join("\n") || JSON.stringify(result.result),
-        taskId: taskResult?.id as string | undefined,
+        result: textParts.join("\n") || JSON.stringify(parsed.result),
+        taskId: parsed.result.id as string | undefined,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

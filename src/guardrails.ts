@@ -27,6 +27,15 @@ export class Guardrails {
   }
 
   /** Check if an operation is allowed. Denylist takes precedence. */
+  /**
+   * Authorization precedence:
+   * 1. Denylist always wins (deny takes precedence over allow).
+   * 2. If allowlist is non-empty, operation must explicitly match an allow rule.
+   * 3. If allowlist is empty, all non-denied operations are allowed (permissive default).
+   *
+   * To enforce strict allowlist: add at least one allow rule.
+   * To use deny-only: leave allowlist empty, add deny rules.
+   */
   check(operation: string, context?: string): GuardrailsDecision {
     // Check denylist first (deny takes precedence)
     for (const rule of this.denylist) {
