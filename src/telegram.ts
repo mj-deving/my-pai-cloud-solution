@@ -119,7 +119,7 @@ export function createTelegramBot(
   scheduler?: Scheduler | null,
   modeManager?: ModeManager | null,
   synthesisLoop?: SynthesisLoopLike | null,
-  groupChat?: { chat(question: string, participants: Array<{ name: string; systemPrompt?: string }>, options?: { project?: string }): Promise<{ question: string; participants: string[]; responses: Array<{ agent: string; response: string; error?: string }>; synthesis: string }> } | null,
+  getGroupChat?: (() => { chat(question: string, participants: Array<{ name: string; systemPrompt?: string }>, options?: { project?: string }): Promise<{ question: string; participants: string[]; responses: Array<{ agent: string; response: string; error?: string }>; synthesis: string }> } | null) | null,
 ): Bot {
   const bot = new Bot(config.telegramBotToken);
 
@@ -1751,6 +1751,7 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
       return;
     }
 
+    const groupChat = getGroupChat?.();
     if (!groupChat) {
       await ctx.reply("Group chat is not enabled. Set GROUP_CHAT_ENABLED=1.");
       return;

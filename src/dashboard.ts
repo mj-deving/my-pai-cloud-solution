@@ -63,9 +63,8 @@ export class Dashboard {
   private sessions: SessionManager | null;
   private modeManager: ModeManager | null;
   private a2aServer: A2AServer | null = null;
+  private ctx: BridgeContext;
   private summaryDag: SummaryDAG | null;
-  private playbook: PlaybookRunner | null;
-  private worktreePool: WorktreePool | null;
   private pipelineDir: string;
   private resultsDir: string;
   private ackDir: string;
@@ -87,9 +86,8 @@ export class Dashboard {
     this.claude = ctx.claude;
     this.sessions = ctx.sessions;
     this.modeManager = ctx.modeManager;
+    this.ctx = ctx;
     this.summaryDag = ctx.summaryDag;
-    this.playbook = ctx.playbook;
-    this.worktreePool = ctx.worktreePool;
     this.pipelineDir = ctx.config.pipelineDir;
     this.resultsDir = join(ctx.config.pipelineDir, "results");
     this.ackDir = join(ctx.config.pipelineDir, "ack");
@@ -463,13 +461,13 @@ export class Dashboard {
   }
 
   private getPlaybooksData(): Record<string, unknown> {
-    if (!this.playbook) return { enabled: false };
+    if (!this.ctx.playbook) return { enabled: false };
     return { enabled: true };
   }
 
   private getWorktreesData(): Record<string, unknown> {
-    if (!this.worktreePool) return { enabled: false };
-    return { enabled: true, ...this.worktreePool.getStatus() };
+    if (!this.ctx.worktreePool) return { enabled: false };
+    return { enabled: true, ...this.ctx.worktreePool.getStatus() };
   }
 
   private sendInFlight = 0;

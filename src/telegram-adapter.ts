@@ -43,7 +43,7 @@ export class TelegramAdapter implements MessengerAdapter {
       ctx.scheduler,
       ctx.modeManager,
       ctx.synthesisLoop as SynthesisLoopLike | null,
-      ctx.groupChat,
+      () => ctx.groupChat,
     );
     this.userId = ctx.config.telegramAllowedUserId;
     this.maxChunkSize = ctx.config.telegramMaxChunkSize;

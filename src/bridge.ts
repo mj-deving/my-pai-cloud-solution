@@ -518,10 +518,6 @@ async function main() {
     if (policyEngine) {
       pipeline.setPolicyEngine(policyEngine);
     }
-    // Session 4: Wire guardrails to pipeline
-    if (ctx.guardrails) {
-      pipeline.setGuardrails(ctx.guardrails);
-    }
     // Phase C: Wire memory store to pipeline for outcome recording
     if (memoryStore) {
       pipeline.setMemoryStore(memoryStore);
@@ -628,6 +624,10 @@ async function main() {
     // Wire to playbook runner if available
     if (ctx.playbook) {
       ctx.playbook.setGuardrails(ctx.guardrails);
+    }
+    // Wire to pipeline watcher if available
+    if (pipeline) {
+      pipeline.setGuardrails(ctx.guardrails);
     }
     console.log(`[bridge] Guardrails enabled (${ctx.guardrails.getStats().denyRules} deny rules)`);
   } else {
