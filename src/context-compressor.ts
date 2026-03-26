@@ -62,7 +62,7 @@ export class ContextCompressor {
     contextFillPercent: number,
     options?: { threshold?: number },
   ): boolean {
-    const threshold = options?.threshold ?? DEFAULTS.threshold;
+    const threshold = options?.threshold ?? this.config.contextCompressionThreshold ?? DEFAULTS.threshold;
     return contextFillPercent >= threshold;
   }
 
@@ -76,7 +76,7 @@ export class ContextCompressor {
     const opts: CompressorConfig = { ...DEFAULTS, ...options };
 
     // Get all episodes via getEpisodesSince(0)
-    const allEpisodes = this.memoryStore.getEpisodesSince(0, 10_000);
+    const allEpisodes = this.memoryStore.getEpisodesSince(0, this.config.memoryMaxEpisodes);
     const originalCount = allEpisodes.length;
     const originalTokens = allEpisodes.reduce(
       (sum, ep) => sum + estimateTokens(ep.content),
@@ -95,7 +95,7 @@ export class ContextCompressor {
       const currentEpisodes =
         pass === 0
           ? allEpisodes
-          : this.memoryStore.getEpisodesSince(0, 10_000);
+          : this.memoryStore.getEpisodesSince(0, this.config.memoryMaxEpisodes);
 
       // Pass 1: Consolidate related episodes into summaries
       const { consolidated } = await this.consolidateEpisodes(
@@ -116,7 +116,7 @@ export class ContextCompressor {
       totalPruned += pruned;
 
       // Check if we've reduced enough
-      const remaining = this.memoryStore.getEpisodesSince(0, 10_000);
+      const remaining = this.memoryStore.getEpisodesSince(0, this.config.memoryMaxEpisodes);
       const remainingTokens = remaining.reduce(
         (sum, ep) => sum + estimateTokens(ep.content),
         0,
@@ -130,7 +130,7 @@ export class ContextCompressor {
     }
 
     // Calculate saved tokens
-    const finalEpisodes = this.memoryStore.getEpisodesSince(0, 10_000);
+    const finalEpisodes = this.memoryStore.getEpisodesSince(0, this.config.memoryMaxEpisodes);
     const finalTokens = finalEpisodes.reduce(
       (sum, ep) => sum + estimateTokens(ep.content),
       0,
@@ -239,18 +239,23 @@ export class ContextCompressor {
    * Mark episodes as consolidated: update the first with the summary,
    * reduce importance on the rest so they can be pruned later.
    */
-  private markConsolidated(episodeIds: number[], _summary: string): void {
-    // We don't have direct DB access on MemoryStore, so we use distill
-    // to store the consolidation as knowledge, preserving the summary.
-    if (episodeIds.length > 0) {
-      // Store consolidation record as knowledge
-      this.memoryStore.distill(
-        "consolidation",
-        `consolidated-${episodeIds[0]}`,
-        _summary,
-        episodeIds,
-        0.8,
-      );
+  private markConsolidated(episodeIds: number[], summary: string): void {
+    if (episodeIds.length === 0) return;
+
+    // Store consolidation summary as knowledge (preserves the content)
+    this.memoryStore.distill(
+      "consolidation",
+      `consolidated-${episodeIds[0]}`,
+      summary,
+      episodeIds,
+      0.8,
+    );
+
+    // Delete original episodes to achieve actual compression
+    // Keep the first episode as an anchor (updated summary available via knowledge)
+    const toDelete = episodeIds.slice(1);
+    if (toDelete.length > 0) {
+      this.memoryStore.deleteEpisodes(toDelete);
     }
   }
 

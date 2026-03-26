@@ -494,13 +494,18 @@ export class MemoryStore {
     return rows.map(row => this.rowToEpisode(row));
   }
 
-  /** Delete episodes by IDs (for compression/pruning). Parameterized query — no SQL injection. */
+  /** Delete episodes by IDs (for compression/pruning). Batched to stay under SQLite parameter limit. */
   deleteEpisodes(ids: number[]): number {
     if (ids.length === 0) return 0;
-    const placeholders = ids.map(() => "?").join(",");
-    const stmt = this.db.prepare(`DELETE FROM episodes WHERE id IN (${placeholders})`);
-    const result = stmt.run(...ids);
-    return result.changes;
+    const BATCH = 500;
+    let totalChanges = 0;
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const batch = ids.slice(i, i + BATCH);
+      const placeholders = batch.map(() => "?").join(",");
+      const stmt = this.db.prepare(`DELETE FROM episodes WHERE id IN (${placeholders})`);
+      totalChanges += stmt.run(...batch).changes;
+    }
+    return totalChanges;
   }
 
   /** Get whiteboard entry for a project. Returns content or null. */

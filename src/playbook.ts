@@ -258,15 +258,15 @@ Respond with JSON: {"passed": true/false, "feedback": "specific feedback"}`;
       // Handle possible markdown code blocks
       const jsonMatch = text.match(/\{[\s\S]*"passed"[\s\S]*\}/);
       if (!jsonMatch) {
-        return { passed: true, feedback: "Evaluation parse failed — defaulting to pass" };
+        return { passed: false, feedback: "Evaluation parse failed — defaulting to fail for safety" };
       }
       const parsed = JSON.parse(jsonMatch[0]);
       if (typeof parsed.passed !== "boolean") {
-        return { passed: true, feedback: "Evaluation parse failed — defaulting to pass" };
+        return { passed: false, feedback: "Evaluation parse failed — defaulting to fail for safety" };
       }
       return { passed: parsed.passed, feedback: String(parsed.feedback || "") };
     } catch {
-      return { passed: true, feedback: "Evaluation parse failed — defaulting to pass" };
+      return { passed: false, feedback: "Evaluation parse failed — defaulting to fail for safety" };
     }
   }
 

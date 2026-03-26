@@ -235,8 +235,8 @@ Not a checkbox at all
       const result = await runner.run("test", "- [ ] Do something", {
         evaluatorEnabled: true,
       });
-      // Should default to passed=true on parse failure
-      expect(result.steps[0]!.evaluation?.passed).toBe(true);
+      // Should default to passed=false on parse failure (fail-safe)
+      expect(result.steps[0]!.evaluation?.passed).toBe(false);
     });
   });
 

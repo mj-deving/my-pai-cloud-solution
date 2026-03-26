@@ -147,14 +147,27 @@ export class WorktreePool {
 
     if (removeResult.exitCode !== 0) {
       // Force remove on failure
-      await this.git(
+      const forceResult = await this.git(
         ["worktree", "remove", "--force", slot.worktreePath],
         slot.projectDir
       );
+      if (forceResult.exitCode !== 0) {
+        // Worktree removal failed — don't drop the slot, keep tracking it
+        slot.status = "active";
+        console.error(`[worktree-pool] Failed to remove worktree ${slot.worktreePath}: ${forceResult.stderr}`);
+        throw new Error(`Failed to remove worktree: ${forceResult.stderr}`);
+      }
     }
 
-    // Delete the branch
-    await this.git(["branch", "-D", slot.branch], slot.projectDir);
+    // If createPR requested, preserve the branch (don't delete it)
+    if (options?.createPR) {
+      // Push branch for PR creation — branch must survive for the PR
+      await this.git(["push", "-u", "origin", slot.branch], slot.projectDir);
+      console.log(`[worktree-pool] Branch ${slot.branch} pushed for PR creation`);
+    } else {
+      // Delete the branch (no PR needed)
+      await this.git(["branch", "-D", slot.branch], slot.projectDir);
+    }
 
     this.slots.delete(slotId);
   }
