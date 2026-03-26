@@ -88,8 +88,12 @@ export class MemoryStore {
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_episodes_timestamp ON episodes(timestamp)");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_knowledge_domain ON knowledge(domain)");
 
-    // Schema migration: add importance, access_count, last_accessed columns (idempotent)
+    // Schema migration: add importance, access_count, last_accessed, user_id, channel columns (idempotent)
     this.migrateSchema();
+
+    // Post-migration indexes (columns must exist before indexing)
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_episodes_channel ON episodes(channel)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_episodes_user_id ON episodes(user_id)");
   }
 
   private migrateSchema(): void {
@@ -97,6 +101,8 @@ export class MemoryStore {
       "ALTER TABLE episodes ADD COLUMN importance INTEGER DEFAULT 5",
       "ALTER TABLE episodes ADD COLUMN access_count INTEGER DEFAULT 0",
       "ALTER TABLE episodes ADD COLUMN last_accessed TEXT",
+      "ALTER TABLE episodes ADD COLUMN user_id TEXT",
+      "ALTER TABLE episodes ADD COLUMN channel TEXT",
     ];
     for (const sql of migrations) {
       try {
@@ -132,10 +138,13 @@ export class MemoryStore {
   async record(episode: Omit<Episode, "id">): Promise<number> {
     const metadataJson = episode.metadata ? JSON.stringify(episode.metadata) : null;
     const importance = episode.importance ?? 3;
+    // Extract user_id and channel if present (cast to any for forward-compat with schema)
+    const userId = (episode as Record<string, unknown>).user_id as string | null ?? null;
+    const channel = (episode as Record<string, unknown>).channel as string | null ?? null;
     const result = this.db
       .query(
-        `INSERT INTO episodes (timestamp, source, project, session_id, role, content, summary, metadata, importance, access_count, last_accessed)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+        `INSERT INTO episodes (timestamp, source, project, session_id, role, content, summary, metadata, importance, access_count, last_accessed, user_id, channel)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
       )
       .run(
         episode.timestamp,
@@ -148,6 +157,8 @@ export class MemoryStore {
         metadataJson,
         importance,
         episode.timestamp,
+        userId,
+        channel,
       );
 
     const episodeId = Number(result.lastInsertRowid);
@@ -174,7 +185,7 @@ export class MemoryStore {
   }
 
   /** Query memory by keyword (FTS5) or semantic similarity. */
-  async query(params: MemoryQuery): Promise<MemoryResult> {
+  async query(params: MemoryQuery & { channelScope?: string }): Promise<MemoryResult> {
     const maxResults = params.maxResults ?? 10;
     const maxTokens = params.maxTokens ?? 2000;
     const episodes: Episode[] = [];
@@ -235,6 +246,16 @@ export class MemoryStore {
       bindings.push(params.source);
     }
 
+    // Channel scope filtering (default: "1:1" for backward compatibility)
+    const scope = params.channelScope ?? "1:1";
+    if (scope === "1:1") {
+      conditions.push("(e.channel IS NULL OR e.channel = '1:1')");
+    } else if (scope.startsWith("group:")) {
+      conditions.push("e.channel = ?");
+      bindings.push(scope);
+    }
+    // scope === "all" → no channel filtering
+
     bindings.push(maxResults * 2);
 
     const rows = this.db
@@ -263,7 +284,7 @@ export class MemoryStore {
   }
 
   /** Scored query: ranks by recency, importance, and FTS5 relevance. */
-  async scoredQuery(params: MemoryQuery): Promise<MemoryResult> {
+  async scoredQuery(params: MemoryQuery & { channelScope?: string }): Promise<MemoryResult> {
     const maxResults = params.maxResults ?? 10;
     const maxTokens = params.maxTokens ?? 2000;
 
@@ -285,6 +306,16 @@ export class MemoryStore {
       conditions.push("e.source = ?");
       bindings.push(params.source);
     }
+
+    // Channel scope filtering (default: "1:1" for backward compatibility)
+    const scope = params.channelScope ?? "1:1";
+    if (scope === "1:1") {
+      conditions.push("(e.channel IS NULL OR e.channel = '1:1')");
+    } else if (scope.startsWith("group:")) {
+      conditions.push("e.channel = ?");
+      bindings.push(scope);
+    }
+    // scope === "all" → no channel filtering
 
     // Fetch more than needed so we can re-rank
     bindings.push(maxResults * 3);
@@ -470,7 +501,7 @@ export class MemoryStore {
   }
 
   private rowToEpisode(row: Record<string, unknown>): Episode {
-    return {
+    const ep: Episode = {
       id: row.id as number,
       timestamp: row.timestamp as string,
       source: row.source as Episode["source"],
@@ -484,6 +515,10 @@ export class MemoryStore {
       access_count: (row.access_count as number) ?? 0,
       last_accessed: (row.last_accessed as string) ?? undefined,
     };
+    // Forward-compat: include user_id and channel if present in row
+    if (row.user_id) (ep as Record<string, unknown>).user_id = row.user_id;
+    if (row.channel) (ep as Record<string, unknown>).channel = row.channel;
+    return ep;
   }
 
   /** Get episodes since a given ID (for synthesis). */

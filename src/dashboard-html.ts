@@ -409,7 +409,7 @@ export function getDashboardHtml(): string {
     </div>
   </div>
 
-  <!-- Memory -->
+  <!-- Memory + DAG Memory -->
   <div class="split-row">
     <div class="section">
       <div class="section-header">Memory Store</div>
@@ -418,17 +418,35 @@ export function getDashboardHtml(): string {
       </div>
     </div>
     <div class="section">
-      <div class="section-header">&nbsp;</div>
-      <div class="section-body"><div class="no-data">Reserved for future panels</div></div>
+      <div class="section-header">DAG Memory</div>
+      <div class="section-body" id="dagPanel">
+        <div class="no-data">DAG Memory disabled</div>
+      </div>
     </div>
   </div>
 
-  <!-- Synthesis -->
+  <!-- Synthesis + Playbooks -->
   <div class="split-row">
     <div class="section">
       <div class="section-header">Synthesis Loop</div>
       <div class="section-body" id="synthesisPanel">
         <div class="no-data">Synthesis disabled</div>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-header">Playbooks</div>
+      <div class="section-body" id="playbooksPanel">
+        <div class="no-data">Playbooks disabled</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Worktree Pool -->
+  <div class="split-row">
+    <div class="section">
+      <div class="section-header">Worktree Pool</div>
+      <div class="section-body" id="worktreesPanel">
+        <div class="no-data">Worktree Pool disabled</div>
       </div>
     </div>
     <div class="section">
@@ -519,6 +537,18 @@ export function getDashboardHtml(): string {
 
     es.addEventListener('synthesis', (e) => {
       renderSynthesis(JSON.parse(e.data));
+    });
+
+    es.addEventListener('dag', (e) => {
+      renderDag(JSON.parse(e.data));
+    });
+
+    es.addEventListener('playbooks', (e) => {
+      renderPlaybooks(JSON.parse(e.data));
+    });
+
+    es.addEventListener('worktrees', (e) => {
+      renderWorktrees(JSON.parse(e.data));
     });
 
     es.onerror = () => {
@@ -674,6 +704,56 @@ export function getDashboardHtml(): string {
       '</div>';
   }
 
+  // DAG Memory panel
+  function renderDag(data) {
+    const el = document.getElementById('dagPanel');
+    if (!data || !data.enabled) {
+      el.innerHTML = '<div class="no-data">DAG Memory disabled</div>';
+      return;
+    }
+    var sizeKb = data.storageSizeBytes ? Math.round(data.storageSizeBytes / 1024) : 0;
+    var sizeMb = sizeKb > 1024 ? (sizeKb / 1024).toFixed(1) + ' MB' : sizeKb + ' KB';
+    el.innerHTML =
+      '<div class="stat-grid">' +
+        '<div class="stat-item"><div class="stat-label">Episodes</div><div class="stat-value">' + (data.episodeCount || 0) + '</div></div>' +
+        '<div class="stat-item"><div class="stat-label">Summaries</div><div class="stat-value">' + (data.summaryCount || 0) + '</div></div>' +
+        '<div class="stat-item"><div class="stat-label">Storage</div><div class="stat-value small">' + sizeMb + '</div></div>' +
+        '<div class="stat-item"><div class="stat-label">Status</div><div class="stat-value small ok">Active</div></div>' +
+      '</div>' +
+      '<div class="stat-badges">' +
+        '<span class="stat-badge ' + (data.hasVectorSearch ? 'active' : 'inactive') + '">Vector Search ' + (data.hasVectorSearch ? 'ON' : 'OFF') + '</span>' +
+      '</div>';
+  }
+
+  // Playbooks panel
+  function renderPlaybooks(data) {
+    const el = document.getElementById('playbooksPanel');
+    if (!data || !data.enabled) {
+      el.innerHTML = '<div class="no-data">Playbooks disabled</div>';
+      return;
+    }
+    el.innerHTML =
+      '<div class="stat-grid">' +
+        '<div class="stat-item"><div class="stat-label">Status</div><div class="stat-value small ok">Enabled</div></div>' +
+      '</div>';
+  }
+
+  // Worktree Pool panel
+  function renderWorktrees(data) {
+    const el = document.getElementById('worktreesPanel');
+    if (!data || !data.enabled) {
+      el.innerHTML = '<div class="no-data">Worktree Pool disabled</div>';
+      return;
+    }
+    el.innerHTML =
+      '<div class="stat-grid">' +
+        '<div class="stat-item"><div class="stat-label">Total Slots</div><div class="stat-value">' + (data.total || 0) + '</div></div>' +
+        '<div class="stat-item"><div class="stat-label">Active</div><div class="stat-value">' + (data.active || 0) + '</div></div>' +
+        '<div class="stat-item"><div class="stat-label">Available</div><div class="stat-value ok">' + (data.available || 0) + '</div></div>' +
+        '<div class="stat-item"><div class="stat-label">Stale</div><div class="stat-value' + (data.stale > 0 ? ' warn' : '') + '">' + (data.stale || 0) + '</div></div>' +
+      '</div>';
+  }
+
   // History
   function loadHistory() {
     const q = document.getElementById('searchInput').value;
@@ -781,6 +861,9 @@ export function getDashboardHtml(): string {
   fetch('/api/workflows', { headers: headers }).then(function(r) { return r.json(); }).then(renderWorkflows).catch(function() {});
   fetch('/api/memory', { headers: headers }).then(function(r) { return r.json(); }).then(renderMemory).catch(function() {});
   fetch('/api/synthesis', { headers: headers }).then(function(r) { return r.json(); }).then(renderSynthesis).catch(function() {});
+  fetch('/api/dag', { headers: headers }).then(function(r) { return r.json(); }).then(renderDag).catch(function() {});
+  fetch('/api/playbooks', { headers: headers }).then(function(r) { return r.json(); }).then(renderPlaybooks).catch(function() {});
+  fetch('/api/worktrees', { headers: headers }).then(function(r) { return r.json(); }).then(renderWorktrees).catch(function() {});
   loadHistory();
   connectSSE();
 })();

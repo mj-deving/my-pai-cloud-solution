@@ -202,6 +202,16 @@ const EnvSchema = z.object({
   LOOP_DETECTION_WARN_THRESHOLD: optionalInt(2, 20, 3),
   LOOP_DETECTION_INSTRUCT_THRESHOLD: optionalInt(3, 30, 4),
   LOOP_DETECTION_HARD_STOP_THRESHOLD: optionalInt(4, 50, 5),
+
+  // Session 4: Guardrails
+  GUARDRAILS_ENABLED: envBool(false),
+
+  // Session 4: A2A Client
+  A2A_CLIENT_ENABLED: envBool(false),
+
+  // Session 4: Group Chat
+  GROUP_CHAT_ENABLED: envBool(false),
+  GROUP_CHAT_MAX_AGENTS: optionalInt(2, 10, 5),
 });
 
 export interface Config {
@@ -382,6 +392,16 @@ export interface Config {
   loopDetectionWarnThreshold: number;
   loopDetectionInstructThreshold: number;
   loopDetectionHardStopThreshold: number;
+
+  // Session 4: Guardrails
+  guardrailsEnabled: boolean;
+
+  // Session 4: A2A Client
+  a2aClientEnabled: boolean;
+
+  // Session 4: Group Chat
+  groupChatEnabled: boolean;
+  groupChatMaxAgents: number;
 }
 
 export function loadConfig(): Config {
@@ -565,6 +585,16 @@ export function loadConfig(): Config {
     loopDetectionWarnThreshold: env.LOOP_DETECTION_WARN_THRESHOLD,
     loopDetectionInstructThreshold: env.LOOP_DETECTION_INSTRUCT_THRESHOLD,
     loopDetectionHardStopThreshold: env.LOOP_DETECTION_HARD_STOP_THRESHOLD,
+
+    // Session 4: Guardrails
+    guardrailsEnabled: env.GUARDRAILS_ENABLED,
+
+    // Session 4: A2A Client
+    a2aClientEnabled: env.A2A_CLIENT_ENABLED,
+
+    // Session 4: Group Chat
+    groupChatEnabled: env.GROUP_CHAT_ENABLED,
+    groupChatMaxAgents: env.GROUP_CHAT_MAX_AGENTS,
   };
 
   // Post-parse validation: DASHBOARD_TOKEN is mandatory when dashboard is enabled

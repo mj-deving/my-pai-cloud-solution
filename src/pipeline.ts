@@ -66,6 +66,7 @@ export class PipelineWatcher {
   private injectionScanEnabled: boolean;
   // Phase 4: optional policy engine for dispatch authorization
   private policyEngine: PolicyEngine | null = null;
+  private guardrails: { check(operation: string, context?: string): { allowed: boolean; reason: string } } | null = null;
   // Phase C: optional memory store for outcome recording
   private memoryStore: MemoryStore | null = null;
   // Phase C: optional synthesis loop for type:"synthesis" tasks
@@ -135,6 +136,11 @@ export class PipelineWatcher {
   // Phase 4: Set policy engine for dispatch authorization
   setPolicyEngine(engine: PolicyEngine): void {
     this.policyEngine = engine;
+  }
+
+  // Session 4: Wire guardrails for pre-dispatch authorization
+  setGuardrails(g: { check(operation: string, context?: string): { allowed: boolean; reason: string } }): void {
+    this.guardrails = g;
   }
 
   // Phase C: Set memory store for outcome recording
@@ -657,6 +663,22 @@ export class PipelineWatcher {
 
   // Invoke Claude and build result (one-shot or --resume for multi-turn)
   private async dispatch(task: PipelineTask): Promise<PipelineResult> {
+    // Session 4: Guardrails check
+    if (this.guardrails) {
+      const decision = this.guardrails.check(task.prompt, "pipeline");
+      if (!decision.allowed) {
+        return {
+          id: crypto.randomUUID(),
+          taskId: task.id,
+          from: "isidore",
+          to: task.from,
+          timestamp: new Date().toISOString(),
+          status: "error",
+          error: `Guardrails blocked: ${decision.reason}`,
+        };
+      }
+    }
+
     // Phase 2: Session-project affinity guard
     // If session_id maps to a different project, warn and drop --resume
     if (task.session_id && task.project) {

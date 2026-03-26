@@ -56,7 +56,7 @@ export class ContextBuilder {
    * Uses topic-based invalidation: snapshot refreshes when conversation topic shifts.
    * Returns null if no relevant context found or memory query fails.
    */
-  async buildContext(message: string, project?: string, source?: string): Promise<string | null> {
+  async buildContext(message: string, project?: string, source?: string, channelScope?: string): Promise<string | null> {
     const effectiveProject = project ?? this.currentProject;
 
     // Check if topic has shifted — invalidate snapshot if so
@@ -85,6 +85,7 @@ export class ContextBuilder {
         maxResults: 10,
         maxTokens: this.maxTokens,
         recencyBias: 0.7,
+        channelScope: channelScope ?? "1:1",
       });
 
       // Get session summary for recovery context

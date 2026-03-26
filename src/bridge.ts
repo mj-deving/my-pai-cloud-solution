@@ -33,6 +33,9 @@ import { A2AServer } from "./a2a-server";
 import { PlaybookRunner } from "./playbook";
 import { WorktreePool } from "./worktree-pool";
 import { ContextCompressor } from "./context-compressor";
+import { Guardrails } from "./guardrails";
+import { A2AClient } from "./a2a-client";
+import { GroupChatEngine } from "./group-chat";
 import type { BridgeContext } from "./types";
 
 async function main() {
@@ -361,6 +364,9 @@ async function main() {
     playbook: null, // wired when PLAYBOOK_ENABLED
     worktreePool: null, // wired when WORKTREE_ENABLED
     contextCompressor: null, // wired when CONTEXT_COMPRESSION_ENABLED
+    guardrails: null, // wired when GUARDRAILS_ENABLED
+    a2aClient: null, // wired when A2A_CLIENT_ENABLED
+    groupChat: null, // wired when GROUP_CHAT_ENABLED
   };
 
   // Phase 1: Create messenger adapter based on config
@@ -512,6 +518,10 @@ async function main() {
     if (policyEngine) {
       pipeline.setPolicyEngine(policyEngine);
     }
+    // Session 4: Wire guardrails to pipeline
+    if (ctx.guardrails) {
+      pipeline.setGuardrails(ctx.guardrails);
+    }
     // Phase C: Wire memory store to pipeline for outcome recording
     if (memoryStore) {
       pipeline.setMemoryStore(memoryStore);
@@ -609,6 +619,35 @@ async function main() {
     console.log("[bridge] Context compression requires MEMORY_ENABLED=1, skipping");
   } else {
     console.log("[bridge] Context compression disabled (CONTEXT_COMPRESSION_ENABLED=0)");
+  }
+
+  // Session 4: Guardrails middleware
+  if (config.guardrailsEnabled) {
+    ctx.guardrails = new Guardrails(config);
+    claude.setGuardrails(ctx.guardrails);
+    // Wire to playbook runner if available
+    if (ctx.playbook) {
+      ctx.playbook.setGuardrails(ctx.guardrails);
+    }
+    console.log(`[bridge] Guardrails enabled (${ctx.guardrails.getStats().denyRules} deny rules)`);
+  } else {
+    console.log("[bridge] Guardrails disabled (GUARDRAILS_ENABLED=0)");
+  }
+
+  // Session 4: A2A Client (outbound agent communication)
+  if (config.a2aClientEnabled) {
+    ctx.a2aClient = new A2AClient(config);
+    console.log("[bridge] A2A client enabled");
+  } else {
+    console.log("[bridge] A2A client disabled (A2A_CLIENT_ENABLED=0)");
+  }
+
+  // Session 4: Group Chat Engine
+  if (config.groupChatEnabled) {
+    ctx.groupChat = new GroupChatEngine(config, claude, memoryStore, agentLoader);
+    console.log(`[bridge] Group chat enabled (max agents: ${config.groupChatMaxAgents})`);
+  } else {
+    console.log("[bridge] Group chat disabled (GROUP_CHAT_ENABLED=0)");
   }
 
   // Freeze BridgeContext to prevent subsystem mutation (security: P2 finding)

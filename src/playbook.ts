@@ -54,11 +54,18 @@ const CHECKBOX_RE = /^-\s+\[([ xX])\]\s+(.+)$/;
 // --- PlaybookRunner ---
 
 export class PlaybookRunner {
+  private guardrails: { check(operation: string, context?: string): { allowed: boolean; reason: string } } | null = null;
+
   constructor(
     private config: Config,
     private claude: ClaudeInvoker,
     private memoryStore: MemoryStore | null,
   ) {}
+
+  // Session 4: Wire guardrails for step authorization
+  setGuardrails(g: { check(operation: string, context?: string): { allowed: boolean; reason: string } }): void {
+    this.guardrails = g;
+  }
 
   /**
    * Parse markdown text into playbook steps.
@@ -161,6 +168,19 @@ export class PlaybookRunner {
     step: PlaybookStep,
     config: PlaybookConfig,
   ): Promise<StepResult> {
+    // Session 4: Guardrails check
+    if (this.guardrails) {
+      const decision = this.guardrails.check(step.description, "playbook");
+      if (!decision.allowed) {
+        return {
+          step,
+          result: "",
+          retries: 0,
+          error: `Guardrails blocked: ${decision.reason}`,
+        };
+      }
+    }
+
     let retries = 0;
     let lastResult = "";
     let lastEvaluation: { passed: boolean; feedback: string } | undefined;

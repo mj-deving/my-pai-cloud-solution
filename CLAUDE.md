@@ -120,7 +120,7 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 - **Atomic writes:** Pipeline results use write-to-tmp + rename to prevent reading partial files.
 - **Zod validation:** All cross-agent JSON boundaries validated via Zod schemas. Config env vars validated with range checks.
 - **Mandatory dashboard auth:** `DASHBOARD_TOKEN` is required when `DASHBOARD_ENABLED=1`. Bridge refuses to start without it. Gateway routes (`/api/send`) run injection scan and block high-risk prompts with 403. Concurrency capped at 2 simultaneous sends.
-- **Feature flags:** All major subsystems gated behind env vars (default: off). Enables incremental rollout. S1: `DAG_ENABLED`, `MCP_*_ENABLED`, `LOOP_DETECTION_ENABLED`. S2: `A2A_ENABLED` (requires dashboard), `BRIDGE_CONTEXT_INJECTION`. S3: `PLAYBOOK_ENABLED`, `WORKTREE_ENABLED`, `CONTEXT_COMPRESSION_ENABLED`.
+- **Feature flags:** All major subsystems gated behind env vars (default: off). Enables incremental rollout. S1: `DAG_ENABLED`, `MCP_*_ENABLED`, `LOOP_DETECTION_ENABLED`. S2: `A2A_ENABLED` (requires dashboard), `BRIDGE_CONTEXT_INJECTION`. S3: `PLAYBOOK_ENABLED`, `WORKTREE_ENABLED`, `CONTEXT_COMPRESSION_ENABLED`. S4: `GUARDRAILS_ENABLED`, `A2A_CLIENT_ENABLED`, `GROUP_CHAT_ENABLED`, `GROUP_CHAT_MAX_AGENTS`.
 
 ### Module Responsibilities
 
@@ -147,9 +147,13 @@ See `ARCHITECTURE.md` for full file reference (30+ modules). Entry points:
 - **`playbook.ts`** — `PlaybookRunner`: parse markdown checkboxes, execute via oneShot, GAN evaluator pattern (separate QA oneShot per step, retry on failure)
 - **`worktree-pool.ts`** — `WorktreePool`: acquire/release git worktrees, sprint contract validation, stale cleanup, injectable gitRunner
 - **`context-compressor.ts`** — `ContextCompressor`: three-pass compression (consolidate→extract knowledge→prune), multi-pass support, DAG integration
+- **`guardrails.ts`** — `Guardrails`: pre-execution authorization gate for bridge-owned operations (pipeline, oneShot, playbooks). Allowlist/denylist with regex matching and context filtering
+- **`a2a-client.ts`** — `A2AClient`: outbound A2A protocol client. Discovers agents via agent card, sends messages via JSON-RPC 2.0
+- **`group-chat.ts`** — `GroupChatEngine`: multi-agent group chat with moderator synthesis. Dispatches to N agents in parallel, records with channel isolation
+- **`qr-generator.ts`** — QR code generation for mobile dashboard access (data URL output)
 - **`src/hooks/`** — Claude Code hooks for VPS: `memory-query.ts` (shared FTS5 query lib), `user-prompt-submit.ts`, `post-tool-use.ts`, `session-start.ts`
 - **`src/mcp/`** — MCP servers: `pai-memory-server.ts` (8 tools), `pai-context-server.ts` (2 tools), `memory-tools.ts`, `context-tools.ts`, `shared.ts`
-- **`src/__tests__/`** — 347 tests across 25 files
+- **`src/__tests__/`** — 384 tests across 30 files
 
 ## Cross-Instance Continuity
 
@@ -160,7 +164,7 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 - **Mode:** `/workspace` (`/home`), `/project <name>`, `/wrapup`, `/keep`, `/start`, `/status`, `/help`
 - **Session:** `/clear` (summary + reset), `/compact`, `/verbose` (light/raw output), `/new`, `/oneshot`, `/quick`
 - **Git:** `/sync` (commit+push), `/pull`, `/review` (Codex branch review), `/merge` (merge cloud/* to main)
-- **Pipeline:** `/delegate`, `/workflow create`, `/workflows`, `/cancel`, `/branches`, `/pipeline`
+- **Pipeline:** `/delegate`, `/workflow create`, `/workflows`, `/cancel`, `/branches`, `/pipeline`, `/group_chat`
 - **Admin:** `/deploy` (self-deploy from Telegram), `/schedule`, `/newproject`, `/deleteproject`, `/reauth`
 - **Gateway:** `POST /api/send` (invoke Claude via HTTP), `GET /api/session`, `GET /api/status`, `GET /api/health-monitor` -- all on dashboard port (:3456), require `DASHBOARD_TOKEN` bearer auth
 

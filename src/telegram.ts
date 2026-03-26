@@ -119,6 +119,7 @@ export function createTelegramBot(
   scheduler?: Scheduler | null,
   modeManager?: ModeManager | null,
   synthesisLoop?: SynthesisLoopLike | null,
+  groupChat?: { chat(question: string, participants: Array<{ name: string; systemPrompt?: string }>, options?: { project?: string }): Promise<{ question: string; participants: string[]; responses: Array<{ agent: string; response: string; error?: string }>; synthesis: string }> } | null,
 ): Bot {
   const bot = new Bot(config.telegramBotToken);
 
@@ -1739,6 +1740,70 @@ Rewrite the CLAUDE.md completely. Preserve its structure and sections. Output ON
       }
       msg += "Commands:\n`/schedule enable <name>`\n`/schedule disable <name>`\n`/schedule run <name>`";
       await safeReply(ctx, msg);
+    }
+  });
+
+  // /group-chat @agent1 @agent2 "question" — Multi-agent group chat with moderator
+  bot.command("group_chat", async (ctx) => {
+    const input = ctx.match?.trim() || "";
+    if (!input) {
+      await ctx.reply("Usage: /group\\_chat agent1 agent2 \"question\"\nRuns a multi-agent discussion with moderator synthesis.");
+      return;
+    }
+
+    if (!groupChat) {
+      await ctx.reply("Group chat is not enabled. Set GROUP_CHAT_ENABLED=1.");
+      return;
+    }
+
+    // Parse: agent names are words before the quoted question
+    const quoteMatch = input.match(/^(.*?)\s*"(.+)"$/s);
+    let agentNames: string[];
+    let question: string;
+
+    if (quoteMatch) {
+      agentNames = quoteMatch[1]!.trim().split(/\s+/).filter(Boolean).map(n => n.replace(/^@/, ""));
+      question = quoteMatch[2]!;
+    } else {
+      // No quotes: first words are agents, last sentence is question
+      const parts = input.split(/\s+/);
+      if (parts.length < 2) {
+        await ctx.reply("Need at least one agent name and a question. Example:\n/group\\_chat analyst researcher \"What's the best approach?\"");
+        return;
+      }
+      // Treat everything as the question with default agents
+      agentNames = ["analyst", "researcher"];
+      question = input;
+    }
+
+    if (agentNames.length === 0) {
+      agentNames = ["analyst", "researcher"];
+    }
+
+    await ctx.replyWithChatAction("typing");
+    await safeReply(ctx, `**Group Chat** — ${agentNames.length} agents discussing...\nQuestion: ${question.slice(0, 100)}`);
+
+    try {
+      const participants = agentNames.map(name => ({
+        name,
+        systemPrompt: `You are ${name}. Answer concisely from your perspective.`,
+      }));
+      const activeProject = projects.getActiveProjectName?.() ?? undefined;
+      const result = await groupChat.chat(question, participants, { project: activeProject });
+
+      let msg = `**Group Chat Results**\n\n`;
+      for (const resp of result.responses) {
+        const status = resp.error ? "❌" : "✅";
+        msg += `${status} **${resp.agent}:** ${(resp.response || resp.error || "").slice(0, 300)}\n\n`;
+      }
+      msg += `**Synthesis:** ${result.synthesis.slice(0, 1000)}`;
+
+      const chunks = chunkMessage(msg, config.telegramMaxChunkSize);
+      for (const chunk of chunks) {
+        await safeReply(ctx, chunk);
+      }
+    } catch (err) {
+      await ctx.reply(`Group chat error: ${err instanceof Error ? err.message : String(err)}`);
     }
   });
 

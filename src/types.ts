@@ -29,6 +29,9 @@ import type { A2AServer } from "./a2a-server";
 import type { PlaybookRunner } from "./playbook";
 import type { WorktreePool } from "./worktree-pool";
 import type { ContextCompressor } from "./context-compressor";
+import type { Guardrails } from "./guardrails";
+import type { A2AClient } from "./a2a-client";
+import type { GroupChatEngine } from "./group-chat";
 
 /**
  * BridgeContext — typed bag of all initialized subsystems.
@@ -73,6 +76,11 @@ export interface BridgeContext {
   playbook: PlaybookRunner | null;
   worktreePool: WorktreePool | null;
   contextCompressor: ContextCompressor | null;
+
+  // Session 4: Guardrails + A2A Client + Group Chat
+  guardrails: Guardrails | null;
+  a2aClient: A2AClient | null;
+  groupChat: GroupChatEngine | null;
 }
 
 /**

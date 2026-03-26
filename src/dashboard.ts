@@ -23,6 +23,10 @@ import type { SessionManager } from "./session";
 import type { ModeManager } from "./mode";
 import type { BridgeContext } from "./types";
 import type { A2AServer } from "./a2a-server";
+import type { SummaryDAG } from "./summary-dag";
+import type { PlaybookRunner } from "./playbook";
+import type { WorktreePool } from "./worktree-pool";
+import { generateQR } from "./qr-generator";
 
 interface SSEClient {
   controller: ReadableStreamDefaultController;
@@ -59,6 +63,9 @@ export class Dashboard {
   private sessions: SessionManager | null;
   private modeManager: ModeManager | null;
   private a2aServer: A2AServer | null = null;
+  private summaryDag: SummaryDAG | null;
+  private playbook: PlaybookRunner | null;
+  private worktreePool: WorktreePool | null;
   private pipelineDir: string;
   private resultsDir: string;
   private ackDir: string;
@@ -80,6 +87,9 @@ export class Dashboard {
     this.claude = ctx.claude;
     this.sessions = ctx.sessions;
     this.modeManager = ctx.modeManager;
+    this.summaryDag = ctx.summaryDag;
+    this.playbook = ctx.playbook;
+    this.worktreePool = ctx.worktreePool;
     this.pipelineDir = ctx.config.pipelineDir;
     this.resultsDir = join(ctx.config.pipelineDir, "results");
     this.ackDir = join(ctx.config.pipelineDir, "ack");
@@ -128,6 +138,14 @@ export class Dashboard {
           if (path === "/api/synthesis") return this.jsonResponse(this.getSynthesisData());
           if (path === "/api/health-monitor") return this.jsonResponse(this.getHealthMonitorData());
           if (path === "/api/session") return this.jsonResponse(this.getSessionData());
+          if (path === "/api/dag") return this.jsonResponse(this.getDagData());
+          if (path === "/api/playbooks") return this.jsonResponse(this.getPlaybooksData());
+          if (path === "/api/worktrees") return this.jsonResponse(this.getWorktreesData());
+          if (path === "/api/qr") {
+            const text = url.searchParams.get("text");
+            if (!text) return this.jsonResponse({ error: "text parameter required" }, 400);
+            return this.jsonResponse({ qr: await generateQR(text) });
+          }
           if (path === "/api/send" && req.method === "POST") return await this.handleSend(req);
           if (path === "/events") return this.handleSSE(req);
 
@@ -240,6 +258,9 @@ export class Dashboard {
       ["workflows", "workflows", () => this.getWorkflowsData(null)],
       ["memory", "memory", () => this.getMemoryData()],
       ["synthesis", "synthesis", () => this.getSynthesisData()],
+      ["dag", "dag", () => this.getDagData()],
+      ["playbooks", "playbooks", () => this.getPlaybooksData()],
+      ["worktrees", "worktrees", () => this.getWorktreesData()],
     ];
 
     for (const [key, event, getter] of snapshots) {
@@ -434,6 +455,21 @@ export class Dashboard {
       mode: this.modeManager?.getCurrentMode() ?? null,
       uptime: Date.now() - this.startTime,
     };
+  }
+
+  private getDagData(): Record<string, unknown> {
+    if (!this.summaryDag) return { enabled: false };
+    return { enabled: true, ...this.summaryDag.getStats() };
+  }
+
+  private getPlaybooksData(): Record<string, unknown> {
+    if (!this.playbook) return { enabled: false };
+    return { enabled: true };
+  }
+
+  private getWorktreesData(): Record<string, unknown> {
+    if (!this.worktreePool) return { enabled: false };
+    return { enabled: true, ...this.worktreePool.getStatus() };
   }
 
   private sendInFlight = 0;

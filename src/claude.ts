@@ -112,6 +112,12 @@ export class ClaudeInvoker {
     this.contextBuilder = cb;
   }
 
+  // Session 4: Wire guardrails for pre-execution authorization
+  private guardrails?: { check(operation: string, context?: string): { allowed: boolean; reason: string } };
+  setGuardrails(g: { check(operation: string, context?: string): { allowed: boolean; reason: string } }): void {
+    this.guardrails = g;
+  }
+
   // Set the working directory for Claude invocations (project switching)
   setWorkingDirectory(path: string | undefined): void {
     this.cwd = path;
@@ -705,6 +711,14 @@ export class ClaudeInvoker {
   // One-shot invocation (no session resume — for cron/automation)
   // Uses RecoveryPolicy for hook-failure rescue (ISC-24)
   async oneShot(message: string): Promise<ClaudeResponse> {
+    // Session 4: Guardrails check (bridge-owned operation)
+    if (this.guardrails) {
+      const decision = this.guardrails.check(message, "oneshot");
+      if (!decision.allowed) {
+        return { sessionId: "", result: "", error: `Guardrails blocked: ${decision.reason}` };
+      }
+    }
+
     // V2-B: Prepend memory context if context builder is wired
     let prompt = message;
     if (this.contextBuilder) {
