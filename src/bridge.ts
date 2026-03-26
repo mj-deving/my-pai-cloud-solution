@@ -30,6 +30,9 @@ import { ModeManager } from "./mode";
 import { DailyMemoryWriter } from "./daily-memory";
 import { HealthMonitor } from "./health-monitor";
 import { A2AServer } from "./a2a-server";
+import { PlaybookRunner } from "./playbook";
+import { WorktreePool } from "./worktree-pool";
+import { ContextCompressor } from "./context-compressor";
 import type { BridgeContext } from "./types";
 
 async function main() {
@@ -355,6 +358,9 @@ async function main() {
     summaryDag: null, // wired when DAG_ENABLED
     loopDetector: null, // wired when LOOP_DETECTION_ENABLED
     a2aServer: null, // wired when A2A_ENABLED
+    playbook: null, // wired when PLAYBOOK_ENABLED
+    worktreePool: null, // wired when WORKTREE_ENABLED
+    contextCompressor: null, // wired when CONTEXT_COMPRESSION_ENABLED
   };
 
   // Phase 1: Create messenger adapter based on config
@@ -577,6 +583,32 @@ async function main() {
     console.log("[bridge] A2A requires DASHBOARD_ENABLED=1, skipping");
   } else {
     console.log("[bridge] A2A server disabled (A2A_ENABLED=0)");
+  }
+
+  // Session 3: Playbook Runner
+  if (config.playbookEnabled) {
+    ctx.playbook = new PlaybookRunner(config, claude, memoryStore);
+    console.log("[bridge] Playbook runner enabled");
+  } else {
+    console.log("[bridge] Playbook runner disabled (PLAYBOOK_ENABLED=0)");
+  }
+
+  // Session 3: Worktree Pool
+  if (config.worktreeEnabled) {
+    ctx.worktreePool = new WorktreePool(config);
+    console.log(`[bridge] Worktree pool enabled (max: ${config.worktreeMaxSlots})`);
+  } else {
+    console.log("[bridge] Worktree pool disabled (WORKTREE_ENABLED=0)");
+  }
+
+  // Session 3: Context Compressor
+  if (config.contextCompressionEnabled && memoryStore) {
+    ctx.contextCompressor = new ContextCompressor(config, claude, memoryStore, ctx.summaryDag);
+    console.log(`[bridge] Context compression enabled (threshold: ${config.contextCompressionThreshold}%)`);
+  } else if (config.contextCompressionEnabled && !memoryStore) {
+    console.log("[bridge] Context compression requires MEMORY_ENABLED=1, skipping");
+  } else {
+    console.log("[bridge] Context compression disabled (CONTEXT_COMPRESSION_ENABLED=0)");
   }
 
   // Freeze BridgeContext to prevent subsystem mutation (security: P2 finding)

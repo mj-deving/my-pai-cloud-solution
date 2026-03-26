@@ -494,6 +494,15 @@ export class MemoryStore {
     return rows.map(row => this.rowToEpisode(row));
   }
 
+  /** Delete episodes by IDs (for compression/pruning). Parameterized query — no SQL injection. */
+  deleteEpisodes(ids: number[]): number {
+    if (ids.length === 0) return 0;
+    const placeholders = ids.map(() => "?").join(",");
+    const stmt = this.db.prepare(`DELETE FROM episodes WHERE id IN (${placeholders})`);
+    const result = stmt.run(...ids);
+    return result.changes;
+  }
+
   /** Get whiteboard entry for a project. Returns content or null. */
   getWhiteboard(project: string): string | null {
     const row = this.db

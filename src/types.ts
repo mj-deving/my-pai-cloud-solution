@@ -26,6 +26,9 @@ import type { MessengerAdapter } from "./messenger-adapter";
 import type { SummaryDAG } from "./summary-dag";
 import type { LoopDetector } from "./loop-detection";
 import type { A2AServer } from "./a2a-server";
+import type { PlaybookRunner } from "./playbook";
+import type { WorktreePool } from "./worktree-pool";
+import type { ContextCompressor } from "./context-compressor";
 
 /**
  * BridgeContext — typed bag of all initialized subsystems.
@@ -65,6 +68,11 @@ export interface BridgeContext {
 
   // Session 2: A2A Server
   a2aServer: A2AServer | null;
+
+  // Session 3: Playbooks + Worktrees + Compression
+  playbook: PlaybookRunner | null;
+  worktreePool: WorktreePool | null;
+  contextCompressor: ContextCompressor | null;
 }
 
 /**

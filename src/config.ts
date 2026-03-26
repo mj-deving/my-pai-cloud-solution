@@ -186,6 +186,17 @@ const EnvSchema = z.object({
   // Session 2: Bridge context injection mode (hooks vs legacy)
   BRIDGE_CONTEXT_INJECTION: z.enum(["legacy", "hooks"]).optional().default("legacy"),
 
+  // Session 3: Playbooks
+  PLAYBOOK_ENABLED: envBool(false),
+
+  // Session 3: Worktree Pool
+  WORKTREE_ENABLED: envBool(false),
+  WORKTREE_MAX_SLOTS: optionalInt(1, 10, 3),
+
+  // Session 3: Context Compression
+  CONTEXT_COMPRESSION_ENABLED: envBool(false),
+  CONTEXT_COMPRESSION_THRESHOLD: optionalInt(50, 95, 80),
+
   // Session 1: Loop Detection (safety — defaults to true)
   LOOP_DETECTION_ENABLED: envBool(true),
   LOOP_DETECTION_WARN_THRESHOLD: optionalInt(2, 20, 3),
@@ -351,6 +362,17 @@ export interface Config {
 
   // Session 2: A2A Server
   a2aEnabled: boolean;
+
+  // Session 3: Playbooks
+  playbookEnabled: boolean;
+
+  // Session 3: Worktree Pool
+  worktreeEnabled: boolean;
+  worktreeMaxSlots: number;
+
+  // Session 3: Context Compression
+  contextCompressionEnabled: boolean;
+  contextCompressionThreshold: number;
 
   // Session 2: Bridge context injection mode
   bridgeContextInjection: "legacy" | "hooks";
@@ -520,6 +542,17 @@ export function loadConfig(): Config {
     // Session 1: MCP Servers
     mcpMemoryEnabled: env.MCP_MEMORY_ENABLED,
     mcpContextEnabled: env.MCP_CONTEXT_ENABLED,
+
+    // Session 3: Playbooks
+    playbookEnabled: env.PLAYBOOK_ENABLED,
+
+    // Session 3: Worktree Pool
+    worktreeEnabled: env.WORKTREE_ENABLED,
+    worktreeMaxSlots: env.WORKTREE_MAX_SLOTS,
+
+    // Session 3: Context Compression
+    contextCompressionEnabled: env.CONTEXT_COMPRESSION_ENABLED,
+    contextCompressionThreshold: env.CONTEXT_COMPRESSION_THRESHOLD,
 
     // Session 2: A2A Server
     a2aEnabled: env.A2A_ENABLED,
