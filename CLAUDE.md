@@ -39,7 +39,7 @@ bash scripts/backup.sh
 ```
 
 ```bash
-# Run tests (270 tests across 20 files)
+# Run tests (347 tests across 25 files)
 bun test
 
 # Pre-commit verification (type check + tests + Codex review)
@@ -120,7 +120,7 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 - **Atomic writes:** Pipeline results use write-to-tmp + rename to prevent reading partial files.
 - **Zod validation:** All cross-agent JSON boundaries validated via Zod schemas. Config env vars validated with range checks.
 - **Mandatory dashboard auth:** `DASHBOARD_TOKEN` is required when `DASHBOARD_ENABLED=1`. Bridge refuses to start without it. Gateway routes (`/api/send`) run injection scan and block high-risk prompts with 403. Concurrency capped at 2 simultaneous sends.
-- **Feature flags:** All major subsystems gated behind env vars (default: off). Enables incremental rollout. New: `HEALTH_MONITOR_ENABLED`, `DIRECT_API_ENABLED`, `DASHBOARD_TOKEN` (mandatory when dashboard on).
+- **Feature flags:** All major subsystems gated behind env vars (default: off). Enables incremental rollout. S1: `DAG_ENABLED`, `MCP_*_ENABLED`, `LOOP_DETECTION_ENABLED`. S2: `A2A_ENABLED` (requires dashboard), `BRIDGE_CONTEXT_INJECTION`. S3: `PLAYBOOK_ENABLED`, `WORKTREE_ENABLED`, `CONTEXT_COMPRESSION_ENABLED`.
 
 ### Module Responsibilities
 
@@ -142,8 +142,14 @@ See `ARCHITECTURE.md` for full file reference (30+ modules). Entry points:
 - **`summary-dag.ts`** — `SummaryDAG`: hierarchical DAG summaries over episodes, fresh-tail protection, FTS5 UPDATE trigger
 - **`summarizer.ts`** — `Summarizer`: three-tier fallback (normal→aggressive→deterministic) with two-phase tool-arg truncation
 - **`loop-detection.ts`** — `LoopDetector`: per-session tool-call hashing, 3-phase escalation (warn→instruct→hard stop), Map-based LRU
+- **`turn-recovery.ts`** — `RecoveryPolicy`: unified error classification + retry logic for all ClaudeInvoker paths (6 categories: auth, quota, transient, empty, stale_session, hook_failure)
+- **`a2a-server.ts`** — `A2AServer`: JSON-RPC 2.0 agent-to-agent server mounted on Dashboard. Agent card (public), message/send, message/stream (auth required, session-isolated via oneShot)
+- **`playbook.ts`** — `PlaybookRunner`: parse markdown checkboxes, execute via oneShot, GAN evaluator pattern (separate QA oneShot per step, retry on failure)
+- **`worktree-pool.ts`** — `WorktreePool`: acquire/release git worktrees, sprint contract validation, stale cleanup, injectable gitRunner
+- **`context-compressor.ts`** — `ContextCompressor`: three-pass compression (consolidate→extract knowledge→prune), multi-pass support, DAG integration
+- **`src/hooks/`** — Claude Code hooks for VPS: `memory-query.ts` (shared FTS5 query lib), `user-prompt-submit.ts`, `post-tool-use.ts`, `session-start.ts`
 - **`src/mcp/`** — MCP servers: `pai-memory-server.ts` (8 tools), `pai-context-server.ts` (2 tools), `memory-tools.ts`, `context-tools.ts`, `shared.ts`
-- **`src/__tests__/`** — 270 tests across 20 files: format, claude, config, schemas, rate-limiter, review-learning, message-classifier, direct-api, memory, session, statusline, injection-scan, prd-parser, health-monitor, gateway, summary-dag, summarizer, loop-detection, mcp-memory, mcp-context
+- **`src/__tests__/`** — 347 tests across 25 files
 
 ## Cross-Instance Continuity
 
