@@ -579,6 +579,31 @@ async function main() {
     console.log("[bridge] Dashboard disabled (DASHBOARD_ENABLED=0)");
   }
 
+  // Session 1: DAG Memory (requires MEMORY_ENABLED — shares memory.db)
+  if (config.dagEnabled && memoryStore) {
+    const { SummaryDAG } = await import("./summary-dag");
+    ctx.summaryDag = new SummaryDAG(config.memoryDbPath);
+    console.log("[bridge] DAG memory enabled");
+  } else if (config.dagEnabled && !memoryStore) {
+    console.log("[bridge] DAG requires MEMORY_ENABLED=1, skipping");
+  } else {
+    console.log("[bridge] DAG memory disabled (DAG_ENABLED=0)");
+  }
+
+  // Session 1: Loop Detection (safety — wired into ClaudeInvoker streaming)
+  if (config.loopDetectionEnabled) {
+    const { LoopDetector } = await import("./loop-detection");
+    ctx.loopDetector = new LoopDetector({
+      warnThreshold: config.loopDetectionWarnThreshold,
+      instructThreshold: config.loopDetectionInstructThreshold,
+      hardStopThreshold: config.loopDetectionHardStopThreshold,
+    });
+    claude.setLoopDetector(ctx.loopDetector);
+    console.log(`[bridge] Loop detection enabled (warn: ${config.loopDetectionWarnThreshold}, instruct: ${config.loopDetectionInstructThreshold}, hard stop: ${config.loopDetectionHardStopThreshold})`);
+  } else {
+    console.log("[bridge] Loop detection disabled (LOOP_DETECTION_ENABLED=0)");
+  }
+
   // Session 2: A2A Server (requires DASHBOARD_ENABLED — validated in config.ts)
   if (config.a2aEnabled && dashboard) {
     const a2aServer = new A2AServer(config, claude);

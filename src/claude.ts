@@ -112,6 +112,12 @@ export class ClaudeInvoker {
     this.contextBuilder = cb;
   }
 
+  // Session 1: Wire loop detector for tool-call cycle prevention
+  private loopDetector?: { record(sessionId: string, call: { tool: string; args: Record<string, unknown> }): { phase: number; action: string; message: string } | null };
+  setLoopDetector(ld: { record(sessionId: string, call: { tool: string; args: Record<string, unknown> }): { phase: number; action: string; message: string } | null }): void {
+    this.loopDetector = ld;
+  }
+
   // Session 4: Wire guardrails for pre-execution authorization
   private guardrails?: { check(operation: string, context?: string): { allowed: boolean; reason: string } };
   setGuardrails(g: { check(operation: string, context?: string): { allowed: boolean; reason: string } }): void {
@@ -360,6 +366,7 @@ export class ClaudeInvoker {
             try {
               const parsed = JSON.parse(line);
               this.processStreamEvent(parsed, onProgress, toolBlocks, {
+                sessionId: sessionId || extractedSessionId || undefined,
                 getText: () => accumulatedText,
                 appendText: (t: string) => { accumulatedText += t; },
                 setSessionId: (id: string) => { extractedSessionId = id; },
@@ -383,6 +390,7 @@ export class ClaudeInvoker {
         try {
           const parsed = JSON.parse(buffer.trim());
           this.processStreamEvent(parsed, onProgress, toolBlocks, {
+            sessionId: sessionId || extractedSessionId || undefined,
             getText: () => accumulatedText,
             appendText: (t: string) => { accumulatedText += t; },
             setSessionId: (id: string) => { extractedSessionId = id; },
@@ -500,6 +508,7 @@ export class ClaudeInvoker {
     onProgress: (event: ProgressEvent) => void,
     toolBlocks: Map<number, string>,
     state: {
+      sessionId?: string;
       getText: () => string;
       appendText: (t: string) => void;
       setSessionId: (id: string) => void;
@@ -584,6 +593,21 @@ export class ClaudeInvoker {
               toolBlocks.set(idx, block.name as string);
               const detail = ClaudeInvoker.extractToolDetail(block.name as string, block.input as Record<string, unknown> | undefined);
               onProgress({ type: "tool_start", tool: block.name as string, detail });
+
+              // Session 1: Loop detection — check for repeated identical tool calls
+              if (this.loopDetector) {
+                const loopSessionId = state.sessionId || "unknown";
+                const detection = this.loopDetector.record(loopSessionId, {
+                  tool: block.name as string,
+                  args: (block.input as Record<string, unknown>) ?? {},
+                });
+                if (detection) {
+                  console.warn(`[claude] Loop detection: ${detection.message}`);
+                  if (detection.action === "hard_stop") {
+                    this.cancel();
+                  }
+                }
+              }
             }
           }
         }

@@ -2,7 +2,7 @@
 task: Merge deploy audit VPS smoke test documentation
 slug: 20260326-180000_merge-deploy-audit-vps-smoke-docs
 effort: advanced
-phase: build
+phase: complete
 progress: 27/28
 mode: interactive
 started: 2026-03-26T18:00:00+01:00
