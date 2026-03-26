@@ -104,7 +104,7 @@ export class GroupChatEngine {
         if (resp.response && !resp.error) {
           await this.memoryStore.record({
             timestamp,
-            source: "group" as any,
+            source: "group",
             project: options?.project ?? null,
             role: "assistant",
             content: resp.response.slice(0, 2000),
@@ -112,13 +112,13 @@ export class GroupChatEngine {
             importance: 5,
             user_id: resp.agent,
             channel: "group",
-          } as any);
+          });
         }
       }
       // Record synthesis
       await this.memoryStore.record({
         timestamp,
-        source: "group" as any,
+        source: "group",
         project: options?.project ?? null,
         role: "system",
         content: synthesis.slice(0, 2000),
@@ -126,7 +126,7 @@ export class GroupChatEngine {
         importance: 7,
         user_id: moderatorName,
         channel: "group",
-      } as any);
+      });
     }
 
     return {

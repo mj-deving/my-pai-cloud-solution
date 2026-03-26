@@ -20,6 +20,7 @@ export interface GuardrailsDecision {
 export class Guardrails {
   private allowlist: GuardrailsRule[] = [];
   private denylist: GuardrailsRule[] = [];
+  private patternCache = new Map<string, RegExp>();
 
   constructor(private config: Config) {
     this.loadDefaultRules();
@@ -76,7 +77,13 @@ export class Guardrails {
   ): boolean {
     if (rule.context && context !== rule.context) return false;
     try {
-      return new RegExp(rule.pattern, "i").test(operation);
+      let regex = this.patternCache.get(rule.pattern);
+      if (!regex) {
+        if (rule.pattern.length > 200) return false;
+        regex = new RegExp(rule.pattern, "i");
+        this.patternCache.set(rule.pattern, regex);
+      }
+      return regex.test(operation);
     } catch {
       return false;
     }

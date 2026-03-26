@@ -17,8 +17,8 @@ export async function generateQR(
     width: size,
     margin: 2,
     color: {
-      dark: "#c9d1d9",
-      light: "#0d1117",
+      dark: "#ffffff",
+      light: "#000000",
     },
   });
 }
