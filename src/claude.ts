@@ -595,15 +595,16 @@ export class ClaudeInvoker {
               onProgress({ type: "tool_start", tool: block.name as string, detail });
 
               // Session 1: Loop detection — check for repeated identical tool calls
-              if (this.loopDetector) {
-                const loopSessionId = state.sessionId || "unknown";
-                const detection = this.loopDetector.record(loopSessionId, {
+              if (this.loopDetector && state.sessionId) {
+                const detection = this.loopDetector.record(state.sessionId, {
                   tool: block.name as string,
                   args: (block.input as Record<string, unknown>) ?? {},
                 });
                 if (detection) {
                   console.warn(`[claude] Loop detection: ${detection.message}`);
                   if (detection.action === "hard_stop") {
+                    // Mark as auth error so RecoveryPolicy won't retry (fail-fast category)
+                    state.setAuthError?.(`Loop hard stop: ${detection.message}`);
                     this.cancel();
                   }
                 }

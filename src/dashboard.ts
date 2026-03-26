@@ -64,7 +64,6 @@ export class Dashboard {
   private modeManager: ModeManager | null;
   private a2aServer: A2AServer | null = null;
   private ctx: BridgeContext;
-  private summaryDag: SummaryDAG | null;
   private pipelineDir: string;
   private resultsDir: string;
   private ackDir: string;
@@ -87,7 +86,6 @@ export class Dashboard {
     this.sessions = ctx.sessions;
     this.modeManager = ctx.modeManager;
     this.ctx = ctx;
-    this.summaryDag = ctx.summaryDag;
     this.pipelineDir = ctx.config.pipelineDir;
     this.resultsDir = join(ctx.config.pipelineDir, "results");
     this.ackDir = join(ctx.config.pipelineDir, "ack");
@@ -456,8 +454,8 @@ export class Dashboard {
   }
 
   private getDagData(): Record<string, unknown> {
-    if (!this.summaryDag) return { enabled: false };
-    return { enabled: true, ...this.summaryDag.getStats() };
+    if (!this.ctx.summaryDag) return { enabled: false };
+    return { enabled: true, ...this.ctx.summaryDag.getStats() };
   }
 
   private getPlaybooksData(): Record<string, unknown> {
