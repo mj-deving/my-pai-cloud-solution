@@ -10,7 +10,9 @@ Claude Code is powerful — but it lives in your terminal. Close the lid and it'
 
 ## What This Is
 
-A cloud runtime that deploys Claude Code to a VPS as a 24/7 AI agent, accessible over Telegram. It wraps the CLI with persistent memory, context injection, autonomous scheduling, and inter-agent collaboration — turning a local dev tool into an always-available assistant.
+A cloud runtime that deploys Claude Code to a VPS as a 24/7 AI agent, accessible over Telegram, Claude Channels, and Remote Control. Persistent memory, context injection, autonomous scheduling, and inter-agent collaboration — turning a local dev tool into an always-available assistant.
+
+**Architecture direction:** Migrating from a custom Telegram bridge (6600 LOC) to Claude Channels as the primary access surface — Channels provides native interactive sessions with permission relay and efficient hook invocation.
 
 ```
 You
@@ -19,11 +21,11 @@ You
 │   └── Terminal → claude                    ← local instance
 │
 ├── On your phone / anywhere
-│   └── Telegram → Bridge → claude --resume  ← cloud agent (this project)
-│       ├── SQLite memory (episodic + semantic)
-│       ├── Context injection (scored retrieval)
-│       ├── Dual-mode (workspace / project)
-│       └── Statusline on every reply
+│   ├── Telegram → Bridge → claude --resume  ← bridge (current primary)
+│   ├── Telegram → Channels plugin           ← Claude Channels (future primary)
+│   │   └── Native interactive session with permission relay
+│   └── Claude app → Remote Control          ← direct CLI from mobile
+│       └── claude remote-control --spawn worktree
 │
 ├── Scheduled tasks
 │   └── Scheduler → claude -p "task"         ← one-shot, no session
@@ -62,11 +64,22 @@ You
 | **HTTP gateway** | Production | REST API on dashboard (/api/send, /api/session, /api/status) with bearer auth and injection blocking |
 | **Backup scripts** | Production | WAL-safe memory.db + bridge.env backup with 7-day rotation, cron-scheduled |
 | **BridgeContext** | Production | Typed subsystem bag replacing positional constructor args, Plugin interface (type-only) |
-| **Direct API fast-path** | Built, not enabled | Sonnet API for simple messages, classifier-based routing (Graduated Extraction Phase 1) |
-| **PRD executor** | Built, not enabled | Autonomous PRD detection, parsing, and execution |
+| **DAG memory** | Production | Hierarchical summarization over episodes, fresh-tail protection |
+| **Loop detection** | Production | Per-session tool-call hashing, 3-phase escalation (warn→instruct→hard stop) |
+| **A2A server** | Production | JSON-RPC 2.0 agent discovery and message exchange |
+| **A2A client** | Production | Outbound agent communication with Zod-validated responses |
+| **Guardrails** | Production | Pre-execution authorization gate (allowlist/denylist at dispatch points) |
+| **Group chat** | Production | Multi-agent parallel dispatch with moderator synthesis |
+| **Playbook runner** | Production | Markdown checklist execution with GAN evaluator pattern |
+| **Worktree pool** | Production | Git worktree isolation for parallel agent work |
+| **Context compression** | Production | Three-pass compression with DAG integration |
+| **Direct API fast-path** | Production | Sonnet API for simple messages, classifier-based routing |
+| **PRD executor** | Production | Autonomous PRD detection, parsing, and execution |
+| **Claude Channels** | In progress | Telegram plugin installed, pending bot token |
+| **Remote Control** | In progress | Server mode service created, pending workspace trust |
 | **Email bridge** | Planned | IMAP polling + SMTP response (architecture in place) |
 
-221 tests across 15 test files. Type-checked with `tsc --noEmit`.
+384 tests across 30 test files. Type-checked with `tsc --noEmit`.
 
 ## Quick Start
 
@@ -96,7 +109,7 @@ For full VPS deployment (systemd services, SSH setup, PAI hooks), see the [Deplo
 ### Development
 
 ```bash
-bun test              # 221 tests across 15 files
+bun test              # 384 tests across 30 files
 npx tsc --noEmit      # type check
 bun run src/bridge.ts # run locally
 ```
@@ -107,7 +120,7 @@ bun run src/bridge.ts # run locally
 - **Telegram:** [Grammy](https://grammy.dev) — bot framework with middleware
 - **Database:** SQLite via `bun:sqlite` — episodic memory, semantic memory, FTS5, scheduler
 - **Validation:** [Zod](https://zod.dev) — all cross-agent JSON boundaries + env config
-- **Process management:** systemd — two services (bridge + tmux)
+- **Process management:** systemd — bridge + channels + remote control + tmux
 - **Code review:** [Codex CLI](https://github.com/openai/codex) — two-layer review (local pre-commit + GitHub PR bot)
 
 No Docker. No Kubernetes. No cloud functions. Just a VPS and systemd.
@@ -120,7 +133,7 @@ No Docker. No Kubernetes. No cloud functions. Just a VPS and systemd.
 
 **Agent convergence.** Co-located agent frameworks (like [OpenClaw](https://github.com/claw-project/OpenClaw)) run on the same VPS. Rather than adopting their runtime, the strategy is graduated extraction — absorb capabilities, don't merge codebases. Phase 1 (Sonnet fast-path) is implemented. Phase 2 (HealthMonitor, backup scripts) is deployed. Phase 3A (gateway routes on dashboard) is deployed. Phase 3B (plugin architecture) has type foundations.
 
-**Multi-channel.** Email bridge architecture is in place. The goal is a unified inbox — Telegram, email, and future channels all feed one conversation.
+**Channels-first.** Migrating from the custom bridge to Claude Channels as the primary Telegram access surface. Channels provides native interactive sessions, permission relay, and efficient hook invocation — eliminating 6600 lines of middleware. Remote Control adds mobile CLI access via the Claude app. See `Plans/phase-fg-channels-remote-control.md`.
 
 **Replicable.** This is designed so anyone can fork it and deploy their own cloud AI agent. See [Replicating This System](ARCHITECTURE.md#replicating-this-system) in ARCHITECTURE.md.
 
@@ -141,14 +154,19 @@ src/
   types.ts           # BridgeContext bag + Plugin interface
   format.ts          # Mobile formatter, Markdown escaping, chunking
   github.ts          # PR operations via gh CLI
-  ...                # 40 modules total — see ARCHITECTURE.md for full reference
+  guardrails.ts      # Pre-execution authorization (allowlist/denylist)
+  a2a-client.ts      # Outbound A2A protocol client
+  group-chat.ts      # Multi-agent group chat with moderator synthesis
+  ...                # 45+ modules total — see ARCHITECTURE.md for full reference
 scripts/
   deploy.sh          # Full deployment (rsync + bun install + restart)
   setup-vps.sh       # VPS provisioning (user, deps, coexistence)
   backup.sh          # WAL-safe backup with rotation (memory.db + bridge.env)
 systemd/
-  isidore-cloud-bridge.service   # Main service
-  isidore-cloud-tmux.service     # Persistent tmux session
+  isidore-cloud-bridge.service     # Telegram bridge (current primary)
+  isidore-cloud-remote.service     # Remote Control server mode
+  isidore-cloud-channels.service   # Claude Channels Telegram plugin
+  isidore-cloud-tmux.service       # Persistent tmux session
 ```
 
 Full file reference with descriptions: [ARCHITECTURE.md](ARCHITECTURE.md#file-reference)

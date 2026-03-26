@@ -63,6 +63,16 @@ You (Marius)
 │           ├── Statusline on every reply (mode/time/context%)
 │           └── Auto-wrapup on context pressure (workspace mode)
 │
+├── On your phone (Claude app)
+│   └── Claude app → Remote Control
+│       └── claude remote-control --spawn worktree  ← Direct CLI access
+│           └── PAI hooks fire on all sessions (same as local)
+│
+├── Via Channels bot (Isidore Direct)
+│   └── Telegram → Claude Channels plugin
+│       └── claude --channels plugin:telegram  ← Interactive session
+│           └── Native Claude session with hooks + MCP
+│
 ├── Via email (planned)
 │   └── IMAP poll → claude --resume
 │       └── Response via SMTP
@@ -80,7 +90,7 @@ You (Marius)
         └── DAG workflows (multi-step, mixed assignees)
 ```
 
-**The bridge service** is the heart: a Bun/TypeScript process that runs 24/7, listens on Telegram (long polling), authenticates you, forwards your messages to Claude Code CLI, formats the response for mobile, and sends it back. Every reply includes a statusline showing current mode and session metrics.
+**The bridge service** currently handles Telegram communication: a Bun/TypeScript process that runs 24/7, listens on Telegram (long polling), authenticates you, forwards your messages to Claude Code CLI, formats the response for mobile, and sends it back. **Architecture direction:** migrating to Claude Channels as the primary access surface — Channels provides this natively with interactive sessions, permission relay, and efficient hook invocation. See `Plans/phase-fg-channels-remote-control.md`.
 
 **Session continuity** works via two mechanisms: (1) Claude Code's `--resume` flag with session IDs stored in `~/.claude/active-session-id`, and (2) session summaries stored in `memory.db` that are injected as context when sessions rotate. The bridge generates session summaries on `/clear`, `/wrapup`, and shutdown.
 
@@ -97,7 +107,7 @@ The naming distinguishes the *runtime*, not the *identity*:
 | **Linux user** | `mj` (your own) | `isidore_cloud` |
 | **SSH alias** | N/A (local) | `isidore_cloud` |
 | **SSH key** | N/A | `~/.ssh/id_ed25519_isidore_cloud` |
-| **systemd services** | N/A | `isidore-cloud-bridge`, `isidore-cloud-tmux` |
+| **systemd services** | N/A | `isidore-cloud-bridge`, `isidore-cloud-remote`, `isidore-cloud-channels`, `isidore-cloud-tmux` |
 | **tmux session** | N/A | `isidore_cloud` |
 | **Config directory** | N/A | `~/.config/isidore_cloud/` |
 | **Home directory** | `/home/mj/` | `/home/isidore_cloud/` |
@@ -155,7 +165,9 @@ VPS: 213.199.32.18 (Ubuntu 24.04, Contabo)
 │   └── branch-locks.json             # Active branch isolation locks
 │
 └── Systemd services:
-    ├── isidore-cloud-bridge.service   # Telegram bot + pipeline + orchestrator (always running)
+    ├── isidore-cloud-bridge.service   # Telegram bot + pipeline + orchestrator (PRIMARY)
+    ├── isidore-cloud-remote.service   # Remote Control server mode (SUPPLEMENTARY, pending trust)
+    ├── isidore-cloud-channels.service # Claude Channels Telegram plugin (SUPPLEMENTARY, pending bot token)
     └── isidore-cloud-tmux.service     # Persistent tmux (for SSH sessions)
 ```
 
@@ -229,14 +241,40 @@ The tmux session persists across SSH disconnections. When you SSH in later, your
 
 **Session sharing:** Both tmux (interactive) and Telegram (programmatic) read/write the same session ID file. If you start a conversation in Telegram and then SSH in, `claude --resume` picks up the same conversation.
 
-### 3. Email (Planned — C6)
+### 3. Claude Channels (Isidore Direct — Pending)
+
+Claude Channels Telegram plugin provides native interactive sessions without the bridge intermediary.
+
+**How it works:**
+1. You message @IsidoreDirectBot in Telegram
+2. Claude Channels plugin receives the message natively
+3. Claude runs an interactive session with full hook + MCP support
+4. Responses sent directly — no bridge formatting, no compact stripping
+
+**Advantages over bridge:** Native Claude session (not one-shot CLI), permission relay, efficient hook invocation, no stream-json parsing overhead.
+
+**Status:** Plugin installed, service file created (`isidore-cloud-channels.service`). Blocked on dedicated bot token from @BotFather. See `Plans/phase-fg-channels-remote-control.md`.
+
+### 4. Remote Control (Pending)
+
+Claude Remote Control enables direct CLI access from the Claude mobile app.
+
+**How it works:**
+1. You open the Claude app on your phone
+2. Remote Control connects to `claude remote-control --spawn worktree` on VPS
+3. Full interactive session with worktree isolation
+4. PAI hooks fire on all sessions (same as local)
+
+**Status:** Service file created (`isidore-cloud-remote.service`). Blocked on trust establishment. See `Plans/phase-fg-channels-remote-control.md`.
+
+### 5. Email (Planned — C6)
 
 IMAP polling + SMTP response. Not yet implemented — waiting on email server credentials from Marius. The architecture is in place:
 - `config.ts` already has all email configuration fields
 - `bridge.ts` has the placeholder for email polling
 - Same pattern: poll → invoke Claude → format → reply
 
-### 4. Cron (Automated Tasks)
+### 6. Cron (Automated Tasks)
 
 One-shot invocations for scheduled work:
 
@@ -1162,6 +1200,10 @@ ssh isidore_cloud 'gh auth status'
 | `config.ts` | Zod-validated env vars with range checks, feature flags, WORKSPACE_* config. | `Config`, `loadConfig()` |
 | `types.ts` | `BridgeContext` interface (typed subsystem bag, replaces positional args) + `Plugin` interface (type-only, for future use). | `BridgeContext`, `Plugin` |
 | `wrapup.ts` | Auto-commit tracked changes with branch guard (refuses wrong branch). | `lightweightWrapup()` |
+| `guardrails.ts` | Pre-execution authorization gate for sensitive operations. | `Guardrails` |
+| `a2a-client.ts` | A2A protocol outbound client for agent-to-agent communication. | `A2AClient` |
+| `group-chat.ts` | Multi-agent group chat engine for coordinated conversations. | `GroupChat` |
+| `qr-generator.ts` | QR code generator for sharing links and data. | `QRGenerator` |
 
 ### Scripts (`scripts/`)
 
@@ -1182,6 +1224,8 @@ ssh isidore_cloud 'gh auth status'
 | Service | Purpose | Type |
 |---------|---------|------|
 | `isidore-cloud-bridge.service` | Telegram bridge (always running, auto-restart) | simple |
+| `isidore-cloud-remote.service` | Remote Control server mode (pending trust) | simple |
+| `isidore-cloud-channels.service` | Claude Channels Telegram plugin (pending bot token) | simple |
 | `isidore-cloud-tmux.service` | Persistent tmux session for SSH work | forking |
 
 ### Config (`config/`)
@@ -1276,19 +1320,24 @@ ssh isidore_cloud 'crontab -l'
 - **Graduated Extraction Phase 2** — HealthMonitor (subsystem checks, delivery tracking), backup.sh (WAL-safe, 7-day rotation)
 - **Graduated Extraction Phase 3A** — Gateway routes on dashboard (/api/send, /api/health)
 - **Graduated Extraction Phase 3B** — Type foundations: BridgeContext (typed subsystem bag), Plugin interface (type-only)
+- **Evolution Sessions 1-4** — DAG memory, A2A server, loop detection, turn recovery, summarizer, context compressor, worktree pool, playbook runner, guardrails, A2A client, group chat, QR generator — all deployed to main
+
+### In Progress
+
+- **Phase F+G (Channels + Remote Control)** — Plugin installed, service files created. Blocked on trust establishment (Remote Control) and dedicated bot token (Channels). See `Plans/phase-fg-channels-remote-control.md`.
+- **Architecture pivot** — Bridge → Channels migration planned. Channels provides native interactive sessions, replacing the bridge's CLI-wrapping approach.
 
 ### Planned
 
-- **E2E testing** — Test dual-mode flow on Telegram, Gregor pipeline end-to-end
-- **Enable PRD executor** — Set PRD_EXECUTOR_ENABLED=1 on VPS after testing
+- **Bridge commands → PAI skills migration** — Convert Telegram commands to portable PAI skills usable across all access surfaces
 - **Email bridge** — IMAP polling + SMTP response (architecture in place, needs credentials)
-- **Cleanup** — Remove dead SKIP_KNOWLEDGE_SYNC env vars
+- **Enable PRD executor** — Set PRD_EXECUTOR_ENABLED=1 on VPS after testing
 
 ### Vision
 
 - **Full parity** — Isidore Cloud should be able to do everything local Isidore can (minus voice/browser), including working on repos, running tests, deploying code.
 - **Proactive behavior** — Daily summaries, project monitoring, automated maintenance (scheduler + daily memory now enable this).
-- **Multi-channel unified inbox** — Telegram, email, and future channels all feed into one conversation.
+- **Multi-channel unified inbox** — Telegram, Channels, Remote Control, email — all access surfaces reaching the same identity with shared memory.
 
 ---
 
@@ -1330,5 +1379,5 @@ Want to build this for your own AI assistant? Here's what you need:
 
 ---
 
-*Last updated: 2026-03-18 (Graduated Extraction phases 1-3B, HealthMonitor, BridgeContext, security hardening, 221 tests)*
+*Last updated: 2026-03-26 (Sessions 1-4 complete, Phase F+G in progress, Channels + Remote Control, 384 tests across 30 files)*
 *Author: mj-deving + Isidore (PAI)*

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Telegram bridge + cross-user pipeline that deploys a PAI assistant ("Isidore Cloud") to a VPS for 24/7 mobile access. Runs alongside Gregor/OpenClaw on the same server.
+PAI cloud assistant ("Isidore Cloud") on a VPS for 24/7 mobile access. Currently uses a custom Telegram bridge; migrating to Claude Channels as primary access surface (see `Plans/phase-fg-channels-remote-control.md`). Runs alongside Gregor/OpenClaw on the same server.
 
 **Owner:** Marius
 **GitHub:** [mj-deving/my-pai-cloud-solution](https://github.com/mj-deving/my-pai-cloud-solution)
@@ -39,7 +39,7 @@ bash scripts/backup.sh
 ```
 
 ```bash
-# Run tests (347 tests across 25 files)
+# Run tests (384 tests across 30 files)
 bun test
 
 # Pre-commit verification (type check + tests + Codex review)
@@ -183,7 +183,7 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 - **File naming:** kebab-case
 - **Paths:** `paths.local` and `paths.vps` in project registry accept `string | null` for cloud-only or local-only projects
 - **Knowledge base:** `.ai/guides/` — referenceable technical docs. Guides: `bridge-mechanics.md`, `design-decisions.md`, `memory-architecture-comparison.md`, `tdd-review-workflow.md`, `channels-maestro-evolution.md`
-- **Plans:** `Plans/` — implementation plans. Active: `pai-evolution-master-plan.md` (v4, 4-session evolution plan covering DAG memory, A2A, Maestro features)
+- **Plans:** `Plans/` — implementation plans. Active: `pai-evolution-master-plan.md` (v4, Sessions 1-4 complete), `phase-fg-channels-remote-control.md` (v2.1, Channels + Remote Control migration)
 
 ## VPS Details
 
@@ -194,4 +194,4 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 - **Config:** `/home/isidore_cloud/.config/isidore_cloud/bridge.env`
 - **Pipeline:** `/var/lib/pai-pipeline/{tasks,results,ack,reverse-tasks,reverse-results,reverse-ack,workflows}` — shared via `pai` group (setgid 2770)
 - **Workspace:** `/home/isidore_cloud/workspace/` — daily memory files, git-tracked
-- **Services:** `isidore-cloud-bridge` (Telegram + pipeline + orchestrator), `isidore-cloud-tmux` (persistent tmux)
+- **Services:** `isidore-cloud-bridge` (Telegram + pipeline + orchestrator — PRIMARY), `isidore-cloud-remote` (Remote Control server mode — SUPPLEMENTARY, pending trust), `isidore-cloud-channels` (Claude Channels Telegram plugin — SUPPLEMENTARY, pending bot token), `isidore-cloud-tmux` (persistent tmux)
