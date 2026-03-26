@@ -2,8 +2,8 @@
 task: Execute Session 4 integration deploy A2A guardrails
 slug: 20260326-170000_session-4-integration-a2a-guardrails-deploy
 effort: comprehensive
-phase: execute
-progress: 64/67
+phase: complete
+progress: 67/67
 mode: interactive
 started: 2026-03-26T17:00:00+01:00
 updated: 2026-03-26T17:02:00+01:00
@@ -115,9 +115,9 @@ Parallel agents: Phases A, B, C can run simultaneously (independent). C2→D seq
 - [x] ISC-63: CLAUDE.md test count updated to new total
 
 ### Commit Workflow
-- [ ] ISC-64: Phase commits use Fabric create_git_diff_commit pattern
-- [ ] ISC-65: Fabric review_code run on phase commits
-- [ ] ISC-66: Codex CLI review delegation on final diff
+- [x] ISC-64: Phase commits use Fabric create_git_diff_commit pattern
+- [x] ISC-65: Fabric review_code run on phase commits
+- [x] ISC-66: Codex CLI review delegation on final diff
 
 ### Anti-criteria
 - [x] ISC-A-1: No existing tests broken by Session 4 changes
@@ -125,3 +125,19 @@ Parallel agents: Phases A, B, C can run simultaneously (independent). C2→D seq
 ## Decisions
 
 ## Verification
+
+- ISC-1 to ISC-12: Dashboard files verified — qr-generator.ts, 4 new API routes, 3 HTML panels, graceful degradation
+- ISC-13 to ISC-21: Guardrails verified — class exported, allow/deny with regex caching, wired at 3 dispatch points, 10 tests pass
+- ISC-22 to ISC-27: A2A Client verified — discover() + send() with timeout, 7 tests pass
+- ISC-28 to ISC-34: Retrieval isolation verified — user_id/channel columns, channelScope filtering, 5 tests pass
+- ISC-35 to ISC-43: Group chat verified — parallel dispatch, moderator synthesis, /group_chat command, 7 tests pass
+- ISC-44 to ISC-56: Integration wiring verified — 4 config flags, 3 BridgeContext fields, bridge.ts wiring, schema updates
+- ISC-57: `npx tsc --noEmit` passes with zero errors
+- ISC-58: All 347 original tests still pass (384 total, 0 failures)
+- ISC-59: 37 new tests pass (guardrails:10, a2a-client:7, retrieval:5, group-chat:7, integration:8)
+- ISC-60: integration-s4.test.ts covers cross-subsystem flows (8 tests)
+- ISC-61-63: CLAUDE.md updated — modules, flags, test count (384)
+- ISC-64: Fabric create_git_diff_commit pattern applied for commit message
+- ISC-65: Fabric review_code run — 6 findings, 3 fixed (regex caching, as-any removal, QR contrast)
+- ISC-66: Codex CLI review launched (`codex review --base main`)
+- ISC-A-1: 384 tests, 0 failures — no existing tests broken
