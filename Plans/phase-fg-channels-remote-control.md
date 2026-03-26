@@ -144,7 +144,7 @@ Create `/etc/systemd/system/isidore-cloud-remote.service`:
 Description=Isidore Cloud Remote Control (Claude Code Server Mode)
 After=network.target isidore-cloud-bridge.service
 Wants=network-online.target
-PartOf=isidore-cloud-bridge.service
+# No PartOf — supplementary services survive bridge restarts independently
 
 [Service]
 Type=simple
@@ -152,6 +152,7 @@ User=isidore_cloud
 WorkingDirectory=/home/isidore_cloud/projects/my-pai-cloud-solution
 Environment=HOME=/home/isidore_cloud
 Environment=PAI_DIR=/home/isidore_cloud/.claude
+Environment=PATH=/home/isidore_cloud/.bun/bin:/home/isidore_cloud/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/home/isidore_cloud/.npm-global/bin/claude remote-control --name "PAI Cloud" --spawn worktree --capacity 4
 Restart=on-failure
 RestartSec=10
@@ -163,8 +164,8 @@ WantedBy=multi-user.target
 ```
 
 **Service ordering (Fabric finding #5):**
-- `After=isidore-cloud-bridge.service` — waits for bridge to start first
-- `PartOf=isidore-cloud-bridge.service` — stops when bridge stops
+- `After=isidore-cloud-bridge.service` — waits for bridge to start first on boot
+- No `PartOf` — supplementary services stay up during bridge deploys/restarts (Codex P2)
 
 ```bash
 sudo cp /tmp/isidore-cloud-remote.service /etc/systemd/system/
@@ -276,7 +277,7 @@ claude --channels plugin:telegram@claude-plugins-official \
 Description=Isidore Cloud Channels (Claude Code Telegram Plugin)
 After=network.target isidore-cloud-bridge.service
 Wants=network-online.target
-PartOf=isidore-cloud-bridge.service
+# No PartOf — supplementary services survive bridge restarts independently
 
 [Service]
 Type=simple
@@ -284,6 +285,7 @@ User=isidore_cloud
 WorkingDirectory=/home/isidore_cloud/projects/my-pai-cloud-solution
 Environment=HOME=/home/isidore_cloud
 Environment=PAI_DIR=/home/isidore_cloud/.claude
+Environment=PATH=/home/isidore_cloud/.bun/bin:/home/isidore_cloud/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/home/isidore_cloud/.npm-global/bin/claude --channels plugin:telegram@claude-plugins-official --name "Isidore Channels"
 Restart=on-failure
 RestartSec=10
@@ -300,6 +302,8 @@ WantedBy=multi-user.target
 #!/bin/bash
 # scripts/verify-access-surfaces.sh
 set -e
+# Source bridge.env for DASHBOARD_TOKEN
+source ~/.config/isidore_cloud/bridge.env 2>/dev/null || true
 echo "[1/5] Bridge service..."
 sudo systemctl is-active isidore-cloud-bridge || { echo "FAIL: bridge down"; exit 1; }
 
@@ -372,8 +376,13 @@ curl -s -H "Authorization: Bearer $DASHBOARD_TOKEN" http://127.0.0.1:3456/api/st
 
 No new feature flags needed — these are external services, not bridge subsystems. Enable/disable via systemd:
 ```bash
-sudo systemctl enable/disable isidore-cloud-channels
-sudo systemctl enable/disable isidore-cloud-remote
+# Enable (start on boot):
+sudo systemctl enable isidore-cloud-channels
+sudo systemctl enable isidore-cloud-remote
+
+# Disable (don't start on boot):
+sudo systemctl disable isidore-cloud-channels
+sudo systemctl disable isidore-cloud-remote
 ```
 
 ## Documentation Updates (Fabric finding #12 — complete)
@@ -389,7 +398,8 @@ sudo systemctl enable/disable isidore-cloud-remote
 **Service management:**
   sudo systemctl status isidore-cloud-{bridge,channels,remote}
   sudo journalctl -u isidore-cloud-channels -f
-  sudo systemctl enable/disable isidore-cloud-{channels,remote}
+  sudo systemctl enable isidore-cloud-channels   # start on boot
+  sudo systemctl disable isidore-cloud-channels  # don't start on boot
 ```
 
 **CLAUDE.md Telegram Commands:**
@@ -433,3 +443,7 @@ sudo systemctl enable/disable isidore-cloud-remote
 | Implementation order incomplete | Fabric #10 | MEDIUM | Revised to gate-based sequence with rollback at each step. |
 | Hook scoping untested | Fabric #11 | MEDIUM | Documented: hooks are global, bridge env vars don't leak. |
 | Documentation incomplete | Fabric #12 | MEDIUM | Added troubleshooting section, service management commands. |
+| Bun not in PATH for systemd units | Codex P1 | HIGH | Added Environment=PATH with ~/.bun/bin to both service units. |
+| PartOf couples services to bridge restarts | Codex P2 | MEDIUM | Removed PartOf — supplementary services survive bridge deploys. |
+| verify script missing bridge.env source | Codex P3 | LOW | Added `source ~/.config/isidore_cloud/bridge.env` to script. |
+| enable/disable not valid systemctl verb | Codex P3 | LOW | Split into separate `enable` and `disable` commands. |
