@@ -1,0 +1,25 @@
+[Unit]
+Description=Isidore Cloud Dashboard (standalone monitoring + gateway + A2A)
+After=network-online.target
+Wants=network-online.target
+StartLimitBurst=3
+StartLimitIntervalSec=300
+
+[Service]
+Type=simple
+User=isidore_cloud
+Group=isidore_cloud
+WorkingDirectory=/home/isidore_cloud/projects/my-pai-cloud-solution
+ExecStart=/home/isidore_cloud/.bun/bin/bun standalone/dashboard/main.ts
+Restart=on-failure
+RestartSec=10
+EnvironmentFile=/home/isidore_cloud/.config/isidore_cloud/dashboard.env
+Environment="HOME=/home/isidore_cloud"
+Environment="PATH=/home/isidore_cloud/.bun/bin:/home/isidore_cloud/.npm-global/bin:/usr/local/bin:/usr/bin:/bin"
+NoNewPrivileges=yes
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isidore-cloud-dashboard
+
+[Install]
+WantedBy=multi-user.target
