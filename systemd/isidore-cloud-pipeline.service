@@ -1,0 +1,25 @@
+[Unit]
+Description=Isidore Cloud Pipeline Watcher (standalone daemon)
+After=network-online.target
+Wants=network-online.target
+StartLimitBurst=3
+StartLimitIntervalSec=300
+
+[Service]
+Type=simple
+User=isidore_cloud
+Group=pai
+WorkingDirectory=/home/isidore_cloud/projects/my-pai-cloud-solution
+ExecStart=/home/isidore_cloud/.bun/bin/bun standalone/pipeline-watcher.ts
+Restart=on-failure
+RestartSec=30
+EnvironmentFile=/home/isidore_cloud/.config/isidore_cloud/pipeline.env
+Environment="HOME=/home/isidore_cloud"
+Environment="PATH=/home/isidore_cloud/.bun/bin:/home/isidore_cloud/.npm-global/bin:/usr/local/bin:/usr/bin:/bin"
+NoNewPrivileges=yes
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isidore-cloud-pipeline
+
+[Install]
+WantedBy=multi-user.target

@@ -1,16 +1,25 @@
 # Phase F+G: Claude Channels + Remote Control — Implementation Plan v2
 
 **Date:** 2026-03-26 (v2: addresses all Fabric + Codex review findings)
+**Updated:** 2026-04-02 (Phase F complete, Phase G still pending)
 **Scope:** Add Claude Channels (Telegram plugin) + Remote Control as supplementary access surfaces alongside the existing bridge
 **Approach:** Non-destructive — bridge stays primary, Channels and Remote Control are additive
-**Dependencies:** Claude Code v2.1.80+ on VPS (currently 2.1.76 — upgrade required)
+**Dependencies:** Claude Code v2.1.80+ on VPS (currently v2.1.84 — upgraded 2026-03-26)
 **Reviewed by:** Fabric review_code (12 findings, all addressed), Codex GPT-5.4 (3 code findings, all fixed in separate commit)
+
+## Status Summary
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Step 0 (CLI Upgrade) | COMPLETE | v2.1.84 on VPS, bridge verified |
+| Phase F (Channels) | COMPLETE | Bot live, MCP tools working, hooks firing |
+| Phase G (Remote Control) | PENDING | Needs interactive acceptance of workspace trust prompt |
 
 ## Blocker Resolution (verified 2026-03-26)
 
 | Blocker | Status | Evidence |
 |---------|--------|----------|
-| Plugin availability | RESOLVED | `claude plugins list` command works on VPS. No plugins installed yet, but install infrastructure exists. |
+| Plugin availability | RESOLVED | `telegram@claude-plugins-official` v0.0.4 installed and enabled on VPS |
 | OAuth session | RESOLVED | `claude auth status` → `loggedIn: true`, `authMethod: claude.ai`, `subscriptionType: max`, email: `mariusclaude@proton.me` |
 | Memory.db sharing | RESOLVED | Hooks are in `~/.claude/settings.json` (global). All Claude sessions on VPS fire the same 14 hooks. memory.db access is via hooks (LoadContext, PRDSync, etc.) — not bridge-specific. |
 
@@ -61,46 +70,32 @@ PAI hooks fire on ALL Claude sessions — they're in `~/.claude/settings.json` (
 ## Implementation Order (revised per Fabric review)
 
 ```
-1. Upgrade Claude CLI on VPS to v2.1.80+
-2. Verify bridge still works after upgrade (GATE — stop if broken)
-3. Phase G: Remote Control (simpler — no new bot, just CLI flag)
-4. Verify Phase G works from mobile app (GATE)
-5. Phase F: Claude Channels (needs new bot token, plugin install)
-6. Verify Phase F coexists with bridge (GATE)
-7. Create systemd services for both
-8. Document in CLAUDE.md
+1. ✅ Upgrade Claude CLI on VPS to v2.1.80+ (v2.1.84 installed 2026-03-26)
+2. ✅ Verify bridge still works after upgrade (GATE — passed)
+3. ⏳ Phase G: Remote Control — BLOCKED on interactive trust acceptance
+4. ⏳ Verify Phase G works from mobile app (GATE)
+5. ✅ Phase F: Claude Channels — COMPLETE (bot live, MCP + hooks verified)
+6. ✅ Verify Phase F coexists with bridge (GATE — passed)
+7. ✅ Phase F systemd service created; Phase G service created but disabled
+8. ✅ Documented in CLAUDE.md
 ```
 
-Each step has a gate — stop and rollback if verification fails.
+Note: Implementation order deviated from plan — Phase F was completed before Phase G due to the interactive trust acceptance blocker on Remote Control.
 
-## Step 0: Upgrade Claude CLI (prerequisite for both)
+## Step 0: Upgrade Claude CLI (prerequisite for both) — COMPLETE
 
-```bash
-# Upgrade
-ssh isidore_cloud 'npm update -g @anthropic-ai/claude-code'
+Upgraded to v2.1.84 on 2026-03-26. Bridge verified working after upgrade.
 
-# Verify version
-ssh isidore_cloud 'claude --version'  # Must be v2.1.80+
+## Phase G: Remote Control (Server Mode) — PENDING
 
-# GATE: Verify bridge still works after upgrade
-ssh isidore_cloud 'sudo systemctl restart isidore-cloud-bridge'
-sleep 5
-ssh isidore_cloud 'sudo systemctl is-active isidore-cloud-bridge'
-# Send test message via Telegram or /api/send
-```
-
-**Rollback if bridge breaks:**
-```bash
-ssh isidore_cloud 'npm install -g @anthropic-ai/claude-code@2.1.76'
-ssh isidore_cloud 'sudo systemctl restart isidore-cloud-bridge'
-```
-
-## Phase G: Remote Control (Server Mode)
+**Blocker:** Requires interactive acceptance of "Enable Remote Control?" workspace trust prompt. Cannot be automated — needs SSH TTY session: `ssh -t isidore_cloud 'cd ~/projects/my-pai-cloud-solution && ~/.npm-global/bin/claude'` → accept → `/exit` → `sudo systemctl enable --now isidore-cloud-remote`
 
 ### Prerequisites
-- [x] Claude CLI v2.1.51+ on VPS (met after upgrade)
+- [x] Claude CLI v2.1.51+ on VPS (v2.1.84 installed)
 - [x] OAuth session valid (`claude auth status` → logged in as mariusclaude@proton.me, max subscription)
+- [x] Systemd service file created (`isidore-cloud-remote`, disabled — awaiting trust acceptance)
 - [ ] Claude mobile app installed on Marius's phone
+- [ ] Interactive workspace trust acceptance (BLOCKER)
 
 ### Step 1: Test Interactive Remote Control
 ```bash
@@ -206,13 +201,25 @@ ssh isidore_cloud '(crontab -l 2>/dev/null; echo "30 3 * * * cd ~/projects/my-pa
 - **OAuth session expiry.** Mitigation: periodic check via `claude auth status`. Re-auth: `claude auth login`.
 - **Worktree disk usage.** Mitigation: capacity=4, daily prune cron.
 
-## Phase F: Claude Channels (Telegram Plugin)
+## Phase F: Claude Channels (Telegram Plugin) — COMPLETE
 
-### Prerequisites
-- [x] Claude CLI v2.1.80+ on VPS (from Step 0)
+Channels is live on VPS as of 2026-03-26. Implementation details below reflect what was actually deployed.
+
+### Actual Implementation
+
+- **Service:** `isidore-cloud-channels` systemd service, tmux-based
+- **Launch:** `claude --channels` flag (not `--channels plugin:telegram@...` as originally planned)
+- **Plugin:** `telegram@claude-plugins-official` v0.0.4 installed and enabled
+- **Access control:** `access.json` allowlist (not `/telegram:access` commands as originally planned)
+- **MCP servers:** Configured via `.mcp.json` — pai-memory-server and pai-context-server working
+- **Hooks:** All 14 PAI hooks fire correctly in Channels sessions (verified via journalctl)
+- **Bot:** Separate Telegram bot token, coexists with bridge bot
+
+### Prerequisites (all met)
+- [x] Claude CLI v2.1.80+ on VPS (v2.1.84 installed)
 - [x] OAuth session valid (verified above)
-- [ ] Create second Telegram bot via @BotFather (name: "Isidore Direct")
-- [ ] Get the new bot token
+- [x] Create second Telegram bot via @BotFather
+- [x] Get the new bot token and configure plugin
 
 ### Step 0.5: Verify Plugin Availability (Fabric finding #1)
 

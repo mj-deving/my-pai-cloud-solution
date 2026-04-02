@@ -61,8 +61,9 @@ S1 (DAG Memory + MCP + Safety)
 │  Mounted on existing Dashboard Bun.serve │
 ├──────────────────────────────────────────┤
 │  Access Surfaces (user-to-agent)         │
-│  ├── Telegram (primary, bridge)          │
-│  ├── Remote Control (interactive)        │
+│  ├── Telegram Bridge (primary)           │
+│  ├── Telegram Channels (live, suppl.)    │
+│  ├── Remote Control (pending)            │
 │  └── Dashboard (monitoring)              │
 └──────────────────────────────────────────┘
 ```
@@ -173,14 +174,18 @@ S1 (DAG Memory + MCP + Safety)
   - Feature flag: `A2A_ENABLED` (requires `DASHBOARD_ENABLED=1`)
   - Uses `a2a-node-sdk` npm package for TypeScript types. Bun-compatible (pure TypeScript)
 
-### Phase F: Channels Exploration
-- Install official Telegram Channel plugin on VPS
-- Test alongside existing bridge (NOT replacing it)
-- Test permission relay (approve/deny tool use from Telegram)
-- Create lab bot (separate Telegram bot) for isolated testing
+### Phase F: Channels Exploration — COMPLETE (2026-03-26)
+- [x] Installed `telegram@claude-plugins-official` v0.0.4 on VPS
+- [x] Deployed as tmux-based systemd service (`isidore-cloud-channels`) with `--channels` flag
+- [x] Separate Telegram bot, coexists with bridge
+- [x] MCP tools (pai-memory, pai-context) working via `.mcp.json`
+- [x] All 14 PAI hooks verified firing
+- [x] Access control via `access.json` allowlist
 
-### Phase G: Remote Control Setup
+### Phase G: Remote Control Setup — PENDING
 - `claude remote-control --name "PAI Cloud"` as systemd service
+- Systemd service file created (`isidore-cloud-remote`), disabled
+- **Blocker:** Requires interactive acceptance of workspace trust prompt (cannot be automated)
 - Coexists with bridge (separate service)
 - Test from Claude mobile app
 
@@ -193,8 +198,8 @@ S1 (DAG Memory + MCP + Safety)
 - Hooks replacing prompt injection (portable across bridge + native CLI)
 - Turn recovery policy (formalized retry per error category)
 - A2A agent server (Isidore exposed as A2A-compatible agent)
-- Channels tested and evaluated (not production yet)
-- Remote Control as supplementary access path
+- Channels deployed and live (tmux-based systemd service, MCP + hooks verified)
+- Remote Control pending (systemd service created, blocked on interactive trust acceptance)
 - ~32 new tests, ~298 total passing
 
 ---

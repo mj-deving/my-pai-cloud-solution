@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "pai-memory": {
+      "command": "bun",
+      "args": ["src/mcp/pai-memory-server.ts"]
+    },
+    "pai-context": {
+      "command": "bun",
+      "args": ["src/mcp/pai-context-server.ts"]
+    }
+  }
+}

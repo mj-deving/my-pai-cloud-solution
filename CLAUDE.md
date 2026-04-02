@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-PAI cloud assistant ("Isidore Cloud") on a VPS for 24/7 mobile access. Currently uses a custom Telegram bridge; migrating to Claude Channels as primary access surface (see `Plans/phase-fg-channels-remote-control.md`). Runs alongside Gregor/OpenClaw on the same server.
+PAI cloud assistant ("Isidore Cloud") on a VPS for 24/7 mobile access. Dual access: custom Telegram bridge + Claude Channels (@isidore_channel_bot, live). Channels is the target primary surface; bridge is active but pipeline offloaded to standalone daemon. See `Plans/phase-fg-channels-remote-control.md`. Runs alongside Gregor/OpenClaw on the same server.
 
 **Owner:** Marius
 **GitHub:** [mj-deving/my-pai-cloud-solution](https://github.com/mj-deving/my-pai-cloud-solution)
@@ -36,6 +36,18 @@ ssh isidore_cloud 'sudo journalctl -u isidore-cloud-bridge -f'
 # Backup memory.db + bridge.env (WAL checkpoint, 7-day rotation)
 bash scripts/backup.sh
 # Cron: 0 3 * * * /home/isidore_cloud/projects/my-pai-cloud-solution/scripts/backup.sh
+
+# Standalone pipeline watcher (replaces bridge's PipelineWatcher)
+bun run standalone/pipeline-watcher.ts
+
+# Restart standalone pipeline on VPS after deploy
+ssh isidore_cloud 'sudo systemctl restart isidore-cloud-pipeline'
+
+# View live pipeline watcher logs
+ssh isidore_cloud 'sudo journalctl -u isidore-cloud-pipeline -f'
+
+# Start Channels (tmux-based, uses --channels flag)
+ssh isidore_cloud 'sudo systemctl restart isidore-cloud-channels'
 ```
 
 ```bash
@@ -104,7 +116,7 @@ Telegram message → Grammy bot (telegram.ts)
 
 See `ARCHITECTURE.md` for detailed flow diagrams. Summary:
 
-- **Forward pipeline:** Gregor writes JSON tasks → `PipelineWatcher` polls, dispatches one-shot Claude, writes results atomically
+- **Forward pipeline:** Gregor writes JSON tasks → `standalone/pipeline-watcher.ts` polls, dispatches one-shot Claude, writes results atomically. Runs as `isidore-cloud-pipeline` systemd service (bridge pipeline disabled via `PIPELINE_ENABLED=0`)
 - **Reverse pipeline:** `/delegate` or orchestrator → writes to reverse-tasks/ → Gregor executes → result routed back
 - **Orchestrator:** `/workflow create` → Claude decomposes into DAG steps → parallel dispatch to Isidore (local) or Gregor (reverse pipeline)
 
@@ -115,12 +127,13 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 - **Session sharing:** All channels share one session ID file. `claude --resume` continues the same conversation. Per-project sessions via `ProjectManager`. Workspace has its own session stored in memory.db.
 - **Dual-mode:** Workspace mode (default) for autonomous/general work with auto-session management. Project mode for focused git-repo work with manual session control.
 - **Auto-wrapup:** ModeManager tracks real context fill via CLI usage data. Suggests wrapup at 70% (both modes), never force-rotates. `/keep` dismisses suggestion.
-- **One-shot pipeline:** Pipeline tasks from Gregor do NOT share Marius's session. Each gets a fresh Claude context.
+- **One-shot pipeline:** Pipeline tasks from Gregor do NOT share Marius's session. Each gets a fresh Claude context. Now handled by standalone daemon, not bridge.
+- **Channels live:** @isidore_channel_bot via `claude --channels plugin:telegram@claude-plugins-official` (flag hidden from `--help`). Runs as tmux-based systemd service. MCP tools auto-loaded from `.mcp.json` (pai-memory 8 tools, pai-context 2 tools).
 - **PAI hooks:** 16 hooks enabled on VPS (security, context loading, ratings, PRD sync, learnings). 7 disabled (Kitty terminal, voice). See `.ai/guides/bridge-mechanics.md`.
 - **Atomic writes:** Pipeline results use write-to-tmp + rename to prevent reading partial files.
 - **Zod validation:** All cross-agent JSON boundaries validated via Zod schemas. Config env vars validated with range checks.
 - **Mandatory dashboard auth:** `DASHBOARD_TOKEN` is required when `DASHBOARD_ENABLED=1`. Bridge refuses to start without it. Gateway routes (`/api/send`) run injection scan and block high-risk prompts with 403. Concurrency capped at 2 simultaneous sends.
-- **Feature flags:** All major subsystems gated behind env vars (default: off). Enables incremental rollout. S1: `DAG_ENABLED`, `MCP_*_ENABLED`, `LOOP_DETECTION_ENABLED`. S2: `A2A_ENABLED` (requires dashboard), `BRIDGE_CONTEXT_INJECTION`. S3: `PLAYBOOK_ENABLED`, `WORKTREE_ENABLED`, `CONTEXT_COMPRESSION_ENABLED`. S4: `GUARDRAILS_ENABLED`, `A2A_CLIENT_ENABLED`, `GROUP_CHAT_ENABLED`, `GROUP_CHAT_MAX_AGENTS`.
+- **Feature flags:** All major subsystems gated behind env vars (default: off). Enables incremental rollout. S1: `DAG_ENABLED`, `MCP_*_ENABLED`, `LOOP_DETECTION_ENABLED`. S2: `A2A_ENABLED` (requires dashboard), `BRIDGE_CONTEXT_INJECTION`. S3: `PLAYBOOK_ENABLED`, `WORKTREE_ENABLED`, `CONTEXT_COMPRESSION_ENABLED`. S4: `GUARDRAILS_ENABLED`, `A2A_CLIENT_ENABLED`, `GROUP_CHAT_ENABLED`, `GROUP_CHAT_MAX_AGENTS`. Note: `PIPELINE_ENABLED=0` on VPS (offloaded to standalone daemon).
 
 ### Module Responsibilities
 
@@ -131,7 +144,8 @@ See `ARCHITECTURE.md` for full file reference (30+ modules). Entry points:
 - **`claude.ts`** — `ClaudeInvoker`: spawns CLI, stream-json parsing, importance scoring, `streamError` capture
 - **`memory.ts`** — `MemoryStore`: SQLite episodic + semantic memory, FTS5, whiteboards
 - **`context.ts`** — `ContextBuilder`: scored retrieval, topic tracking, budget injection
-- **`pipeline.ts`** — `PipelineWatcher`: polls tasks/, Zod validation, concurrent dispatch
+- **`pipeline.ts`** — `PipelineWatcher`: polls tasks/, Zod validation, concurrent dispatch (disabled in bridge; see standalone)
+- **`standalone/pipeline-watcher.ts`** — Standalone pipeline daemon (~320 lines). Replaces bridge PipelineWatcher for task dispatch. Runs as `isidore-cloud-pipeline` systemd service
 - **`github.ts`** — GitHub PR operations via `gh` CLI: create/reuse PR, upsert review comment, merge PR
 - **`config.ts`** — Zod-validated env vars with range checks, feature flags
 - **`message-classifier.ts`** — Routes messages to direct API (Sonnet) or CLI (Opus) based on complexity
@@ -194,4 +208,6 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 - **Config:** `/home/isidore_cloud/.config/isidore_cloud/bridge.env`
 - **Pipeline:** `/var/lib/pai-pipeline/{tasks,results,ack,reverse-tasks,reverse-results,reverse-ack,workflows}` — shared via `pai` group (setgid 2770)
 - **Workspace:** `/home/isidore_cloud/workspace/` — daily memory files, git-tracked
-- **Services:** `isidore-cloud-bridge` (Telegram + pipeline + orchestrator — PRIMARY), `isidore-cloud-remote` (Remote Control server mode — SUPPLEMENTARY, pending trust), `isidore-cloud-channels` (Claude Channels Telegram plugin — SUPPLEMENTARY, pending bot token), `isidore-cloud-tmux` (persistent tmux)
+- **Services:** `isidore-cloud-bridge` (Telegram bot, pipeline disabled — ACTIVE), `isidore-cloud-channels` (Claude Channels @isidore_channel_bot, tmux-based — ACTIVE), `isidore-cloud-pipeline` (standalone pipeline daemon — ACTIVE), `isidore-cloud-remote` (Remote Control server mode — DISABLED), `isidore-cloud-tmux` (persistent tmux)
+- **Claude CLI:** v2.1.90. Channels flag: `--channels plugin:telegram@claude-plugins-official` (hidden from `--help`)
+- **MCP config:** `.mcp.json` in project root auto-loads pai-memory-server (8 tools) + pai-context-server (2 tools)
