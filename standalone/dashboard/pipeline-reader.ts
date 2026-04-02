@@ -1,8 +1,8 @@
 // standalone/dashboard/pipeline-reader.ts — Filesystem reads for pipeline directories
 // Provides task/result/history data without bridge runtime dependencies.
 
-import { readdir, readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, readFile, stat, realpath } from "node:fs/promises";
+import { join, resolve } from "node:path";
 
 interface DirCacheEntry {
   entries: string[];
@@ -38,10 +38,8 @@ export class PipelineReader {
     try {
       const taskFiles = await this.cachedReaddir(this.tasksDir);
       for (const file of taskFiles.filter(f => f.endsWith(".json"))) {
-        try {
-          const raw = await readFile(join(this.tasksDir, file), "utf-8");
-          pending.push({ ...JSON.parse(raw), filename: file });
-        } catch { /* skip */ }
+        const data = await this.safeReadJson(this.tasksDir, file);
+        if (data) pending.push({ ...(data as Record<string, unknown>), filename: file });
       }
     } catch { /* dir may not exist */ }
 
@@ -49,11 +47,8 @@ export class PipelineReader {
     try {
       const resultFiles = await this.cachedReaddir(this.resultsDir);
       for (const file of resultFiles.filter(f => f.endsWith(".json")).slice(-20)) {
-        try {
-          const raw = await readFile(join(this.resultsDir, file), "utf-8");
-          const result = JSON.parse(raw);
-          (result.status === "completed" ? completed : error).push({ ...result, filename: file });
-        } catch { /* skip */ }
+        const data = await this.safeReadJson(this.resultsDir, file) as Record<string, unknown> | null;
+        if (data) ((data.status === "completed" ? completed : error)).push({ ...data, filename: file });
       }
     } catch { /* dir may not exist */ }
 
@@ -72,13 +67,11 @@ export class PipelineReader {
       try {
         const files = await this.cachedReaddir(dir);
         for (const file of files.filter(f => f.endsWith(".json"))) {
-          try {
-            const raw = await readFile(join(dir, file), "utf-8");
-            const data = JSON.parse(raw);
-            if (statusFilter && data.status !== statusFilter) continue;
-            if (query && !JSON.stringify(data).toLowerCase().includes(query)) continue;
-            results.push({ ...data, filename: file, source });
-          } catch { /* skip */ }
+          const data = await this.safeReadJson(dir, file) as Record<string, unknown> | null;
+          if (!data) continue;
+          if (statusFilter && data.status !== statusFilter) continue;
+          if (query && !JSON.stringify(data).toLowerCase().includes(query)) continue;
+          results.push({ ...data, filename: file, source });
         }
       } catch { /* dir may not exist */ }
     }
@@ -97,13 +90,8 @@ export class PipelineReader {
     }
 
     for (const dir of [this.resultsDir, this.ackDir, this.tasksDir]) {
-      try {
-        const filePath = join(dir, filename);
-        const s = await stat(filePath);
-        if (s.isFile()) {
-          return JSON.parse(await readFile(filePath, "utf-8"));
-        }
-      } catch { /* not in this dir */ }
+      const data = await this.safeReadJson(dir, filename);
+      if (data) return data as Record<string, unknown>;
     }
 
     return { error: "Task not found" };
@@ -114,6 +102,18 @@ export class PipelineReader {
       const files = await this.cachedReaddir(dir);
       return files.filter(f => f.endsWith(".json")).length;
     } catch { return 0; }
+  }
+
+  /** Read a JSON file only if its real path stays under the allowed directory (symlink guard). */
+  private async safeReadJson(dir: string, file: string): Promise<unknown | null> {
+    const filePath = join(dir, file);
+    try {
+      const real = await realpath(filePath);
+      const allowedBase = await realpath(dir);
+      if (!real.startsWith(allowedBase + "/") && real !== allowedBase) return null; // symlink escape
+      const raw = await readFile(real, "utf-8");
+      return JSON.parse(raw);
+    } catch { return null; }
   }
 
   private async cachedReaddir(dir: string): Promise<string[]> {

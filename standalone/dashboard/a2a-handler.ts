@@ -82,6 +82,12 @@ export class A2AHandler {
       return this.rpcError(body?.id ?? null, -32600, "Invalid JSON-RPC request");
     }
 
+    // Validate method (A2A spec: message/send or message/stream)
+    const allowedMethods = new Set(["message/send", "message/stream"]);
+    if (!allowedMethods.has(body.method)) {
+      return this.rpcError(body.id, -32601, `Unknown method: ${body.method}`);
+    }
+
     const text = body.params?.message?.parts
       ?.filter(p => p.type === "text")
       .map(p => p.text)
