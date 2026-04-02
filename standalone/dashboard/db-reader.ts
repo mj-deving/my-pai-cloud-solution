@@ -49,7 +49,10 @@ export class DbReader {
     this.db.close();
   }
 
+  private static ALLOWED_TABLES = new Set(["episodes", "knowledge", "summaries"]);
+
   private safeCount(table: string): number {
+    if (!DbReader.ALLOWED_TABLES.has(table)) return 0;
     try {
       const row = this.db.query(`SELECT count(*) as n FROM ${table}`).get() as { n: number } | null;
       return row?.n ?? 0;

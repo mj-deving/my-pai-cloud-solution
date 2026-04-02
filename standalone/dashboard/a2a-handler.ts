@@ -3,6 +3,7 @@
 
 import type { ClaudeRunner } from "./claude-runner";
 import type { DashboardConfig } from "./config";
+import { timingSafeEqual } from "node:crypto";
 
 interface A2AMessage {
   jsonrpc: "2.0";
@@ -57,10 +58,22 @@ export class A2AHandler {
     };
   }
 
+  private static MAX_BODY_BYTES = 8_192;
+
   private async handleSend(req: Request): Promise<Response> {
+    // Body size guard (mirrors /api/send)
+    const contentLength = parseInt(req.headers.get("Content-Length") ?? "0", 10);
+    if (contentLength > A2AHandler.MAX_BODY_BYTES) {
+      return this.rpcError(null, -32600, "Request body too large (max 8KB)");
+    }
+
     let body: A2AMessage;
     try {
-      body = await req.json() as A2AMessage;
+      const raw = await req.text();
+      if (raw.length > A2AHandler.MAX_BODY_BYTES) {
+        return this.rpcError(null, -32600, "Request body too large (max 8KB)");
+      }
+      body = JSON.parse(raw) as A2AMessage;
     } catch {
       return this.rpcError(null, -32700, "Parse error");
     }
@@ -97,13 +110,16 @@ export class A2AHandler {
 
   private checkAuth(req: Request): boolean {
     const header = req.headers.get("Authorization");
-    return header === `Bearer ${this.authToken}`;
+    if (!header) return false;
+    const expected = `Bearer ${this.authToken}`;
+    if (header.length !== expected.length) return false;
+    return timingSafeEqual(Buffer.from(header), Buffer.from(expected));
   }
 
   private jsonResponse(data: unknown, status = 200): Response {
     return new Response(JSON.stringify(data), {
       status,
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "null" },
     });
   }
 

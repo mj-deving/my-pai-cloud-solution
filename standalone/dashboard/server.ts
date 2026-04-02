@@ -10,6 +10,7 @@ import type { A2AHandler } from "./a2a-handler";
 import { getDashboardHtml } from "../../src/dashboard-html";
 import { scanForInjection } from "../../src/injection-scan";
 import { generateQR } from "../../src/qr-generator";
+import { timingSafeEqual } from "node:crypto";
 
 interface SSEClient {
   controller: ReadableStreamDefaultController;
@@ -118,11 +119,20 @@ export class DashboardServer {
   // --- Auth ---
 
   private checkAuth(req: Request): boolean {
+    const expected = this.config.dashboardToken;
+    // Check Authorization header (timing-safe)
     const header = req.headers.get("Authorization");
-    if (header === `Bearer ${this.config.dashboardToken}`) return true;
+    if (header && this.safeCompare(header, `Bearer ${expected}`)) return true;
+    // Query param fallback (for SSE EventSource which can't set headers)
     const url = new URL(req.url);
-    if (url.searchParams.get("token") === this.config.dashboardToken) return true;
+    const param = url.searchParams.get("token");
+    if (param && this.safeCompare(param, expected)) return true;
     return false;
+  }
+
+  private safeCompare(a: string, b: string): boolean {
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(Buffer.from(a), Buffer.from(b));
   }
 
   // --- /api/send gateway ---
@@ -226,7 +236,7 @@ export class DashboardServer {
   private json(data: unknown, status = 200): Response {
     return new Response(JSON.stringify(data), {
       status,
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "null" },
     });
   }
 }
