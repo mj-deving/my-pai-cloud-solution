@@ -51,7 +51,7 @@ ssh isidore_cloud 'sudo systemctl restart isidore-cloud-channels'
 ```
 
 ```bash
-# Run tests (384 tests across 30 files)
+# Run tests (412 tests across 32 files)
 bun test
 
 # Pre-commit verification (type check + tests + Codex review)
@@ -167,7 +167,7 @@ See `ARCHITECTURE.md` for full file reference (30+ modules). Entry points:
 - **`qr-generator.ts`** — QR code generation for mobile dashboard access (data URL output)
 - **`src/hooks/`** — Claude Code hooks for VPS: `memory-query.ts` (shared FTS5 query lib), `user-prompt-submit.ts`, `post-tool-use.ts`, `session-start.ts`
 - **`src/mcp/`** — MCP servers: `pai-memory-server.ts` (8 tools), `pai-context-server.ts` (2 tools), `memory-tools.ts`, `context-tools.ts`, `shared.ts`
-- **`src/__tests__/`** — 384 tests across 30 files
+- **`src/__tests__/`** — 412 tests across 32 files
 
 ## Cross-Instance Continuity
 
