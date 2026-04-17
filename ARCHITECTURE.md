@@ -885,7 +885,6 @@ Task arrives → BranchManager.checkout(projectDir, taskId)
 - **Branch naming:** `pipeline/<first-8-chars-of-taskId>` for readability
 - **Lock persistence:** `branch-locks.json` in pipeline dir, atomic writes via `.tmp` + `rename`
 - **Lock key:** `{projectDir}:{branch}` for multi-project support
-- **Wrapup guard:** `lightweightWrapup()` accepts optional `expectedBranch` — refuses to commit if on wrong branch
 - **Crash recovery:** Existing branches are reused (not error), stale locks cleaned on startup
 - **Orchestrator integration:** Isidore workflow steps also use branch isolation (`pipeline/<wfId>-<stepId>`)
 - **`/branches` command:** Shows active locks with source, project, task ID, and age
@@ -1238,7 +1237,6 @@ ssh isidore_cloud 'gh auth status'
 | `health-monitor.ts` | Periodic subsystem checks (memory, rateLimiter, resourceGuard), sliding-window Telegram delivery tracking, cached snapshots. | `HealthMonitor` |
 | `config.ts` | Zod-validated env vars with range checks, feature flags, WORKSPACE_* config. | `Config`, `loadConfig()` |
 | `types.ts` | `BridgeContext` interface (typed subsystem bag, replaces positional args) + `Plugin` interface (type-only, for future use). | `BridgeContext`, `Plugin` |
-| `wrapup.ts` | Auto-commit tracked changes with branch guard (refuses wrong branch). | `lightweightWrapup()` |
 | `guardrails.ts` | Pre-execution authorization gate for sensitive operations. | `Guardrails` |
 | `a2a-client.ts` | A2A protocol outbound client for agent-to-agent communication. | `A2AClient` |
 | `group-chat.ts` | Multi-agent group chat engine for coordinated conversations. | `GroupChat` |
