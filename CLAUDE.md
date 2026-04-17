@@ -262,6 +262,6 @@ Out of Phase 2 scope. Phase 3 (standalone pipeline watcher) is already live; the
 - **Config:** `/home/isidore_cloud/.config/isidore_cloud/bridge.env`
 - **Pipeline:** `/var/lib/pai-pipeline/{tasks,results,ack,reverse-tasks,reverse-results,reverse-ack,workflows}` — shared via `pai` group (setgid 2770)
 - **Workspace:** `/home/isidore_cloud/workspace/` — daily memory files, git-tracked
-- **Services:** `isidore-cloud-bridge` (Telegram bot, pipeline disabled — ACTIVE), `isidore-cloud-channels` (Claude Channels @isidore_channel_bot, tmux-based — ACTIVE), `isidore-cloud-pipeline` (standalone pipeline daemon — ACTIVE), `isidore-cloud-remote` (Remote Control server mode — DISABLED), `isidore-cloud-tmux` (persistent tmux)
+- **Services:** `isidore-cloud-bridge` (Telegram bot, pipeline disabled — ACTIVE), `isidore-cloud-channels` (Claude Channels @isidore_channel_bot, tmux-based — ACTIVE), `isidore-cloud-pipeline` (standalone pipeline daemon — ACTIVE), `isidore-cloud-remote` (Remote Control server mode, `claude remote-control --spawn worktree --capacity 4`, direct systemd — ACTIVE), `isidore-cloud-tmux` (persistent tmux)
 - **Claude CLI:** v2.1.90. Channels flag: `--channels plugin:telegram@claude-plugins-official` (hidden from `--help`)
 - **MCP config:** `.mcp.json` in project root auto-loads pai-memory-server (8 tools) + pai-context-server (2 tools)
