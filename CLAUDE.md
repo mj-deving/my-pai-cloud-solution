@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Workflow contract lives in [AGENTS.md](AGENTS.md).** Task state is tracked in **Beads** (`bd ready`, `bd remember`). `CLAUDE.md` owns architecture and config; `AGENTS.md` owns workflow and PR discipline.
+
 ## What This Is
 
 PAI cloud assistant ("Isidore Cloud") on a VPS for 24/7 mobile access. Dual access: custom Telegram bridge + Claude Channels (@isidore_channel_bot, live). Channels is the target primary surface; bridge is active but pipeline offloaded to standalone daemon. See `Plans/phase-fg-channels-remote-control.md`. Runs alongside Gregor/OpenClaw on the same server.

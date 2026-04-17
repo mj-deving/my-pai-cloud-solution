@@ -1,40 +1,100 @@
-# Agent Instructions
+# AGENTS.md — Workflow Contract
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+Repo: `my-pai-cloud-solution` (Isidore Cloud — PAI cloud assistant on VPS).
 
-## Quick Reference
+This file is the **workflow authority**. Architecture and config live in `CLAUDE.md`.
+
+## Read Order
+
+1. `CLAUDE.md` — architecture, build commands, project-specific conventions
+2. `AGENTS.md` (this file) — workflow, Beads lifecycle, PR discipline
+3. `bd ready` — what's actionable now
+4. `gh pr list --state open` — whose changes are in flight
+5. Relevant `.ai/guides/*.md` for the subsystem you're touching
+6. Active `Plans/*.md` (2 files — don't read archived plans)
+
+## Authority Model
+
+| Domain | Authority |
+|---|---|
+| Architecture, build, deploy | `CLAUDE.md` (git-tracked) |
+| Workflow, Beads lifecycle, PR rules | `AGENTS.md` (this file) |
+| Task state, operational memory | **Beads** (`bd ready`, `bd remember`, `bd memories`) |
+| Code truth | `main` branch + merged PRs |
+| Session continuity | `bd ready` + Claude auto-memory |
+
+**Beads is the task authority** — not MEMORY.md, not TodoWrite, not markdown TODO lists.
+`MEMORY.md` / `CLAUDE.local.md` remain as session-continuity pointers only, never as task queues.
+
+## Branch & PR Discipline
+
+**Never push to `main` directly.** A pre-push hook blocks it.
+
+1. Create a `cloud/<description>` branch for every change
+2. Use `/sync` (Telegram) or manual `git push -u origin cloud/<...>` — this auto-opens a GitHub PR + Codex review
+3. Address Codex findings, re-push
+4. `/merge` merges the PR via `gh pr merge`, syncs local `main`, deletes the branch
+
+Direct push to `main` is a workflow violation even on trivial changes.
+
+## Beads Lifecycle
 
 ```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work atomically
-bd close <id>         # Complete work
-bd dolt push          # Push beads data to remote
+bd ready                          # what to work on
+bd show <id>                      # full issue context
+bd update <id> --claim            # atomic claim before implementation
+bd note <id> "progress..."        # during execution
+bd dep <blocker> --blocks <id>    # real sequencing only
+bd remember "fact" --key <name>   # durable operational memory
+bd close <id> --reason "..."      # only on real completion / merge / supersession
 ```
 
-## Non-Interactive Shell Commands
+**Rules:**
+- Claim before implementation; never parallel-work a claimed bead
+- Create follow-up beads when scope expands — don't silently widen existing ones
+- Close only after merge, not after commit
+- Use `bd remember` for gotchas, constraints, host facts — not markdown
 
-**ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.
+## Validation Ladder
 
-Shell commands like `cp`, `mv`, and `rm` may be aliased to include `-i` (interactive) mode on some systems, causing the agent to hang indefinitely waiting for y/n input.
+Before `/sync`:
 
-**Use these forms instead:**
 ```bash
-# Force overwrite without prompting
-cp -f source dest           # NOT: cp source dest
-mv -f source dest           # NOT: mv source dest
-rm -f file                  # NOT: rm file
-
-# For recursive operations
-rm -rf directory            # NOT: rm -r directory
-cp -rf source dest          # NOT: cp -r source dest
+bunx tsc --noEmit       # type check
+bun test                # 412+ tests
+bash scripts/review-and-fix.sh   # optional — Codex pre-commit review
 ```
 
-**Other commands that may prompt:**
-- `scp` - use `-o BatchMode=yes` for non-interactive
-- `ssh` - use `-o BatchMode=yes` to fail instead of prompting
-- `apt-get` - use `-y` flag
-- `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
+After `/sync`:
+- GitHub Codex review posts as PR comment
+- Fix findings, push again
+- `/merge` when clean
+
+## Deploy Validation
+
+VPS services require restart after deploy:
+
+```bash
+ssh isidore_cloud 'sudo systemctl restart isidore-cloud-bridge'
+ssh isidore_cloud 'sudo systemctl restart isidore-cloud-pipeline'
+ssh isidore_cloud 'sudo systemctl restart isidore-cloud-channels'
+ssh isidore_cloud 'sudo journalctl -u <service> -f'
+```
+
+Never assert "deployed" without verifying via `systemctl status` or logs.
+
+## Tier
+
+Operating as **T1** (solo hook-enabled Claude, PR-first).
+Upgrade triggers for T2: parallel multi-agent work in one worktree, hot-file serialization, `bd gate` async waits. Not yet needed.
+
+## Do Not
+
+- Do not push to `main`
+- Do not close beads without real completion
+- Do not use `TodoWrite` / `TaskCreate` / markdown TODO for task tracking
+- Do not duplicate facts between `CLAUDE.md` and `bd remember`
+- Do not add nested `AGENTS.md` unless a subproject truly diverges
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
 ## Beads Issue Tracker
@@ -81,4 +141,6 @@ bd close <id>         # Complete work
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
+
+> **Repo override:** `git push` targets the current `cloud/<...>` branch, not `main`. Landing goes through `/merge` (PR-based). See "Branch & PR Discipline" above.
 <!-- END BEADS INTEGRATION -->
