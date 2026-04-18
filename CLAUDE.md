@@ -167,9 +167,10 @@ See `ARCHITECTURE.md` for full file reference (30+ modules). Entry points:
 - **`a2a-client.ts`** — `A2AClient`: outbound A2A protocol client. Discovers agents via agent card, sends messages via JSON-RPC 2.0
 - **`group-chat.ts`** — `GroupChatEngine`: multi-agent group chat with moderator synthesis. Dispatches to N agents in parallel, records with channel isolation
 - **`qr-generator.ts`** — QR code generation for mobile dashboard access (data URL output)
-- **`src/hooks/`** — Claude Code hooks for VPS: `memory-query.ts` (shared FTS5 query lib), `user-prompt-submit.ts`, `post-tool-use.ts`, `session-start.ts`
+- **`src/hooks/`** — Claude Code hooks for VPS: `memory-query.ts` (shared FTS5 query lib), `user-prompt-submit.ts`, `post-tool-use.ts`, `session-start.ts`, `stop.ts` (Move 1 — turn recording), `importance-scorer.ts` (Move 3 — Haiku-powered rescoring, decoupled from Stop)
 - **`src/mcp/`** — MCP servers: `pai-memory-server.ts` (8 tools), `pai-context-server.ts` (2 tools), `memory-tools.ts`, `context-tools.ts`, `shared.ts`
-- **`src/__tests__/`** — 412 tests across 32 files
+- **`scripts/notify.sh`** — Telegram Bot API push shim (Move 2); paired with `deploy/systemd/isidore-cloud-notify@.{service,timer}.example`
+- **`src/__tests__/`** — 440 tests across 34 files
 
 ## Cross-Instance Continuity
 
@@ -252,6 +253,9 @@ Out of Phase 2 scope. Phase 3 (standalone pipeline watcher) is already live; the
 - **Paths:** `paths.local` and `paths.vps` in project registry accept `string | null` for cloud-only or local-only projects
 - **Knowledge base:** `.ai/guides/` — referenceable technical docs. Guides: `bridge-mechanics.md`, `design-decisions.md`, `memory-architecture-comparison.md`, `tdd-review-workflow.md`, `channels-maestro-evolution.md`
 - **Plans:** `Plans/` — implementation plans. Active: `pai-evolution-master-plan.md` (v4, Sessions 1-4 complete), `phase-fg-channels-remote-control.md` (v2.1, Channels + Remote Control migration)
+- **Roadmap:** `docs/roadmap.md` — current 4-move bridge-retirement plan with per-move status
+- **Decisions:** `docs/decisions/` — ADRs. Start with `0001-retire-bridge-additively.md`
+- **Runbooks:** `docs/runbooks/` — operator guides. `scheduler-to-systemd.md` covers Move 2 migration
 
 ## VPS Details
 

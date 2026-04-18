@@ -1,0 +1,32 @@
+# isidore-cloud-notify@.service — template for scheduled Telegram notifications
+# Move 2 of bridge-retirement (beads my-pai-cloud-solution-679).
+#
+# Instance name (%i) is an arbitrary slug identifying the job (e.g. "morning",
+# "backup-report"). Each instance pairs with an identically-named .timer unit.
+#
+# Install: place in /etc/systemd/system/ (strip .example suffix), then
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now isidore-cloud-notify@morning.timer
+#
+# Requires:
+#   - scripts/notify.sh reachable at WorkingDirectory
+#   - TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in EnvironmentFile
+#   - Per-instance CMD in /etc/isidore-cloud/notify/<slug>.env (overrides NOTIFY_CMD)
+
+[Unit]
+Description=Isidore Cloud scheduled notification (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=isidore_cloud
+WorkingDirectory=/home/isidore_cloud/projects/my-pai-cloud-solution
+EnvironmentFile=/home/isidore_cloud/.config/isidore_cloud/bridge.env
+EnvironmentFile=-/etc/isidore-cloud/notify/%i.env
+# NOTIFY_CMD is the shell pipeline whose stdout becomes the message body.
+# Example in morning.env: NOTIFY_CMD='echo "Daily status: $(uptime)"'
+Environment=NOTIFY_CMD='echo "notification %i fired at $(date -Is)"'
+ExecStart=/bin/bash -c 'eval "$NOTIFY_CMD" | /home/isidore_cloud/projects/my-pai-cloud-solution/scripts/notify.sh -'
+StandardOutput=journal
+StandardError=journal

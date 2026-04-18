@@ -29,15 +29,19 @@
 
 ---
 
-## Current State (2026-04-02)
+## Current State (2026-04-18)
 
-**Channels live.** `@isidore_channel_bot` responds via Telegram using Claude Channels plugin (`--channels plugin:telegram@claude-plugins-official`). Claude Code runs interactively in tmux with `access.json` pre-configured (allowlist). MCP servers (`pai-memory`, `pai-context`) auto-load via `.mcp.json`. This is now the primary interactive access surface.
+**All 5 VPS services active.** `isidore-cloud-bridge`, `isidore-cloud-channels`, `isidore-cloud-pipeline`, `isidore-cloud-dashboard`, and `isidore-cloud-remote` all up. Bridge remains PRIMARY surface; Channels and Remote Control are supplementary.
 
-**Standalone pipeline watcher.** `standalone/pipeline-watcher.ts` runs as `isidore-cloud-pipeline` systemd service, replacing the bridge's `PipelineWatcher`. Core loop: poll `tasks/` → Zod validate → dispatch (`claude -p`) → atomic write `results/` → move to `ack/`. Includes injection scan, concurrency cap, ENOENT fatal handling, SIGKILL timeout escalation, and reentrancy guard.
+**Channels live.** `@isidore_channel_bot` responds via Telegram using Claude Channels plugin (`--channels plugin:telegram@claude-plugins-official`). Claude Code runs interactively in tmux with `access.json` pre-configured (allowlist). MCP servers (`pai-memory`, `pai-context`) auto-load via `.mcp.json`.
 
-**Bridge pipeline disabled.** `PIPELINE_ENABLED=0` in `bridge.env`. Bridge still handles Telegram bot (`@IsidoreCloudBot`), dashboard, and scheduler, but pipeline ownership transferred to the standalone daemon.
+**Standalone services.** `standalone/pipeline-watcher.ts` handles cross-agent task dispatch. `isidore-cloud-dashboard` serves the monitoring UI. `isidore-cloud-remote` enables mobile-app control.
 
-**Migration progress.** Phase 1 (MCP tools) and Phase 3 (pipeline watcher extraction) complete. Phases 2 (commands→skills), 4 (dashboard extraction), 5 (bridge retirement), 6 (remote control) pending. Visual plan at `~/.claude/diagrams/channels-migration-plan.html`.
+**Bridge pipeline disabled.** `PIPELINE_ENABLED=0` in `bridge.env`. Bridge still owns Telegram bot (`@IsidoreCloudBot`), the scheduler, `ModeManager`, `HealthMonitor`, `MessageClassifier`, the gateway, and guardrails — its remaining unique value.
+
+**Migration progress.** Phases 1 (MCP), 2 (commands→skills, 6 skills live), 3 (pipeline), 4 (dashboard), 6 (Remote Control) all COMPLETE. Phase 5 (bridge retirement) REFRESHED as a 4-move additive migration — see [`docs/roadmap.md`](docs/roadmap.md) and [`docs/decisions/0001-retire-bridge-additively.md`](docs/decisions/0001-retire-bridge-additively.md).
+
+**Phase 5 status (2026-04-18):** Move 1 (Stop hook) code complete with 17 tests. Move 2 (`notify.sh` + systemd templates) scaffolding landed. Move 3 (Haiku scorer) pure logic landed with 11 tests. Move 4 (Grammy shutdown) GATED on Anthropic resolving [claude-code#36477](https://github.com/anthropics/claude-code/issues/36477).
 
 ---
 

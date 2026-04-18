@@ -1,0 +1,30 @@
+# isidore-cloud-notify@.timer — template for triggering scheduled notifications
+# Pairs with isidore-cloud-notify@.service.
+#
+# Install (example: run every morning at 08:00 local):
+#   sudo cp isidore-cloud-notify@.timer.example \
+#     /etc/systemd/system/isidore-cloud-notify@.timer
+#   sudo cp isidore-cloud-notify@.service.example \
+#     /etc/systemd/system/isidore-cloud-notify@.service
+#   sudo mkdir -p /etc/isidore-cloud/notify
+#   echo 'NOTIFY_CMD="echo Daily roundup: $(date)"' | \
+#     sudo tee /etc/isidore-cloud/notify/morning.env
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now isidore-cloud-notify@morning.timer
+#
+# Override schedule per-instance via drop-ins if needed:
+#   sudo systemctl edit isidore-cloud-notify@morning.timer
+# and set OnCalendar= to your preferred schedule.
+
+[Unit]
+Description=Timer for Isidore Cloud notification (%i)
+
+[Timer]
+# Default: daily at 08:00 local time. Override per-instance with drop-in.
+OnCalendar=*-*-* 08:00:00
+# Catch up on missed runs (VPS reboot, network outage) within the same day.
+Persistent=true
+Unit=isidore-cloud-notify@%i.service
+
+[Install]
+WantedBy=timers.target
