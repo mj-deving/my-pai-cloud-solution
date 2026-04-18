@@ -1,0 +1,13 @@
+# daily-synthesis.conf — drop-in override for isidore-cloud-notify@daily-synthesis.timer
+# Install:
+#   sudo mkdir -p /etc/systemd/system/isidore-cloud-notify@daily-synthesis.timer.d
+#   sudo cp daily-synthesis.conf.example \
+#     /etc/systemd/system/isidore-cloud-notify@daily-synthesis.timer.d/override.conf
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now isidore-cloud-notify@daily-synthesis.timer
+#
+# Matches bridge cron "0 2 * * *" (interpreted as UTC by the bridge Scheduler).
+
+[Timer]
+OnCalendar=
+OnCalendar=*-*-* 02:00:00 UTC

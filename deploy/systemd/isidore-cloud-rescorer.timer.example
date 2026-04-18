@@ -1,0 +1,19 @@
+# isidore-cloud-rescorer.timer — fires Haiku rescorer every 15 minutes.
+# Pairs with isidore-cloud-rescorer.service.
+#
+# Budget note: each run is capped to 50 episodes (--limit 50). At 4 runs/hour
+# that is ≤ 200 Haiku calls per hour, well under API rate limits. Idempotent:
+# already-scored episodes are skipped via scorer_version metadata.
+
+[Unit]
+Description=Timer for Isidore Cloud memory rescorer
+
+[Timer]
+# Every 15 minutes at :00, :15, :30, :45 past the hour.
+OnCalendar=*:0/15
+# Catch up on missed runs after reboot or downtime.
+Persistent=true
+Unit=isidore-cloud-rescorer.service
+
+[Install]
+WantedBy=timers.target

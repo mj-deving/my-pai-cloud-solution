@@ -46,7 +46,7 @@ Stop hook writes completed turns to `memory.db` so Channels + native sessions re
 - Deploy to VPS via `scripts/deploy.sh`
 - Shadow-run 7 days: compare new episodes against `ClaudeInvoker.recordTurn` output
 
-### Move 2 — `notify.sh` + systemd timers [`my-pai-cloud-solution-679`, READY]
+### Move 2 — `notify.sh` + systemd timers [`my-pai-cloud-solution-679`, CODE COMPLETE]
 
 Replace the bridge-owned `Scheduler` (`src/scheduler.ts`) with systemd timers calling `scripts/notify.sh`.
 
@@ -54,28 +54,34 @@ Replace the bridge-owned `Scheduler` (`src/scheduler.ts`) with systemd timers ca
 - `scripts/notify.sh` — minimal Telegram Bot API push wrapper (30 LOC)
 - `deploy/systemd/isidore-cloud-notify@.service.example` — templated oneshot unit
 - `deploy/systemd/isidore-cloud-notify@.timer.example` — templated timer (default daily 08:00)
-- Runbook: `docs/runbooks/scheduler-to-systemd.md`
+- Per-slug env files for the three live schedules: `deploy/systemd/notify/daily-synthesis.env.example`, `weekly-review.env.example`, `daily-memory.env.example`
+- Per-slug timer drop-ins pinning original `OnCalendar`: `daily-synthesis.conf.example` (02:00 UTC), `weekly-review.conf.example` (Sun 03:00 UTC), `daily-memory.conf.example` (22:55 UTC)
+- Runbook updated with concrete install commands: `docs/runbooks/scheduler-to-systemd.md`
 
-**Remaining to ship:**
-- Inventory current schedules: `bd -p PIPELINE_ENABLED=1 bun -e "…"` against the VPS scheduler DB
-- Translate each schedule → `.timer` drop-in + optional `NOTIFY_CMD` env file
-- Set `SCHEDULER_ENABLED=0` in `bridge.env` once parity is reached
+**Remaining (operator-only on VPS):**
+- Copy env files + drop-ins into `/etc/isidore-cloud/notify/` and `/etc/systemd/system/…timer.d/`
+- Run parity window ≥ 48h (Step 5 of runbook)
+- Set `SCHEDULER_ENABLED=0` in `bridge.env` once parity confirmed (Step 6)
 
 **Rate-limit note:** Telegram Bot API: 30 msg/sec global, 1 msg/sec per chat, 20 msg/min per group. `notify.sh` does NOT implement backoff — callers must not loop tightly.
 
-### Move 3 — Importance-scoring hook (Haiku, versioned prompt) [`my-pai-cloud-solution-9xj`, SCAFFOLDED]
+### Move 3 — Importance-scoring hook (Haiku, versioned prompt) [`my-pai-cloud-solution-9xj`, CODE COMPLETE]
 
 Post-insert queue processor that rescores episodes using Claude Haiku. Decoupled from the Stop hook so turn latency stays constant.
 
 **Artefacts landed:**
-- `src/hooks/importance-scorer.ts` — pure scoring logic with `SCORER_PROMPT_VERSION` constant
-- `src/__tests__/importance-scorer.test.ts` — 11 unit tests covering split/build/rescore/idempotency
-- Idempotent: skips episodes already stamped with the current scorer version in metadata
+- `src/hooks/importance-scorer.ts` — pure scoring logic with `SCORER_PROMPT_VERSION` constant (11 unit tests on main)
+- `src/hooks/haiku-scorer.ts` — `HaikuScorer` implementing `Scorer` via direct Anthropic API (Bun.fetch, 8 unit tests, dependency-injected fetch)
+- `scripts/rescore-episodes.ts` — batch rescorer CLI: `--limit N`, `--dry-run`, `--db PATH`, fails open per episode (12 unit tests)
+- `deploy/systemd/isidore-cloud-rescorer.service.example` + `.timer.example` — oneshot unit firing every 15 minutes with `Persistent=true`
+- Runbook: `docs/runbooks/importance-rescoring.md` (5-step enable flow + rollback + prompt-version bump notes)
+- Idempotent: episodes stamped with the current `scorer_version` in metadata are skipped
+- HTTP-decoupled pattern reserved for later — not needed; systemd timer runs out-of-band already
 
-**Remaining to ship:**
-- `Scorer` adapter that calls Claude Haiku via Anthropic SDK (or `claude -p --model haiku` oneShot fallback)
-- Periodic driver: cron or a light daemon that calls `rescoreEpisode(…)` on recent unscored episodes
-- Optional: HTTP-decoupled pattern (POST turn payload to local writer) — follow [`disler/claude-code-hooks-multi-agent-observability`](https://github.com/disler/claude-code-hooks-multi-agent-observability) if DB contention appears
+**Remaining (operator-only on VPS):**
+- Add `ANTHROPIC_API_KEY` to `bridge.env`
+- Dry-run CLI, then install systemd units
+- Sanity-check score distribution after first hour (Step 5)
 
 ### Move 4 — Grammy shutdown [`my-pai-cloud-solution-rtz`, GATED]
 
