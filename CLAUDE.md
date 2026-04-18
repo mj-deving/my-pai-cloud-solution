@@ -56,32 +56,29 @@ ssh isidore_cloud 'sudo systemctl restart isidore-cloud-channels'
 # Run tests (412 tests across 32 files)
 bun test
 
-# Pre-commit verification (type check + tests + Codex review)
-bash scripts/review-and-fix.sh
+# Pre-commit verification (type check + tests)
+bun test && bun x tsc --noEmit
 
 # Type check
-npx tsc --noEmit
-
-# Review a cloud/* branch (local, via Codex CLI)
-bash scripts/review-cloud.sh cloud/<branch-name>
+bun x tsc --noEmit
 
 # Install pre-push hook on VPS (blocks direct pushes to main)
 bash scripts/install-vps-hook.sh
 ```
 
-### Two-Layer Review Workflow
+### Review Workflow (GitHub-native only, since 2026-04-18)
 
-**Layer 1 (local, before commit):**
+Local Codex CLI review is **deactivated** — see ADR `docs/decisions/0002-github-native-review-only.md`. `scripts/review-cloud.sh` and `scripts/review-and-fix.sh` remain in-tree for manual use but are NOT invoked by skills.
+
+**Local (before commit):**
 1. Make changes
-2. `npx tsc --noEmit` + `bun test`
-3. `codex review --base HEAD` on the diff
-4. Fix findings
-5. Commit + push to `cloud/` branch
+2. `bun test` + `bun x tsc --noEmit`
+3. Commit + push to `cloud/` branch via `/sync`
 
-**Layer 2 (GitHub, after push):**
-6. PR created → Codex bot auto-reviews on GitHub
-7. Fix any new findings, push again
-8. `/merge` when clean
+**GitHub (after push):**
+4. PR opens → GitHub-native reviewers (Copilot, Codex GitHub App if enabled, human reviewers) comment
+5. Fix findings, push again
+6. `/merge` when clean
 
 ## Architecture
 
@@ -217,10 +214,10 @@ Phase 2 of the Channels migration maps the 28 bridge commands above to Claude Co
 
 | Bridge | Skill | What it does |
 |--------|-------|--------------|
-| `/sync` | `sync` | Commit + push to `cloud/*` + create PR + Codex review + optional autofix + upsert review comment |
+| `/sync` | `sync` | Commit + push to `cloud/*` + create PR + post local pre-verification comment. Review is GitHub-native. |
 | `/wrapup` | `wrapup` | Session persistence: `bd` sync + handoff + MEMORY.md/CLAUDE.md hygiene; wraps the global `Wrapup` skill |
 | `/deploy` | `deploy` | Self-deploy latest `origin/main` to VPS via `self-deploy.sh`; restart `isidore-cloud-bridge` |
-| `/review` | `review` | Run `codex review --base main` on a `cloud/*` branch; parse P0-P3; post PR comment (upsert) |
+| `/review` | `review` | Summarize a `cloud/*` branch (diff + commits + optional test status) and post a GitHub PR comment. No local Codex CLI. |
 | `/newproject` | `newproject` | Create GitHub repo + VPS dir + scaffold + registry entry + auto-switch |
 | `/group_chat` | `group_chat` | Parallel `Task` dispatch to N custom agents + moderator synthesis |
 
@@ -241,9 +238,9 @@ Out of Phase 2 scope. Phase 3 (standalone pipeline watcher) is already live; the
 
 - **Never push to `main` directly.** A pre-push hook blocks it.
 - **Always create a `cloud/<description>` branch** for your changes.
-- **PR-based flow:** `/sync` pushes and creates a GitHub PR automatically. Codex review is posted as a PR comment. If `CODEX_AUTOFIX=1`, review findings are auto-fixed via `codex exec --full-auto`. `/merge` merges the PR via `gh pr merge`, syncs local main, and cleans up the branch.
+- **PR-based flow:** `/sync` pushes and creates a GitHub PR automatically. Review is handled on GitHub (Copilot / optional Codex GitHub App / human reviewers). `/merge` merges the PR via `gh pr merge`, syncs local main, and cleans up the branch.
 - **Manual fallback:** `git checkout -b cloud/<description>` → commit → `git push -u origin cloud/<description>` → tell Marius.
-- Marius can also review via Codex CLI (`scripts/review-cloud.sh`) or GitHub PR comments.
+- `scripts/review-cloud.sh` and `scripts/review-and-fix.sh` still exist for manual Codex CLI use, but NO skill invokes them. See ADR 0002.
 
 ## Conventions
 

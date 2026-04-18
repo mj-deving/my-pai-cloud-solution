@@ -31,8 +31,8 @@ This file is the **workflow authority**. Architecture and config live in `CLAUDE
 **Never push to `main` directly.** A pre-push hook blocks it.
 
 1. Create a `cloud/<description>` branch for every change
-2. Use `/sync` (Telegram) or manual `git push -u origin cloud/<...>` — this auto-opens a GitHub PR + Codex review
-3. Address Codex findings, re-push
+2. Use `/sync` (Telegram) or manual `git push -u origin cloud/<...>` — this opens a GitHub PR; review is GitHub-native (Copilot / Codex GitHub App / reviewers)
+3. Address review findings on the PR, re-push
 4. `/merge` merges the PR via `gh pr merge`, syncs local `main`, deletes the branch
 
 Direct push to `main` is a workflow violation even on trivial changes.
@@ -60,13 +60,14 @@ bd close <id> --reason "..."      # only on real completion / merge / supersessi
 Before `/sync`:
 
 ```bash
-bunx tsc --noEmit       # type check
-bun test                # 412+ tests
-bash scripts/review-and-fix.sh   # optional — Codex pre-commit review
+bun x tsc --noEmit       # type check
+bun test                 # 440+ tests
+# Optional: `bash scripts/review-and-fix.sh` for a manual Codex CLI second opinion.
+# No skill invokes it anymore — see ADR docs/decisions/0002-github-native-review-only.md
 ```
 
 After `/sync`:
-- GitHub Codex review posts as PR comment
+- GitHub-native review (Copilot / optional Codex GitHub App / reviewers) posts on the PR
 - Fix findings, push again
 - `/merge` when clean
 

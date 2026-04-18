@@ -1,19 +1,18 @@
 ---
 name: sync
-description: "Commit + push to cloud/* branch + open PR + run Codex review + optionally autofix + post review to PR. USE WHEN user says /sync, sync this, push and review, commit and review, ship changes, save to cloud branch."
+description: "Commit + push to cloud/* branch + open PR. Review is GitHub-native (Copilot / Codex bot / required reviewers) — no local Codex CLI step. USE WHEN user says /sync, sync this, push and review, commit and review, ship changes, save to cloud branch."
 user_invocable: true
 trigger: /sync
 ---
 
-# /sync — Commit, Push, PR, Review
+# /sync — Commit, Push, PR
 
-Replicates the bridge `/sync` command in a Channels-native flow. Chains git + gh + codex into one linear workflow.
+Replicates the bridge `/sync` command in a Channels-native flow. Chains git + gh into one linear workflow. Review happens on GitHub (Copilot / Codex bot / human reviewers) — this skill no longer runs local Codex CLI.
 
 ## Preconditions
 
 - Repo has a remote named `origin` pointing to GitHub
 - `gh` CLI authenticated (`gh auth status`)
-- `codex` CLI installed and authenticated (`codex --version`)
 - Current branch is NOT `main` — user must be on `cloud/<desc>` or will be moved to one
 
 ## Workflow
@@ -56,65 +55,37 @@ gh pr create \
 
 Report the PR URL to the user.
 
-### 4. Run Codex review
+### 4. Post a status comment (optional, pre-verified evidence)
+
+GitHub handles review. The skill's job is to hand reviewers a clean PR with evidence that local gates already passed:
 
 ```bash
-codex review --base main
-```
-
-Timeout: 120s. Capture stdout. `codex` is expected on `PATH`; on VPS it resolves to `~/.npm-global/bin/codex`.
-
-**Parse findings:** scan for `[P0]`, `[P1]`, `[P2]`, `[P3]` markers. Any match = issues found.
-
-### 5. Post review to PR (upsert)
-
-Idempotent upsert via `gh pr comment --edit-last`. If the last comment by the authenticated user starts with `**Codex Review:**`, edit it; otherwise post a fresh comment:
-
-```bash
-# Resolve PR number (safer than passing branch — branch lookup fails if multiple PRs share the head)
 PR=$(gh pr list --head <cloud-branch> --state open --json number --jq '.[0].number // empty')
-[ -z "$PR" ] && { echo "No open PR for <cloud-branch>"; exit 1; }
+[ -z "$PR" ] && { echo "No open PR"; exit 1; }
 
-# Check if our last comment is already a Codex review (safe on empty: `// empty`)
-LAST=$(gh pr view "$PR" --json comments --jq '.comments | last | .body // empty')
+BODY=$(cat <<EOF
+**Local pre-verification**
 
-BODY=$(printf '**Codex Review:**\n\n%s' "$REVIEW_OUTPUT")
-if [ "${LAST#**Codex Review:**}" != "$LAST" ]; then
-  gh pr comment "$PR" --edit-last --body "$BODY"
-else
-  gh pr comment "$PR" --body "$BODY"
-fi
+- Tests: \`bun test\` — <N pass / 0 fail>
+- Type check: \`bun x tsc --noEmit\` — clean
+- Bridge code modified: <yes/no>
+- Existing tests modified: <yes/no>
+
+Review handled on GitHub (Copilot / Codex bot / reviewers).
+EOF
+)
+
+gh pr comment "$PR" --body "$BODY"
 ```
 
-`--edit-last` (gh ≥ 2.48) edits the authenticated user's most recent comment. Keep review body under ~60KB (GitHub comment limit) — truncate with `head -c 60000` if larger.
-
-### 6. Optional autofix (if P0-P3 findings AND `CODEX_AUTOFIX=1`)
-
-```bash
-# Check env
-[ "$CODEX_AUTOFIX" = "1" ] || skip
-
-# Apply autofix on the cloud branch
-git -C <project-dir> checkout <cloud-branch>
-codex exec --full-auto "Apply the following Codex review findings. Be surgical — only fix what's explicitly flagged:\n\n<review-body>"
-
-# If codex changed files: commit + push
-git -C <project-dir> add -A
-git -C <project-dir> commit -m "fix: apply Codex review findings"
-git -C <project-dir> push
-```
-
-Run the autofix check only if `codex review` produced at least one `[P0-3]` finding — otherwise skip.
-
-Return to previous branch after.
+This comment is advisory. Reviewers decide with their usual tooling.
 
 ## Verification
 
 Report to user:
 - Commit hash and branch
 - PR URL
-- Review summary (first 500 chars)
-- Autofix note (applied / skipped / no issues)
+- Link to the "Checks" tab so they can watch CI / GitHub-native review
 
 Confirm PR is visible: `gh pr view <cloud-branch>` should return the PR JSON.
 
@@ -122,8 +93,10 @@ Confirm PR is visible: `gh pr view <cloud-branch>` should return the PR JSON.
 
 - **Dirty working tree before commit:** `git status --porcelain` returns non-empty → commit includes everything. User should have cleaned first.
 - **No changes to commit:** `git diff --cached --quiet` → skip to step 3 (maybe PR still needs creating).
-- **Codex 401/timeout/rate:** report error, do NOT block the PR. The PR is still created; review is advisory.
-- **Autofix breaks build:** user must revert manually. We do NOT run tests after autofix — that's for `/review` follow-up.
+
+## What this skill no longer does
+
+Previous versions ran `codex review --base main` locally, parsed `[P0]–[P3]` findings, upserted a "Codex Review:" comment, and optionally ran `codex exec --full-auto` to autofix. All of that is **removed** as of 2026-04-18 — see `docs/decisions/0002-github-native-review-only.md`. If you want a local second opinion before pushing, run the review skill explicitly — but it is NOT gated by `/sync` anymore.
 
 ## Source-of-truth
 
@@ -132,5 +105,5 @@ Bridge implementation: `src/telegram.ts:545-691` in this repo. Keep behavioral p
 ## Related skills
 
 - `GitWorkflow` — commit conventions, atomic commits
-- `/review` — run review on an existing branch without sync
+- `/review` — run a GitHub-native review summary on an existing branch
 - `/merge` — merge `cloud/*` PR after review passes
