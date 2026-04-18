@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Workflow contract lives in [AGENTS.md](AGENTS.md).** Task state is tracked in **Beads** (`bd ready`, `bd remember`). `CLAUDE.md` owns architecture and config; `AGENTS.md` owns workflow and PR discipline.
+
 ## What This Is
 
 PAI cloud assistant ("Isidore Cloud") on a VPS for 24/7 mobile access. Dual access: custom Telegram bridge + Claude Channels (@isidore_channel_bot, live). Channels is the target primary surface; bridge is active but pipeline offloaded to standalone daemon. See `Plans/phase-fg-channels-remote-control.md`. Runs alongside Gregor/OpenClaw on the same server.
@@ -54,32 +56,29 @@ ssh isidore_cloud 'sudo systemctl restart isidore-cloud-channels'
 # Run tests (412 tests across 32 files)
 bun test
 
-# Pre-commit verification (type check + tests + Codex review)
-bash scripts/review-and-fix.sh
+# Pre-commit verification (type check + tests)
+bun test && bun x tsc --noEmit
 
 # Type check
-npx tsc --noEmit
-
-# Review a cloud/* branch (local, via Codex CLI)
-bash scripts/review-cloud.sh cloud/<branch-name>
+bun x tsc --noEmit
 
 # Install pre-push hook on VPS (blocks direct pushes to main)
 bash scripts/install-vps-hook.sh
 ```
 
-### Two-Layer Review Workflow
+### Review Workflow (GitHub-native only, since 2026-04-18)
 
-**Layer 1 (local, before commit):**
+Local Codex CLI review is **deactivated** — see ADR `docs/decisions/0002-github-native-review-only.md`. `scripts/review-cloud.sh` and `scripts/review-and-fix.sh` remain in-tree for manual use but are NOT invoked by skills.
+
+**Local (before commit):**
 1. Make changes
-2. `npx tsc --noEmit` + `bun test`
-3. `codex review --base HEAD` on the diff
-4. Fix findings
-5. Commit + push to `cloud/` branch
+2. `bun test` + `bun x tsc --noEmit`
+3. Commit + push to `cloud/` branch via `/sync`
 
-**Layer 2 (GitHub, after push):**
-6. PR created → Codex bot auto-reviews on GitHub
-7. Fix any new findings, push again
-8. `/merge` when clean
+**GitHub (after push):**
+4. PR opens → GitHub-native reviewers (Copilot, Codex GitHub App if enabled, human reviewers) comment
+5. Fix findings, push again
+6. `/merge` when clean
 
 ## Architecture
 
@@ -165,9 +164,10 @@ See `ARCHITECTURE.md` for full file reference (30+ modules). Entry points:
 - **`a2a-client.ts`** — `A2AClient`: outbound A2A protocol client. Discovers agents via agent card, sends messages via JSON-RPC 2.0
 - **`group-chat.ts`** — `GroupChatEngine`: multi-agent group chat with moderator synthesis. Dispatches to N agents in parallel, records with channel isolation
 - **`qr-generator.ts`** — QR code generation for mobile dashboard access (data URL output)
-- **`src/hooks/`** — Claude Code hooks for VPS: `memory-query.ts` (shared FTS5 query lib), `user-prompt-submit.ts`, `post-tool-use.ts`, `session-start.ts`
+- **`src/hooks/`** — Claude Code hooks for VPS: `memory-query.ts` (shared FTS5 query lib), `user-prompt-submit.ts`, `post-tool-use.ts`, `session-start.ts`, `stop.ts` (Move 1 — turn recording), `importance-scorer.ts` (Move 3 — Haiku-powered rescoring, decoupled from Stop)
 - **`src/mcp/`** — MCP servers: `pai-memory-server.ts` (8 tools), `pai-context-server.ts` (2 tools), `memory-tools.ts`, `context-tools.ts`, `shared.ts`
-- **`src/__tests__/`** — 412 tests across 32 files
+- **`scripts/notify.sh`** — Telegram Bot API push shim (Move 2); paired with `deploy/systemd/isidore-cloud-notify@.{service,timer}.example`
+- **`src/__tests__/`** — 440 tests across 34 files
 
 ## Cross-Instance Continuity
 
@@ -182,13 +182,65 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 - **Admin:** `/deploy` (self-deploy from Telegram), `/schedule`, `/newproject`, `/deleteproject`, `/reauth`
 - **Gateway:** `POST /api/send` (invoke Claude via HTTP), `GET /api/session`, `GET /api/status`, `GET /api/health-monitor` -- all on dashboard port (:3456), require `DASHBOARD_TOKEN` bearer auth
 
+## Phase 2 Migration Notes (Commands → Skills)
+
+Phase 2 of the Channels migration maps the 28 bridge commands above to Claude Code skills or native equivalents. Bridge commands remain active until Phase 5 (bridge retirement) — these notes describe how the same intent is expressed in a Channels/Claude-Code-native session on VPS.
+
+### Dropped (7) — no Channels equivalent needed
+
+| Bridge | Why dropped in Channels |
+|--------|------------------------|
+| `/start` | Channels has native session greeting; bridge handshake is not applicable |
+| `/help` | Claude Code lists installed skills natively; `/pai` skill also exposes capability discovery |
+| `/verbose` | Bridge-only output-formatting flag (compactFormat) — Channels shows raw Claude output |
+| `/oneshot` | Use Claude CLI `-p "<prompt>"` directly for a one-shot invocation |
+| `/quick` | Pass `--model claude-haiku-4-5-20251001` (or another fast model) to the Claude CLI directly |
+| `/keep` | Channels has no auto-wrapup nag → nothing to dismiss |
+| `/reauth` | Channels uses the shared OAuth session (`claude auth status` / `claude auth login`) |
+
+### Mapped to native (7) — documented, no new skill
+
+| Bridge | Channels equivalent |
+|--------|--------------------|
+| `/workspace` (or `/home`) | Default Claude session with cwd = workspace dir (no active project); start a new session if needed |
+| `/project <name>` | `cd /home/isidore_cloud/projects/<name>` then start a Claude session (Channels picks up project `.claude/` + `.mcp.json`) |
+| `/status` | `git -C <proj> status` + `claude auth status` + (optionally) `bd ready` for task queue |
+| `/clear` | Claude Code native `/clear` (the slash command built into the CLI) |
+| `/merge <branch>` | `gh pr merge <branch> --squash --delete-branch` then `git checkout main && git pull origin main` to sync local. Promote to a skill if the chain grows beyond these three commands. |
+| `/projects` | `ls /home/isidore_cloud/projects/` or `jq '.projects | keys' ~/.config/isidore_cloud/projects.json` |
+| `/deleteproject <name>` | Remove the registry entry manually (`jq 'del(.projects["<name>"])' …`) + `gh repo delete mj-deving/<name> --yes` |
+
+### New skills (6) — live in `.claude/skills/<name>/`
+
+| Bridge | Skill | What it does |
+|--------|-------|--------------|
+| `/sync` | `sync` | Commit + push to `cloud/*` + create PR + post local pre-verification comment. Review is GitHub-native. |
+| `/wrapup` | `wrapup` | Session persistence: `bd` sync + handoff + MEMORY.md/CLAUDE.md hygiene; wraps the global `Wrapup` skill |
+| `/deploy` | `deploy` | Self-deploy latest `origin/main` to VPS via `self-deploy.sh`; restart `isidore-cloud-bridge` |
+| `/review` | `review` | Summarize a `cloud/*` branch (diff + commits + optional test status) and post a GitHub PR comment. No local Codex CLI. |
+| `/newproject` | `newproject` | Create GitHub repo + VPS dir + scaffold + registry entry + auto-switch |
+| `/group_chat` | `group_chat` | Parallel `Task` dispatch to N custom agents + moderator synthesis |
+
+Each skill has a `SKILL.md` with full workflow, preconditions, verification, edge cases, and source-of-truth pointer to the bridge implementation. Invoked via `Skill("sync")` etc., or directly via `/sync` in a Channels session.
+
+### Deferred to Phase 3 (4) — pipeline MCP tools
+
+Out of Phase 2 scope. Phase 3 (standalone pipeline watcher) is already live; these bridge commands need MCP tools or skills that write JSON tasks to `/var/lib/pai-pipeline/`.
+
+| Bridge | Phase 3 plan |
+|--------|--------------|
+| `/delegate` | Skill or MCP tool that writes a task to `reverse-tasks/` for Gregor to pick up |
+| `/workflow` | Skill that writes a DAG JSON to `workflows/` and polls for step results |
+| `/pipeline` | Read-only MCP tool exposing pipeline status from `tasks/`, `results/`, `ack/` |
+| `/schedule` | Convert to systemd timers or cron — no Claude-side code needed |
+
 ## Git Workflow (MANDATORY)
 
 - **Never push to `main` directly.** A pre-push hook blocks it.
 - **Always create a `cloud/<description>` branch** for your changes.
-- **PR-based flow:** `/sync` pushes and creates a GitHub PR automatically. Codex review is posted as a PR comment. If `CODEX_AUTOFIX=1`, review findings are auto-fixed via `codex exec --full-auto`. `/merge` merges the PR via `gh pr merge`, syncs local main, and cleans up the branch.
+- **PR-based flow:** `/sync` pushes and creates a GitHub PR automatically. Review is handled on GitHub (Copilot / optional Codex GitHub App / human reviewers). `/merge` merges the PR via `gh pr merge`, syncs local main, and cleans up the branch.
 - **Manual fallback:** `git checkout -b cloud/<description>` → commit → `git push -u origin cloud/<description>` → tell Marius.
-- Marius can also review via Codex CLI (`scripts/review-cloud.sh`) or GitHub PR comments.
+- `scripts/review-cloud.sh` and `scripts/review-and-fix.sh` still exist for manual Codex CLI use, but NO skill invokes them. See ADR 0002.
 
 ## Conventions
 
@@ -198,6 +250,9 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 - **Paths:** `paths.local` and `paths.vps` in project registry accept `string | null` for cloud-only or local-only projects
 - **Knowledge base:** `.ai/guides/` — referenceable technical docs. Guides: `bridge-mechanics.md`, `design-decisions.md`, `memory-architecture-comparison.md`, `tdd-review-workflow.md`, `channels-maestro-evolution.md`
 - **Plans:** `Plans/` — implementation plans. Active: `pai-evolution-master-plan.md` (v4, Sessions 1-4 complete), `phase-fg-channels-remote-control.md` (v2.1, Channels + Remote Control migration)
+- **Roadmap:** `docs/roadmap.md` — current 4-move bridge-retirement plan with per-move status
+- **Decisions:** `docs/decisions/` — ADRs. Start with `0001-retire-bridge-additively.md`
+- **Runbooks:** `docs/runbooks/` — operator guides. `scheduler-to-systemd.md` covers Move 2 migration
 
 ## VPS Details
 
@@ -208,6 +263,6 @@ Cloud Isidore uses `memory.db` (via ContextBuilder) as its primary persistence l
 - **Config:** `/home/isidore_cloud/.config/isidore_cloud/bridge.env`
 - **Pipeline:** `/var/lib/pai-pipeline/{tasks,results,ack,reverse-tasks,reverse-results,reverse-ack,workflows}` — shared via `pai` group (setgid 2770)
 - **Workspace:** `/home/isidore_cloud/workspace/` — daily memory files, git-tracked
-- **Services:** `isidore-cloud-bridge` (Telegram bot, pipeline disabled — ACTIVE), `isidore-cloud-channels` (Claude Channels @isidore_channel_bot, tmux-based — ACTIVE), `isidore-cloud-pipeline` (standalone pipeline daemon — ACTIVE), `isidore-cloud-remote` (Remote Control server mode — DISABLED), `isidore-cloud-tmux` (persistent tmux)
+- **Services:** `isidore-cloud-bridge` (Telegram bot, pipeline disabled — ACTIVE), `isidore-cloud-channels` (Claude Channels @isidore_channel_bot, tmux-based — ACTIVE), `isidore-cloud-pipeline` (standalone pipeline daemon — ACTIVE), `isidore-cloud-remote` (Remote Control server mode, `claude remote-control --spawn worktree --capacity 4`, direct systemd — ACTIVE), `isidore-cloud-tmux` (persistent tmux)
 - **Claude CLI:** v2.1.90. Channels flag: `--channels plugin:telegram@claude-plugins-official` (hidden from `--help`)
 - **MCP config:** `.mcp.json` in project root auto-loads pai-memory-server (8 tools) + pai-context-server (2 tools)

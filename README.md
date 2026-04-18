@@ -14,6 +14,8 @@ A cloud runtime that deploys Claude Code to a VPS as a 24/7 AI agent, accessible
 
 **Architecture:** Migrating from a custom Telegram bridge to Claude Channels as the primary access surface. Channels provides native interactive sessions with permission relay and efficient hook invocation — eliminating the need for 6600 lines of custom middleware.
 
+**Migration plan (2026-04-18):** Retirement is a 4-move additive migration, NOT a big-bang switchover. See [`docs/roadmap.md`](docs/roadmap.md) for per-move status and [`docs/decisions/0001-retire-bridge-additively.md`](docs/decisions/0001-retire-bridge-additively.md) for the decision rationale. Grammy shutdown (Move 4) is GATED on Anthropic resolving [claude-code#36477](https://github.com/anthropics/claude-code/issues/36477).
+
 ```
 You
 │

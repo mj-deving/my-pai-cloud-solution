@@ -1,0 +1,21 @@
+#!/bin/bash
+# post-commit hook — Run Codex review on the new commit (background, non-blocking)
+# Output saved to .git/codex-review-latest.txt
+
+CODEX_BIN="${HOME}/.npm-global/bin/codex"
+REVIEW_FILE="$(git rev-parse --show-toplevel)/.git/codex-review-latest.txt"
+
+if [ ! -x "$CODEX_BIN" ]; then
+    exit 0
+fi
+
+# Run in background so commit isn't blocked
+(
+    echo "=== Codex Review: $(git log --oneline -1 HEAD) ===" > "$REVIEW_FILE"
+    echo "Started: $(date)" >> "$REVIEW_FILE"
+    "$CODEX_BIN" review --commit HEAD >> "$REVIEW_FILE" 2>&1
+    echo "" >> "$REVIEW_FILE"
+    echo "Completed: $(date)" >> "$REVIEW_FILE"
+) &
+
+exit 0
