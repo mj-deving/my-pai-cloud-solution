@@ -57,27 +57,48 @@ Validate with: `systemd-analyze calendar '*-*-* 08:00:00'`.
 
 ## Step 4 — Install a single schedule (per slug)
 
+Ready-to-install artifacts for the three live bridge schedules are checked in under `deploy/systemd/notify/`:
+
+| Slug | Env file | Timer drop-in | Original cron |
+|------|----------|---------------|---------------|
+| `daily-synthesis` | `daily-synthesis.env.example` | `daily-synthesis.conf.example` | `0 2 * * *` |
+| `weekly-review` | `weekly-review.env.example` | `weekly-review.conf.example` | `0 3 * * 0` |
+| `daily-memory` | `daily-memory.env.example` | `daily-memory.conf.example` | `55 22 * * *` |
+
+Install (per slug, `SLUG` picked from the table above):
+
 ```bash
-# Pick a slug (lowercase, hyphen-separated)
-SLUG=morning-digest
+SLUG=daily-synthesis  # or weekly-review, daily-memory
 
-# Write the env file
+# 1. Env file (NOTIFY_CMD)
 sudo mkdir -p /etc/isidore-cloud/notify
-echo 'NOTIFY_CMD="claude -p \"summarize my workspace inbox\" --output-format text"' \
-  | sudo tee /etc/isidore-cloud/notify/${SLUG}.env
+sudo cp deploy/systemd/notify/${SLUG}.env.example \
+  /etc/isidore-cloud/notify/${SLUG}.env
 
-# Optionally customise the timer schedule via drop-in
-sudo systemctl edit isidore-cloud-notify@${SLUG}.timer
-# [Timer]
-# OnCalendar=*-*-* 09:00:00
+# 2. Timer drop-in (OnCalendar override)
+sudo mkdir -p /etc/systemd/system/isidore-cloud-notify@${SLUG}.timer.d
+sudo cp deploy/systemd/notify/${SLUG}.conf.example \
+  /etc/systemd/system/isidore-cloud-notify@${SLUG}.timer.d/override.conf
 
-# Enable and start
+# 3. Enable + start
 sudo systemctl daemon-reload
 sudo systemctl enable --now isidore-cloud-notify@${SLUG}.timer
 
-# Verify
+# 4. Verify
 systemctl list-timers isidore-cloud-notify@${SLUG}.timer
 sudo journalctl -u isidore-cloud-notify@${SLUG}.service -n 20
+```
+
+**One-off slug (not in the table above):** follow the same pattern with a custom env file and drop-in, or omit the drop-in to accept the default `08:00` timer schedule.
+
+### Note on claude CLI under systemd
+
+The three built-in schedules run `claude -p "<prompt>" --output-format text`. This requires the Claude CLI to be authenticated as the `isidore_cloud` user. Validate before enabling:
+
+```bash
+sudo -u isidore_cloud claude auth status
+# If not logged in:
+sudo -u isidore_cloud -i claude auth login
 ```
 
 ## Step 5 — Parity check before retiring the bridge Scheduler

@@ -1,0 +1,13 @@
+# weekly-review.conf — drop-in override for isidore-cloud-notify@weekly-review.timer
+# Install:
+#   sudo mkdir -p /etc/systemd/system/isidore-cloud-notify@weekly-review.timer.d
+#   sudo cp weekly-review.conf.example \
+#     /etc/systemd/system/isidore-cloud-notify@weekly-review.timer.d/override.conf
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now isidore-cloud-notify@weekly-review.timer
+#
+# Matches bridge cron "0 3 * * 0" (Sunday 03:00 UTC).
+
+[Timer]
+OnCalendar=
+OnCalendar=Sun *-*-* 03:00:00 UTC

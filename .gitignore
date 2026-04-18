@@ -30,6 +30,7 @@ Thumbs.db
 .claude/session-env/
 .claude/shell-snapshots/
 .claude/file-history/
+.claude/*.lock
 
 # Session docs (local persistence, not code)
 .sessions/

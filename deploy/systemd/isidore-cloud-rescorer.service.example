@@ -1,0 +1,46 @@
+# isidore-cloud-rescorer.service — Haiku importance rescorer (Move 3)
+# Periodically rescores memory.db episodes whose scorer_version is missing or
+# stale. Paired with isidore-cloud-rescorer.timer.
+#
+# Install:
+#   sudo cp isidore-cloud-rescorer.service.example \
+#     /etc/systemd/system/isidore-cloud-rescorer.service
+#   sudo cp isidore-cloud-rescorer.timer.example \
+#     /etc/systemd/system/isidore-cloud-rescorer.timer
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now isidore-cloud-rescorer.timer
+#
+# Requires:
+#   - ANTHROPIC_API_KEY in /home/isidore_cloud/.config/isidore_cloud/bridge.env
+#   - memory.db at the default PAI_DIR path
+#   - bun available at /home/isidore_cloud/.bun/bin/bun (or symlinked on PATH)
+
+[Unit]
+Description=Isidore Cloud memory importance rescorer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=isidore_cloud
+WorkingDirectory=/home/isidore_cloud/projects/my-pai-cloud-solution
+EnvironmentFile=/home/isidore_cloud/.config/isidore_cloud/bridge.env
+ExecStart=/home/isidore_cloud/.bun/bin/bun run scripts/rescore-episodes.ts --limit 50
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=5min
+
+# Sandboxing — rescorer needs HTTPS egress + memory.db write only.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/isidore_cloud/.claude
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+SystemCallArchitectures=native
