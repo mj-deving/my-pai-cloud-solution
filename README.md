@@ -1,5 +1,7 @@
 # PAI Cloud Solution
 
+![TypeScript](https://img.shields.io/badge/-TypeScript-3178C6?style=flat-square) ![Cloudflare](https://img.shields.io/badge/-Cloudflare-F38020?style=flat-square)
+
 > Turn Claude Code into an always-on AI agent you can reach from anywhere.
 
 ---
