@@ -1,5 +1,5 @@
 ---
-task: Explore Claude Channels and Maestro for PAI Cloud evolution
+task: Explore Claude Channels and Maestro for DAI Cloud evolution
 slug: 20260324-180500_channels-maestro-pai-cloud-evolution
 effort: deep
 phase: complete

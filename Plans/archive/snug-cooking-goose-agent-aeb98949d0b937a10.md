@@ -1,8 +1,8 @@
-# First Principles Decomposition: Minimum Viable Agent Framework for PAI L3-4
+# First Principles Decomposition: Minimum Viable Agent Framework for DAI L3-4
 
 **Date:** 2026-03-02
 **Method:** First Principles Decomposition
-**Question:** What is the minimum viable custom agent framework needed to evolve PAI from Level 2-3 to Level 3-4 autonomy?
+**Question:** What is the minimum viable custom agent framework needed to evolve DAI from Level 2-3 to Level 3-4 autonomy?
 
 ---
 
@@ -10,11 +10,11 @@
 
 **Do we need "a framework" at all?**
 
-The word "framework" implies a new abstraction layer -- a new system that sits between PAI and its existing components, providing structure, conventions, and runtime. Before we build one, we must ask: what does PAI already have that functions as a framework?
+The word "framework" implies a new abstraction layer -- a new system that sits between DAI and its existing components, providing structure, conventions, and runtime. Before we build one, we must ask: what does DAI already have that functions as a framework?
 
-**PAI already has a framework. It just isn't named one.**
+**DAI already has a framework. It just isn't named one.**
 
-| Framework Function | PAI Already Has |
+| Framework Function | DAI Already Has |
 |---|---|
 | Agent invocation | `ClaudeInvoker` (send, oneShot, quickShot) |
 | Task decomposition + DAG execution | `TaskOrchestrator` |
@@ -69,7 +69,7 @@ At L2, MEMORY.md is manually curated. At L3-4, the system must: distill patterns
 
 ---
 
-## Part 2: What PAI Already Satisfies
+## Part 2: What DAI Already Satisfies
 
 ### R1: Self-Initiation -- PARTIALLY SATISFIED
 
@@ -285,7 +285,7 @@ For each gap, I ask: "Can this be solved by modifying existing code rather than 
 |---|---|---|
 | Frozen snapshot injection | **GENUINELY NEEDED** (R3) | Priority 1 from research. ~75% cost reduction. 30 lines of code. |
 | Character-bounded curated memory | **GENUINELY NEEDED** (R5) | 5K char budget forces curation, prevents context rot. 10 lines in ContextBuilder. |
-| Markdown agent definitions | **NICE-TO-HAVE** (future) | PAI already has 48 skill files as `.md`. Agent definitions would be a natural extension. But NOT needed for L3-4 -- the two current agents (Isidore, Gregor) are hardcoded in orchestrator and that's fine for now. |
+| Markdown agent definitions | **NICE-TO-HAVE** (future) | DAI already has 48 skill files as `.md`. Agent definitions would be a natural extension. But NOT needed for L3-4 -- the two current agents (Isidore, Gregor) are hardcoded in orchestrator and that's fine for now. |
 | Progressive disclosure skills | **NICE-TO-HAVE** | Only matters when skill count causes context rot. With 48 skills, Claude Code manages this via its own skill loading. |
 
 ### From Semantic Kernel
@@ -324,7 +324,7 @@ R4 (Outcome Evaluation) is already mostly satisfied. The incremental improvement
 
 ### What This Gets You
 
-With these 4 additions, PAI Cloud can:
+With these 4 additions, DAI Cloud can:
 
 1. **Self-initiate** -- Run scheduled tasks (daily synthesis, weekly reviews, overnight queues) via the scheduler. The pipeline already handles execution.
 
@@ -341,7 +341,7 @@ With these 4 additions, PAI Cloud can:
 - **Full L4 autonomy** -- That requires economic agency (managing budgets, making spend decisions), which is a separate concern from the agent framework.
 - **Self-modifying agent definitions** -- The system can't create new specialized agents on the fly. But with 2 agents (Isidore + Gregor) and a DAG orchestrator, it can decompose and distribute any task. Adding more agents is a future optimization, not a requirement.
 - **Real-time event triggers** -- The scheduler handles time-based triggers. Webhook/event triggers (e.g., "new PR filed") would need a webhook receiver. That's a separate feature, not a framework concern.
-- **Multi-LLM orchestration** -- PAI uses Claude. Using different models for different tasks is a future optimization. The `quickShot()` method already supports model selection.
+- **Multi-LLM orchestration** -- DAI uses Claude. Using different models for different tasks is a future optimization. The `quickShot()` method already supports model selection.
 
 ---
 
@@ -412,11 +412,11 @@ With these 4 additions, PAI Cloud can:
 5. Generic lifecycle managers
 6. Abstract memory interfaces
 
-### Why each is wrong for PAI:
+### Why each is wrong for DAI:
 
-1. **Abstract agent base classes** -- PAI has 2 agents. Isidore is "Claude CLI with a session." Gregor is "Claude CLI without a session." An abstract `Agent` class adds a layer between the system and the actual work with zero benefit until agent count exceeds ~5.
+1. **Abstract agent base classes** -- DAI has 2 agents. Isidore is "Claude CLI with a session." Gregor is "Claude CLI without a session." An abstract `Agent` class adds a layer between the system and the actual work with zero benefit until agent count exceeds ~5.
 
-2. **Plugin registration** -- PAI already has 48 skills loaded by Claude Code's own skill system. Adding another registration system creates a meta-problem: which registration system should skill X use?
+2. **Plugin registration** -- DAI already has 48 skills loaded by Claude Code's own skill system. Adding another registration system creates a meta-problem: which registration system should skill X use?
 
 3. **Configuration DSLs** -- `config.ts` with Zod validation already handles 60+ config values. A new DSL would be a second config system.
 
@@ -430,7 +430,7 @@ With these 4 additions, PAI Cloud can:
 
 **Add capabilities to the existing system. Don't build a system for building systems.**
 
-PAI's architecture is already agent-framework-shaped. It just needs 4 specific capability gaps filled. Filling them directly (scheduler.ts, policy.ts, synthesis.ts, + modifications to context.ts) is faster, more testable, and more maintainable than building a generic framework that those 4 capabilities would then be built on top of.
+DAI's architecture is already agent-framework-shaped. It just needs 4 specific capability gaps filled. Filling them directly (scheduler.ts, policy.ts, synthesis.ts, + modifications to context.ts) is faster, more testable, and more maintainable than building a generic framework that those 4 capabilities would then be built on top of.
 
 The total cost of the direct approach: ~700 new lines + ~140 modified lines = ~840 lines of code.
 

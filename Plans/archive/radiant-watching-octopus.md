@@ -183,7 +183,7 @@ The one-shot Claude call to decompose tasks uses a structured prompt:
 You are a task orchestrator. Decompose this task into discrete steps.
 
 AVAILABLE AGENTS:
-- isidore: Complex analysis, code review, architecture, debugging, documentation, PAI skills
+- isidore: Complex analysis, code review, architecture, debugging, documentation, DAI skills
 - gregor: Discord/OpenClaw ops, simple file operations, status checks, log analysis, cron, monitoring
 
 RULES:

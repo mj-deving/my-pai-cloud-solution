@@ -1,5 +1,5 @@
 ---
-task: PAI-customization workflows plus review-to-memory learning loop
+task: DAI-customization workflows plus review-to-memory learning loop
 slug: 20260317-183000_pai-customization-and-review-loop
 effort: extended
 phase: complete
@@ -12,12 +12,12 @@ updated: 2026-03-17T18:30:00+01:00
 ## Context
 
 Two tasks:
-1. Add TestGeneration, PreDeployCheck workflows + ErrorPatterns reference to PAI-customization CodexBridge
+1. Add TestGeneration, PreDeployCheck workflows + ErrorPatterns reference to DAI-customization CodexBridge
 2. Implement review-to-memory.db learning loop: after Codex review, parse P0-P3 findings and store as knowledge entries
 
 ## Criteria
 
-### PAI-customization: CodexBridge additions
+### DAI-customization: CodexBridge additions
 - [ ] ISC-1: TestGeneration.md workflow exists in CodexBridge/Workflows/
 - [ ] ISC-2: TestGeneration workflow defines test matrix generation steps
 - [ ] ISC-3: TestGeneration workflow references existing test patterns

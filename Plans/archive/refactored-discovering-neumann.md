@@ -6,7 +6,7 @@ Marius wants clarity on how sessions, files, and GitHub sync work when Gregor an
 
 **Key findings from exploration:**
 - Gregor already has a complexity classifier that writes pipeline tasks via `pai-submit.sh`
-- Gregor's pipeline-check cron (*/30) checks his internal inbox (`~/.openclaw/pipeline/inbox/`), NOT the PAI results directory directly. An inotify watcher (`pai-result-watcher.py`) monitors `/var/lib/pai-pipeline/results/` and writes notifications to that inbox. Result detection is near-instant; the cron frequency only affects how fast Gregor reads/processes those notifications.
+- Gregor's pipeline-check cron (*/30) checks his internal inbox (`~/.openclaw/pipeline/inbox/`), NOT the DAI results directory directly. An inotify watcher (`pai-result-watcher.py`) monitors `/var/lib/pai-pipeline/results/` and writes notifications to that inbox. Result detection is near-instant; the cron frequency only affects how fast Gregor reads/processes those notifications.
 - No escalation logic exists on the Isidore side yet — all tasks are treated equally
 - Pipeline is one-at-a-time, no parallelism, no sub-agent spawning
 - Session management is completely stateless on bridge side (pass-through only)

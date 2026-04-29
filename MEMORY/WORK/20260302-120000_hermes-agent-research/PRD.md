@@ -74,7 +74,7 @@ Research the Hermes Agent framework by NousResearch with focus on 7 axes: NousRe
 - [x] ISC-38: Target user persona defined (who benefits most)
 - [x] ISC-39: Gaps that Hermes Agent fills vs existing frameworks
 - [x] ISC-40: Weaknesses and limitations honestly assessed
-- [x] ISC-41: Relevance to PAI infrastructure assessed
+- [x] ISC-41: Relevance to DAI infrastructure assessed
 - [x] ISC-42: Overall recommendation with confidence level
 
 ## Decisions
@@ -87,7 +87,7 @@ Research the Hermes Agent framework by NousResearch with focus on 7 axes: NousRe
 - 7 research axes each have dedicated sections with evidence -- PASS
 - Feature comparison matrix present (cross-framework table) -- PASS
 - Stress-tested conclusions against 5 opposing viewpoints -- PASS
-- PAI relevance assessed with specific feature comparisons -- PASS
+- DAI relevance assessed with specific feature comparisons -- PASS
 - Sources section includes verified URLs -- PASS
 - Research skill invoked -- PASS
 - Agents skill selected but not invoked via Task tool (direct parallel search was more efficient) -- NOTED

@@ -29,7 +29,7 @@ This report analyzes OpenCode's architecture for patterns and design decisions r
 | **MCP** | @modelcontextprotocol/sdk |
 | **Monorepo** | Bun workspaces (15+ packages) |
 
-**Strategic Note:** TypeScript + Bun + SQLite is the same stack as PAI. This is not coincidental -- it is the emerging standard for agent infrastructure in 2026. The Hono server choice is notable vs Express/Fastify -- it is significantly lighter and aligns with edge-first deployment patterns.
+**Strategic Note:** TypeScript + Bun + SQLite is the same stack as DAI. This is not coincidental -- it is the emerging standard for agent infrastructure in 2026. The Hono server choice is notable vs Express/Fastify -- it is significantly lighter and aligns with edge-first deployment patterns.
 
 ---
 
@@ -52,12 +52,12 @@ SDK Clients ─────┘    REST + SSE                         SQLite DB
 - Internal Event Bus (`Bus` namespace) decouples agent loop from client connections
 - Events like `Session.Event.Updated`, `MessageV2.Event.PartDelta` flow through the bus to SSE
 
-### Why This Matters for PAI:
-PAI currently tightly couples Telegram (Grammy) to the agent loop via `bridge.ts`. OpenCode's pattern suggests a cleaner separation where the agent loop is a standalone server, and Telegram/SSH/Dashboard become thin clients over HTTP+SSE. This would enable:
+### Why This Matters for DAI:
+DAI currently tightly couples Telegram (Grammy) to the agent loop via `bridge.ts`. OpenCode's pattern suggests a cleaner separation where the agent loop is a standalone server, and Telegram/SSH/Dashboard become thin clients over HTTP+SSE. This would enable:
 - Multiple frontends without rewiring the agent
 - Session sharing between local and cloud instances via HTTP API
 - Easier testing (hit REST endpoints, no Telegram dependency)
-- The `MessengerAdapter` interface in PAI is a step toward this, but OpenCode goes further by making HTTP the universal transport
+- The `MessengerAdapter` interface in DAI is a step toward this, but OpenCode goes further by making HTTP the universal transport
 
 ---
 
@@ -91,7 +91,7 @@ Three tables form the persistence layer:
 | `--continue` | Resume most recent session |
 | `--session <id>` | Resume specific session |
 
-**PAI Comparison:** PAI uses a single session ID file (`~/.claude/active-session-id`) with `--resume`. OpenCode's SQLite-backed session management with fork/undo/share is significantly more sophisticated. The `/fork` pattern is especially interesting -- it enables branching conversations, which PAI lacks entirely.
+**DAI Comparison:** DAI uses a single session ID file (`~/.claude/active-session-id`) with `--resume`. OpenCode's SQLite-backed session management with fork/undo/share is significantly more sophisticated. The `/fork` pattern is especially interesting -- it enables branching conversations, which DAI lacks entirely.
 
 ---
 
@@ -135,14 +135,14 @@ Agent Loop Iteration
 
 5. **RLM (Recursive Language Model) proposal** (Issue #11829) -- MIT research-based approach treating context as an external environment the model queries programmatically. Production-ready in 2026 according to the proposal.
 
-### PAI Comparison:
-PAI currently relies on Claude Code's built-in context management (`--resume` sessions). The MemoryStore (Phase 3 V2-A) provides episodic+semantic memory via FTS5, but lacks:
+### DAI Comparison:
+DAI currently relies on Claude Code's built-in context management (`--resume` sessions). The MemoryStore (Phase 3 V2-A) provides episodic+semantic memory via FTS5, but lacks:
 - Automatic compaction with rule preservation
 - Append-only part-based message storage
 - Fork/branch capability for conversations
 - Configurable compaction thresholds
 
-The "Rules & Constraints" preservation pattern is immediately applicable -- when PAI's ContextBuilder prepends memory context, it should tag injected rules as "must survive compaction."
+The "Rules & Constraints" preservation pattern is immediately applicable -- when DAI's ContextBuilder prepends memory context, it should tag injected rules as "must survive compaction."
 
 ---
 
@@ -205,8 +205,8 @@ Primary Agent (Build)
 
 **Current Limitation:** Subtasks execute sequentially even when multiple TaskTool calls appear in one response (Issue #14195). Parallel subagent execution is a known gap.
 
-### PAI Comparison:
-PAI's orchestrator uses DAG-based workflow decomposition with parallel step dispatch and cross-agent delegation (Isidore/Gregor). OpenCode's approach is simpler (parent-child spawning via TaskTool) but its agent configuration format (Markdown frontmatter + system prompt) is more elegant than PAI's code-based agent definitions. The step limit (`steps` property) is a pattern PAI could adopt for resource control.
+### DAI Comparison:
+DAI's orchestrator uses DAG-based workflow decomposition with parallel step dispatch and cross-agent delegation (Isidore/Gregor). OpenCode's approach is simpler (parent-child spawning via TaskTool) but its agent configuration format (Markdown frontmatter + system prompt) is more elegant than DAI's code-based agent definitions. The step limit (`steps` property) is a pattern DAI could adopt for resource control.
 
 ---
 
@@ -250,8 +250,8 @@ MCP servers configured in `opencode.json`:
 
 **Known Issue (Issue #9350):** MCP tool definitions loaded at session startup burn ~51K tokens (46.9% of context window) with 4 servers. Lazy loading proposed.
 
-### PAI Comparison:
-PAI's tool system is implicit (Claude CLI's built-in tools). OpenCode's explicit tool registry with Zod schemas, permission fences, and MCP integration represents a more extensible architecture. The glob-pattern permission matching (e.g., `"git *": "allow"`) is a particularly elegant pattern for granular access control. The MCP token bloat issue (51K tokens for 4 servers) is a cautionary tale for PAI if MCP integration is planned.
+### DAI Comparison:
+DAI's tool system is implicit (Claude CLI's built-in tools). OpenCode's explicit tool registry with Zod schemas, permission fences, and MCP integration represents a more extensible architecture. The glob-pattern permission matching (e.g., `"git *": "allow"`) is a particularly elegant pattern for granular access control. The MCP token bloat issue (51K tokens for 4 servers) is a cautionary tale for DAI if MCP integration is planned.
 
 ---
 
@@ -281,7 +281,7 @@ Every HTTP request is scoped to an "Instance" that provides:
 **Key Property:** Lazy initialization via `Instance.state(async () => {...})` memoizes expensive setup (config loading, tool compilation, LSP spawning) per-request, preventing redundant work while maintaining per-project isolation.
 
 ### Why This Matters:
-This pattern prevents cross-project contamination while enabling parallel request handling. Each request operates in its own workspace context without sharing state with other projects. This is the architectural equivalent of PAI's `ProjectManager` but implemented at a much more fundamental level -- it is baked into the HTTP middleware rather than being an application-level concern.
+This pattern prevents cross-project contamination while enabling parallel request handling. Each request operates in its own workspace context without sharing state with other projects. This is the architectural equivalent of DAI's `ProjectManager` but implemented at a much more fundamental level -- it is baked into the HTTP middleware rather than being an application-level concern.
 
 ---
 
@@ -305,7 +305,7 @@ OpenCode's config system merges eight precedence levels:
 - Commands (slash commands)
 - Plugins (TypeScript/JavaScript modules)
 
-**PAI Comparison:** PAI uses `loadConfig()` with Zod-validated env vars. OpenCode's hierarchical merging with array concatenation is significantly more sophisticated. The `.opencode/` directory convention (project-local agents, commands, plugins) is a pattern worth adopting -- it would allow per-project agent customization without modifying the core codebase.
+**DAI Comparison:** DAI uses `loadConfig()` with Zod-validated env vars. OpenCode's hierarchical merging with array concatenation is significantly more sophisticated. The `.opencode/` directory convention (project-local agents, commands, plugins) is a pattern worth adopting -- it would allow per-project agent customization without modifying the core codebase.
 
 ---
 
@@ -334,7 +334,7 @@ Per-provider credential detection:
 - Region prefixing (AWS, Azure multi-region)
 - Custom request headers
 
-**PAI Comparison:** PAI delegates to Claude CLI which handles provider abstraction. If PAI ever needs multi-provider support, OpenCode's ProviderTransform pipeline is the reference implementation. The stateless transform pattern (normalize before sending, never mutate originals) is architecturally clean.
+**DAI Comparison:** DAI delegates to Claude CLI which handles provider abstraction. If DAI ever needs multi-provider support, OpenCode's ProviderTransform pipeline is the reference implementation. The stateless transform pattern (normalize before sending, never mutate originals) is architecturally clean.
 
 ---
 
@@ -364,7 +364,7 @@ This enables:
 - Clear public API surface per subsystem
 - IDE-friendly autocomplete and navigation
 
-**PAI Comparison:** PAI uses class-based modules (`ClaudeInvoker`, `PipelineWatcher`, etc.). OpenCode's namespace pattern is lighter-weight and avoids the `this` binding issues that plague class-based patterns. For a framework-level architecture, namespaces provide better composability.
+**DAI Comparison:** DAI uses class-based modules (`ClaudeInvoker`, `PipelineWatcher`, etc.). OpenCode's namespace pattern is lighter-weight and avoids the `this` binding issues that plague class-based patterns. For a framework-level architecture, namespaces provide better composability.
 
 ---
 
@@ -372,31 +372,31 @@ This enables:
 
 ### 12.1 The Client-Server Split Creates Network Effects
 
-OpenCode's HTTP server architecture means any tool that speaks HTTP can become a frontend. This creates a platform dynamic: third-party IDEs (Zed integration already exists), custom dashboards, CI/CD pipeline integrations, Slack bots -- all become thin clients. PAI's Telegram bridge is architecturally equivalent to one of these thin clients, but PAI lacks the universal HTTP layer that enables others.
+OpenCode's HTTP server architecture means any tool that speaks HTTP can become a frontend. This creates a platform dynamic: third-party IDEs (Zed integration already exists), custom dashboards, CI/CD pipeline integrations, Slack bots -- all become thin clients. DAI's Telegram bridge is architecturally equivalent to one of these thin clients, but DAI lacks the universal HTTP layer that enables others.
 
 ### 12.2 MCP Token Bloat is a Systemic Risk
 
-At 51K tokens for 4 MCP servers (46.9% of context window), every MCP integration actively degrades agent performance. This means there is an inherent tension between tool extensibility and context efficiency. OpenCode's community is actively working on lazy loading (Issue #9350), but this is an unsolved problem in the agent ecosystem. PAI should avoid eager MCP tool loading if it adopts MCP.
+At 51K tokens for 4 MCP servers (46.9% of context window), every MCP integration actively degrades agent performance. This means there is an inherent tension between tool extensibility and context efficiency. OpenCode's community is actively working on lazy loading (Issue #9350), but this is an unsolved problem in the agent ecosystem. DAI should avoid eager MCP tool loading if it adopts MCP.
 
 ### 12.3 Sequential Subtask Execution is a Fundamental Constraint
 
-OpenCode's `tasks.pop()` → `await` → `continue` pattern means even when the LLM generates multiple parallel TaskTool calls, they execute sequentially (Issue #14195). This is the same constraint PAI's orchestrator addresses with parallel step dispatch. OpenCode's community recognizes this gap but hasn't solved it -- PAI's DAG-based parallel dispatch is architecturally ahead here.
+OpenCode's `tasks.pop()` → `await` → `continue` pattern means even when the LLM generates multiple parallel TaskTool calls, they execute sequentially (Issue #14195). This is the same constraint DAI's orchestrator addresses with parallel step dispatch. OpenCode's community recognizes this gap but hasn't solved it -- DAI's DAG-based parallel dispatch is architecturally ahead here.
 
 ### 12.4 Compaction Rule Preservation Creates "Immune Memory"
 
-By preserving rules and constraints through compaction, OpenCode creates what could be called "immune memory" -- context that survives all compression events. This is analogous to how the immune system maintains memory of past threats. PAI's ContextBuilder should adopt this pattern: tag injected context as "compaction-immune" to ensure critical rules and project state survive context window pressure.
+By preserving rules and constraints through compaction, OpenCode creates what could be called "immune memory" -- context that survives all compression events. This is analogous to how the immune system maintains memory of past threats. DAI's ContextBuilder should adopt this pattern: tag injected context as "compaction-immune" to ensure critical rules and project state survive context window pressure.
 
 ### 12.5 The Markdown Agent Definition Pattern Lowers the Bar
 
-Defining agents as Markdown files with YAML frontmatter (description, model, tools, permissions, system prompt) makes agent creation accessible to non-developers. This is a significant UX advantage over code-based agent definitions. If PAI adopts this pattern, it enables "prompt engineering as agent engineering" -- users can create specialized agents by writing Markdown rather than TypeScript.
+Defining agents as Markdown files with YAML frontmatter (description, model, tools, permissions, system prompt) makes agent creation accessible to non-developers. This is a significant UX advantage over code-based agent definitions. If DAI adopts this pattern, it enables "prompt engineering as agent engineering" -- users can create specialized agents by writing Markdown rather than TypeScript.
 
 ---
 
-## 13. Patterns Worth Adopting for PAI
+## 13. Patterns Worth Adopting for DAI
 
 ### Immediately Applicable
 
-| Pattern | OpenCode Implementation | PAI Application |
+| Pattern | OpenCode Implementation | DAI Application |
 |---------|------------------------|-----------------|
 | **Part-based message storage** | `PartTable` with typed parts | Extend MemoryStore to store message parts, not blobs |
 | **Compaction with rule preservation** | "Rules & Constraints" section survives compaction | Tag context injections as compaction-immune |
@@ -407,7 +407,7 @@ Defining agents as Markdown files with YAML frontmatter (description, model, too
 
 ### Medium-Term
 
-| Pattern | OpenCode Implementation | PAI Application |
+| Pattern | OpenCode Implementation | DAI Application |
 |---------|------------------------|-----------------|
 | **HTTP server as universal transport** | Hono on port 4096, REST+SSE | Move agent loop behind HTTP, make Telegram a thin client |
 | **Instance Context middleware** | Per-request workspace scoping | Replace ProjectManager with middleware-level scoping |
@@ -416,18 +416,18 @@ Defining agents as Markdown files with YAML frontmatter (description, model, too
 
 ### Research / Long-Term
 
-| Pattern | OpenCode Status | PAI Relevance |
+| Pattern | OpenCode Status | DAI Relevance |
 |---------|----------------|---------------|
 | **Sliding window compaction** | Proposed (Issue #4659), not implemented | Alternative to current compaction approach |
 | **RLM context-as-environment** | Proposed (Issue #11829), MIT research | Radical rethink of context management |
-| **MCP lazy loading** | Proposed (Issue #9350), not implemented | Critical if PAI adopts MCP |
+| **MCP lazy loading** | Proposed (Issue #9350), not implemented | Critical if DAI adopts MCP |
 | **Subagent-to-subagent delegation** | PR #7756 with budgets and depth limits | Extend orchestrator for hierarchical delegation |
 
 ---
 
 ## 14. Architectural Comparison Matrix
 
-| Dimension | OpenCode | Claude Code | PAI (Current) |
+| Dimension | OpenCode | Claude Code | DAI (Current) |
 |-----------|----------|-------------|----------------|
 | **Architecture** | Client-server (HTTP+SSE) | Monolithic CLI | Bridge + Pipeline |
 | **Session Storage** | SQLite (Drizzle ORM) | Internal/opaque | Session ID file + MemoryStore (SQLite) |
@@ -446,17 +446,17 @@ Defining agents as Markdown files with YAML frontmatter (description, model, too
 
 ## 15. Key Takeaways
 
-1. **Client-server separation is the winning pattern.** Every major coding agent is converging on HTTP+SSE as the transport layer between agent logic and user interfaces. PAI should plan for this.
+1. **Client-server separation is the winning pattern.** Every major coding agent is converging on HTTP+SSE as the transport layer between agent logic and user interfaces. DAI should plan for this.
 
-2. **SQLite + Drizzle ORM is the storage standard.** OpenCode, Claude Code, and PAI all use SQLite. Drizzle ORM provides type-safe schema management that PAI's raw `bun:sqlite` lacks.
+2. **SQLite + Drizzle ORM is the storage standard.** OpenCode, Claude Code, and DAI all use SQLite. Drizzle ORM provides type-safe schema management that DAI's raw `bun:sqlite` lacks.
 
-3. **Context compaction with rule preservation is table stakes.** Long-running sessions require automated summarization that preserves critical constraints. This is the most immediately actionable pattern for PAI.
+3. **Context compaction with rule preservation is table stakes.** Long-running sessions require automated summarization that preserves critical constraints. This is the most immediately actionable pattern for DAI.
 
-4. **Part-based message storage enables everything.** Typed message parts (text, tool calls, files, compaction summaries) unlock streaming, selective filtering, forking, and audit trails. PAI's current blob-based memory storage should evolve toward this.
+4. **Part-based message storage enables everything.** Typed message parts (text, tool calls, files, compaction summaries) unlock streaming, selective filtering, forking, and audit trails. DAI's current blob-based memory storage should evolve toward this.
 
 5. **Markdown agent definitions democratize agent creation.** YAML frontmatter + system prompt in a Markdown file is the most accessible way to define agents. This is immediately adoptable.
 
-6. **PAI's parallel execution is architecturally ahead.** OpenCode's sequential subtask execution is a known limitation. PAI's DAG-based orchestrator with parallel step dispatch is genuinely more sophisticated.
+6. **DAI's parallel execution is architecturally ahead.** OpenCode's sequential subtask execution is a known limitation. DAI's DAG-based orchestrator with parallel step dispatch is genuinely more sophisticated.
 
 7. **MCP integration is a double-edged sword.** The 51K token overhead for 4 MCP servers is a cautionary tale. Lazy loading and selective tool injection must be solved before MCP becomes practical.
 

@@ -1,6 +1,6 @@
 # AI Agent Memory Architecture: Actionable Patterns & Specific Techniques
 
-Research compiled 2026-03-03 for PAI Cloud Solution memory system.
+Research compiled 2026-03-03 for DAI Cloud Solution memory system.
 
 ---
 
@@ -51,7 +51,7 @@ No industry-standard automatic trigger exists. Best observed patterns:
 - Text content: 3-6x compression. Tool-heavy workloads: 5-40x compression
 - **Cost reduction**: ~10x vs raw context approaches
 
-### What to Use for PAI Cloud
+### What to Use for DAI Cloud
 
 Your ContextBuilder already does memory injection. The gap is conversation-level continuity. Pattern:
 1. Store a running summary in memory.db (episodic, domain="session_summary", key=session_id)

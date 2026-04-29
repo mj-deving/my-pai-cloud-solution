@@ -17,7 +17,7 @@
 6. [Retrieval-Augmented Context & Agent Memory](#6-rag-and-agent-memory)
 7. [Context Routing for Multi-Agent Systems](#7-context-routing)
 8. [Production Trade-offs & Honest Difficulties](#8-trade-offs)
-9. [Implications for PAI](#9-implications-for-pai)
+9. [Implications for DAI](#9-implications-for-pai)
 10. [Sources](#10-sources)
 
 ---
@@ -351,7 +351,7 @@ The critical distinction: RAG retrieves from a static knowledge base; agent memo
 | **Semantic** | Factual knowledge, domain info | Long-term, updated | "Project uses Bun + TypeScript" |
 | **Procedural** | Behavioral rules, how-to | Long-term, rarely changed | "Always run tests before commit" |
 
-Production systems (including PAI's own MemoryStore) typically implement all three, with episodic being the most write-heavy and procedural the most stable.
+Production systems (including DAI's own MemoryStore) typically implement all three, with episodic being the most write-heavy and procedural the most stable.
 
 ### 6.3 Hybrid Search (Vector + Keyword + Temporal)
 
@@ -488,11 +488,11 @@ LLM summarization causes agents to take 13-15% more steps to complete tasks. Wor
 
 ---
 
-## 9. Implications for PAI
+## 9. Implications for DAI
 
-### 9.1 Current PAI Context Architecture
+### 9.1 Current DAI Context Architecture
 
-PAI's context system (ContextBuilder, MemoryStore, HandoffManager) already implements several patterns identified as state-of-the-art:
+DAI's context system (ContextBuilder, MemoryStore, HandoffManager) already implements several patterns identified as state-of-the-art:
 
 - **SQLite-backed memory with FTS5:** Matches the recommended lightweight hybrid search pattern
 - **Episodic + semantic memory types:** Aligns with the production taxonomy
@@ -506,7 +506,7 @@ PAI's context system (ContextBuilder, MemoryStore, HandoffManager) already imple
 - Audit system prompt for timestamps or dynamic content that breaks cache
 - Ensure deterministic JSON serialization in ContextBuilder output
 - Place static instructions before dynamic memory injection
-- The 100:1 input/output ratio applies to PAI pipeline tasks -- context optimization has outsized cost impact
+- The 100:1 input/output ratio applies to DAI pipeline tasks -- context optimization has outsized cost impact
 
 **Observation Masking (from JetBrains):**
 - For pipeline tasks averaging ~50 tool calls, implement observation masking as the primary compression
@@ -519,12 +519,12 @@ PAI's context system (ContextBuilder, MemoryStore, HandoffManager) already imple
 - Maintain separate artifact index for file tracking (the unsolved problem)
 
 **Structured Note-Taking (from Anthropic):**
-- PAI's todo.md pattern in the Algorithm already does this
+- DAI's todo.md pattern in the Algorithm already does this
 - Extend to pipeline tasks: agents writing structured notes that persist outside context window
 - The Manus "recitation mechanism" (writing and reading todo.md) pushes global plans into recent attention
 
 **Tiered Context (from Codified Context paper):**
-- PAI's CLAUDE.md / CLAUDE.local.md / MEMORY.md three-file system maps cleanly to the three-tier model
+- DAI's CLAUDE.md / CLAUDE.local.md / MEMORY.md three-file system maps cleanly to the three-tier model
 - CLAUDE.md = Hot Memory (loaded every session)
 - CLAUDE.local.md = Domain State (session-specific)
 - MEMORY.md = Warm Memory (operational knowledge)
@@ -541,16 +541,16 @@ PAI's context system (ContextBuilder, MemoryStore, HandoffManager) already imple
 
 ### 9.3 Architecture Alignment
 
-PAI's existing architecture maps well to the ADK four-layer model:
+DAI's existing architecture maps well to the ADK four-layer model:
 
-| ADK Layer | PAI Equivalent | Status |
+| ADK Layer | DAI Equivalent | Status |
 |-----------|---------------|--------|
 | Working Context | System prompt + ContextBuilder output | Implemented |
 | Session | SessionManager + conversation history | Implemented |
 | Memory | MemoryStore (FTS5 + optional vectors) | Implemented, flags off |
 | Artifacts | File system (project files, PRDs) | Implicit, not formalized |
 
-The main gap is the Artifact layer -- PAI does not have explicit artifact management (reference by name, load on demand). The file system serves this role implicitly, but a formal ArtifactService could improve context efficiency for pipeline tasks working across many files.
+The main gap is the Artifact layer -- DAI does not have explicit artifact management (reference by name, load on demand). The file system serves this role implicitly, but a formal ArtifactService could improve context efficiency for pipeline tasks working across many files.
 
 ---
 

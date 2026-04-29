@@ -1,4 +1,4 @@
-# PAI Cloud Solution
+# DAI Cloud Solution
 
 ![TypeScript](https://img.shields.io/badge/-TypeScript-3178C6?style=flat-square) ![Cloudflare](https://img.shields.io/badge/-Cloudflare-F38020?style=flat-square)
 
@@ -26,7 +26,7 @@ You
 │
 ├── On your phone / anywhere
 │   ├── Telegram → Channels plugin (@isidore_channel_bot)  ← LIVE (primary)
-│   │   └── Native interactive session, MCP tools, PAI hooks
+│   │   └── Native interactive session, MCP tools, DAI hooks
 │   ├── Telegram → Bridge → claude --resume         ← bridge (legacy, active)
 │   └── Claude app → Remote Control                 ← direct CLI from mobile
 │
@@ -59,7 +59,7 @@ The project is transitioning from a monolithic bridge to standalone services:
 ## What's Built
 
 ### Access Surfaces
-- **Claude Channels** — @isidore_channel_bot live on Telegram, full PAI stack (hooks, MCP, skills)
+- **Claude Channels** — @isidore_channel_bot live on Telegram, full DAI stack (hooks, MCP, skills)
 - **Telegram bridge** — Grammy bot with 30+ commands, session management, dual-mode (workspace/project)
 - **Dashboard** — HTTP API + SSE on port 3456, bearer auth, injection scanning
 - **A2A server** — JSON-RPC 2.0 agent discovery and message exchange
@@ -100,7 +100,7 @@ Configure `bridge.env` with your Telegram bot token and allowed user ID, then:
 bun run src/bridge.ts
 ```
 
-For full VPS deployment (systemd services, SSH setup, PAI hooks), see [ARCHITECTURE.md](ARCHITECTURE.md).
+For full VPS deployment (systemd services, SSH setup, DAI hooks), see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ### Development
 

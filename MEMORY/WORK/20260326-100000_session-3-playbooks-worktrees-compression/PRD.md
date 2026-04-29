@@ -11,7 +11,7 @@ updated: 2026-03-26T10:20:00+01:00
 
 ## Context
 
-Session 3 of PAI Cloud Evolution Master Plan (v4). All three phases are fully independent — built in parallel via agents. Builds on Session 1+2. Baseline: 296 tests.
+Session 3 of DAI Cloud Evolution Master Plan (v4). All three phases are fully independent — built in parallel via agents. Builds on Session 1+2. Baseline: 296 tests.
 
 ### Risks
 - Addressed: all modules use mocked ClaudeInvoker in tests, no real LLM calls

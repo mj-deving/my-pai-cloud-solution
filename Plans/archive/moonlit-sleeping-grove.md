@@ -2,7 +2,7 @@
 
 ## Context
 
-PAI Cloud has 6+ execution paths that invoke Claude, but two problems:
+DAI Cloud has 6+ execution paths that invoke Claude, but two problems:
 1. **Sub-delegation is dead code** — `claude.subDelegate()` has zero callers. Agent definitions load but orchestrator always uses `oneShot()`.
 2. **No execution visibility** — Marius waits in silence during Claude invocations, pipeline tasks, workflows, and synthesis. No "CLI-like" live view of what's happening.
 

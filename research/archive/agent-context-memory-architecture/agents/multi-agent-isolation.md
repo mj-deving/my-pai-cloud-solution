@@ -3,7 +3,7 @@
 
 **Date:** 2026-03-02
 **Requested by:** Marius
-**Context:** Informing PAI's multi-agent architecture (Isidore Cloud + Gregor + future agents)
+**Context:** Informing DAI's multi-agent architecture (Isidore Cloud + Gregor + future agents)
 **Research mode:** Extensive (9 vectors, 18+ web searches, 8 deep-dive fetches)
 **Prior art:** Builds on 2026-03-01 agent-context-memory-architecture report
 
@@ -24,7 +24,7 @@
 11. [Production Case Studies](#11-production-case-studies)
 12. [Anti-Patterns and Lessons Learned](#12-anti-patterns-and-lessons-learned)
 13. [Architecture Reference Diagrams](#13-architecture-reference-diagrams)
-14. [Recommendations for PAI-Scale Systems](#14-recommendations-for-pai-scale-systems)
+14. [Recommendations for DAI-Scale Systems](#14-recommendations-for-pai-scale-systems)
 
 ---
 
@@ -512,7 +512,7 @@ Agent A's output becomes Agent B's input. No shared memory store required.
 Agent A: [research] --> result JSON --> Agent B: [analysis of result]
 ```
 
-**Used by:** OpenAI Agents SDK handoffs, LangGraph state channels, PAI's current pipeline (Gregor writes result JSON, Isidore reads it).
+**Used by:** OpenAI Agents SDK handoffs, LangGraph state channels, DAI's current pipeline (Gregor writes result JSON, Isidore reads it).
 
 **Trade-off:** Simple and explicit, but no persistent knowledge accumulation. Each interaction is stateless.
 
@@ -715,7 +715,7 @@ Bipartite graphs define which users can invoke which agents (User-Agent graph) a
 
 **Pattern:** Agent reads state, performs computation, attempts write with version check. If version changed, re-read and retry.
 
-**Used by:** Database-backed state stores with version columns. PAI's idempotency store uses SHA256 op_id as version check.
+**Used by:** Database-backed state stores with version columns. DAI's idempotency store uses SHA256 op_id as version check.
 
 **Trade-off:** High throughput for low-contention scenarios. Performance degrades under high contention (many retries). Can starve slow agents.
 
@@ -723,7 +723,7 @@ Bipartite graphs define which users can invoke which agents (User-Agent graph) a
 
 **Pattern:** Only the orchestrator writes to shared state. Worker agents return results; orchestrator integrates them.
 
-**Used by:** 17x error trap research recommendation, PAI's current pipeline (Gregor writes results, pipeline watcher integrates).
+**Used by:** 17x error trap research recommendation, DAI's current pipeline (Gregor writes results, pipeline watcher integrates).
 
 **Trade-off:** Eliminates all synchronization complexity. Orchestrator becomes bottleneck and single point of failure. Most robust for small-scale systems (2-10 agents).
 
@@ -759,7 +759,7 @@ When an agent fails or is compromised, the blast radius is the extent of damage 
 - **Graduated response:** Warning -> throttling -> isolation -> termination
 - **Kill switch:** Human-triggered immediate agent shutdown capability
 
-**PAI relevance:** PAI's existing `RateLimiter` (sliding window failure tracking + cooldown) and `ResourceGuard` (memory-gated dispatch) are lightweight circuit breakers.
+**DAI relevance:** DAI's existing `RateLimiter` (sliding window failure tracking + cooldown) and `ResourceGuard` (memory-gated dispatch) are lightweight circuit breakers.
 
 ### 10.4 State Separation
 
@@ -1033,13 +1033,13 @@ COMPACTION TRIGGERS:
 
 ---
 
-## 14. Recommendations for PAI-Scale Systems (2-10 Agents)
+## 14. Recommendations for DAI-Scale Systems (2-10 Agents)
 
-Based on all research, here are specific recommendations for PAI's architecture:
+Based on all research, here are specific recommendations for DAI's architecture:
 
 ### 14.1 Keep Centralized Orchestration
 
-PAI's current pattern (pipeline watcher as orchestrator, agents as workers) aligns with the strongest production pattern. The centralized orchestrator suppresses the 17x error trap. Do not move to peer-to-peer agent communication.
+DAI's current pattern (pipeline watcher as orchestrator, agents as workers) aligns with the strongest production pattern. The centralized orchestrator suppresses the 17x error trap. Do not move to peer-to-peer agent communication.
 
 ### 14.2 Implement Three-Level Memory Scoping
 
@@ -1094,7 +1094,7 @@ Telegram sessions (project mode, direct user interaction) should receive FULL sc
 
 ### 14.6 Result Passing Over Shared Memory
 
-For PAI's scale (2-3 agents), result passing (current pipeline pattern) is the right choice over shared memory. The overhead of a shared knowledge base with synchronization, provenance tracking, and access control is not justified until you have 5+ agents building on each other's work continuously.
+For DAI's scale (2-3 agents), result passing (current pipeline pattern) is the right choice over shared memory. The overhead of a shared knowledge base with synchronization, provenance tracking, and access control is not justified until you have 5+ agents building on each other's work continuously.
 
 ### 14.7 Adopt Append-Only Semantics for Cross-Agent State
 
@@ -1107,7 +1107,7 @@ Never allow one agent to modify another agent's output. If corrections are neede
 
 ### 14.8 Circuit Breaker Enhancement
 
-PAI's existing `RateLimiter` and `ResourceGuard` are good foundations. Add:
+DAI's existing `RateLimiter` and `ResourceGuard` are good foundations. Add:
 - Per-agent error tracking (not just global)
 - Graduated response: warn -> throttle -> isolate
 - Out-of-band monitoring (infrastructure-level, not agent-level)
@@ -1119,7 +1119,7 @@ When memory injection is proven stable, consider adding Letta-style self-editing
 
 ### 14.10 Future: Git-Based Memory Coordination
 
-If Gregor and Isidore need to build on each other's knowledge continuously, Letta's Context Repository pattern (git worktrees for isolated writes, merge for integration) is the most elegant solution. PAI already uses git extensively -- this would be a natural extension.
+If Gregor and Isidore need to build on each other's knowledge continuously, Letta's Context Repository pattern (git worktrees for isolated writes, merge for integration) is the most elegant solution. DAI already uses git extensively -- this would be a natural extension.
 
 ---
 
@@ -1136,4 +1136,4 @@ If Gregor and Isidore need to build on each other's knowledge continuously, Lett
 | Permission models documented | 7 |
 | Communication protocols analyzed | 7 |
 | Prior research incorporated | 2026-03-01 agent-context-memory-architecture report |
-| Cross-references with PAI codebase | Pipeline, memory store, context builder, rate limiter, resource guard, handoff, idempotency |
+| Cross-references with DAI codebase | Pipeline, memory store, context builder, rate limiter, resource guard, handoff, idempotency |

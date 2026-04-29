@@ -327,7 +327,7 @@ Installed at `<project>/.git/hooks/pre-push`. Rejects pushes to `refs/heads/main
 
 ---
 
-## PAI Hooks (VPS — Cloud Profile)
+## DAI Hooks (VPS — Cloud Profile)
 
 ### Enabled (16 hooks)
 
@@ -348,7 +348,7 @@ Installed at `<project>/.git/hooks/pre-push`. Rejects pushes to `refs/heads/main
 
   Stop ──┬── LastResponseCache            cache response for RatingCapture
          ├── RelationshipMemory           extract preferences/frustrations
-         └── DocIntegrity                 check PAI file integrity (self-gating)
+         └── DocIntegrity                 check DAI file integrity (self-gating)
 
   SessionEnd ──┬── WorkCompletionLearning capture work metadata as learnings
                ├── SessionCleanup         clean work state + session-names
@@ -377,7 +377,7 @@ Installed at `<project>/.git/hooks/pre-push`. Rejects pushes to `refs/heads/main
 
 ```
   Format:
-  ══ PAI ════════════════════════════════
+  ══ DAI ════════════════════════════════
   📁 project-name · HH:MM
   msg N · ctx XX% · NNep
 

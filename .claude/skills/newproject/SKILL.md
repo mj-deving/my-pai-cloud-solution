@@ -1,11 +1,11 @@
 ---
 name: newproject
-description: "Create a new PAI Cloud project: GitHub repo + VPS dir + scaffold + registry entry + auto-switch. USE WHEN user says /newproject, create project, new project, scaffold project, init project."
+description: "Create a new DAI Cloud project: GitHub repo + VPS dir + scaffold + registry entry + auto-switch. USE WHEN user says /newproject, create project, new project, scaffold project, init project."
 user_invocable: true
 trigger: /newproject
 ---
 
-# /newproject — Scaffold a New PAI Cloud Project
+# /newproject — Scaffold a New DAI Cloud Project
 
 Creates a new project end-to-end: private GitHub repo, VPS directory, initial commit, registry entry, and switches the active session to it. Equivalent to bridge `/newproject <name>`.
 
@@ -46,7 +46,7 @@ Abort if `projects[<name>]` already exists (`jq -e ".projects[\"<name>\"]"` retu
 ```bash
 gh repo create mj-deving/<name> \
   --private \
-  --description "PAI Cloud project: <name>" \
+  --description "DAI Cloud project: <name>" \
   --gitignore Node
 ```
 
@@ -57,7 +57,7 @@ Build the scaffold locally, then transfer — avoids nested heredocs over SSH.
 ```bash
 # 1. Build CLAUDE.md locally in a temp file
 SCAFFOLD=$(mktemp)
-printf '# %s\n\nPAI Cloud project.\n\n## Build\n\n    bun install\n' "<name>" > "$SCAFFOLD"
+printf '# %s\n\nDAI Cloud project.\n\n## Build\n\n    bun install\n' "<name>" > "$SCAFFOLD"
 
 # 2. Clone the empty repo on VPS
 ssh isidore_cloud "cd /home/isidore_cloud/projects && git clone https://github.com/mj-deving/<name>.git"

@@ -4,7 +4,7 @@
 
 Cloud Isidore has three overlapping sync/persistence mechanisms built incrementally for a local-first world. Two are dead weight:
 - **HandoffManager** writes JSON snapshots nobody reads (logged and discarded at startup)
-- **Knowledge sync** (`sync-knowledge.sh`) copies PAI memory dirs through a GitHub repo intermediary, but Cloud has its own `memory.db` and doesn't use them. Local hooks haven't fired since Feb 28.
+- **Knowledge sync** (`sync-knowledge.sh`) copies DAI memory dirs through a GitHub repo intermediary, but Cloud has its own `memory.db` and doesn't use them. Local hooks haven't fired since Feb 28.
 
 **Goal:** Delete these two dead systems, simplify `/sync` to git-push-only, and make `memory.db` the sole persistence layer. Pure deletion — no new logic.
 

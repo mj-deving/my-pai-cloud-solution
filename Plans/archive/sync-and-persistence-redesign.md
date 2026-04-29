@@ -4,13 +4,13 @@
 
 ### Three Overlapping Sync Mechanisms
 
-**1. Knowledge Sync (`sync-knowledge.sh`)** — PAI memory/identity
+**1. Knowledge Sync (`sync-knowledge.sh`)** — DAI memory/identity
 - Syncs: USER/, RELATIONSHIP/, LEARNING/, WORK/, SESSIONS/ dirs + per-project CLAUDE.local.md continuity
 - Transport: Private `pai-knowledge` GitHub repo as intermediary
 - Local → push on SessionEnd hook (automatic), pull on SessionStart hook (automatic)
 - Cloud → push on `/sync`, pull on `/project` switch
 - VPS cron: pull+push every 2h (10am-10pm) via `cron-knowledge-sync.sh`
-- **Problem:** Local hooks haven't fired since Feb 28. VPS cron syncs with itself. The 143 PRD session dirs in WORK/ and SESSIONS/ are local-only PAI artifacts — Cloud Isidore doesn't use them (it has its own SQLite memory.db).
+- **Problem:** Local hooks haven't fired since Feb 28. VPS cron syncs with itself. The 143 PRD session dirs in WORK/ and SESSIONS/ are local-only DAI artifacts — Cloud Isidore doesn't use them (it has its own SQLite memory.db).
 
 **2. Project Code Sync (`project-sync.sh`)** — actual source code
 - Syncs: git repos of whatever project is active
@@ -34,7 +34,7 @@
 | Session context for Claude | `CLAUDE.local.md` → knowledge sync → `CLAUDE.handoff.md` | Fragile — depends on hooks firing, CLAUDE.handoff.md not auto-loaded |
 | Episodic memory on Cloud | `memory.db` (SQLite, Cloud-only) | Not synced, local has no equivalent |
 | Distilled knowledge on Cloud | `memory.db` knowledge table | Not synced |
-| PAI identity/learnings | `pai-knowledge` repo dirs | Synced but stale (local hooks not firing) |
+| DAI identity/learnings | `pai-knowledge` repo dirs | Synced but stale (local hooks not firing) |
 
 ### What's Redundant or Dead
 
@@ -54,7 +54,7 @@ Cloud Isidore's persistence and sync is a patchwork of mechanisms designed for a
 1. **Three sync systems** where one or two would do
 2. **Continuity depends on hooks that don't fire** (local SessionStart/SessionEnd)
 3. **Cloud Isidore has no self-contained persistence** — it depends on knowledge sync from local, CLAUDE.local.md written by a local wrapup skill, and a handoff-state.json that only tracks project/session IDs
-4. **Memory is split** — Cloud has SQLite episodic/semantic memory (memory.db), local has file-based PAI memory dirs. They don't talk to each other.
+4. **Memory is split** — Cloud has SQLite episodic/semantic memory (memory.db), local has file-based DAI memory dirs. They don't talk to each other.
 5. **No neverending conversation model** — Telegram chat is either "project mode" (with /project, /sync) or freeform messaging. There's no designed persistence for long-running conversational context across sessions.
 
 ---

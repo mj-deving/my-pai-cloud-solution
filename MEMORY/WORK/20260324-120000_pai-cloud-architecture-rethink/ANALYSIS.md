@@ -1,4 +1,4 @@
-# PAI Cloud Architecture Rethink -- Deep Analysis
+# DAI Cloud Architecture Rethink -- Deep Analysis
 
 **Date:** 2026-03-24
 **Author:** Nova (Deep Algorithm run)
@@ -8,11 +8,11 @@
 
 ## 1. First Principles Decomposition
 
-Before evaluating options, strip away all implementation details. What does PAI Cloud *irreducibly* need?
+Before evaluating options, strip away all implementation details. What does DAI Cloud *irreducibly* need?
 
 **Primitive 1: Message Transport** -- Get human text from a mobile device to Claude's context window, and get Claude's response back. That's it. Telegram, web, smoke signals -- the transport is just a pipe.
 
-**Primitive 2: Persistent Agent State** -- Claude needs memory across sessions. Episodic memory, semantic memory, whiteboards, project state. This is what makes PAI "personal" -- without it, it's just Claude.
+**Primitive 2: Persistent Agent State** -- Claude needs memory across sessions. Episodic memory, semantic memory, whiteboards, project state. This is what makes DAI "personal" -- without it, it's just Claude.
 
 **Primitive 3: Context Injection** -- Before Claude sees a message, relevant context from memory must be injected. This is the "brain" that makes responses coherent across days/weeks.
 
@@ -57,7 +57,7 @@ Before evaluating options, strip away all implementation details. What does PAI 
 | Module | Lines | Why Keep |
 |--------|-------|----------|
 | `memory.ts` | 567 | Episodic + semantic memory, FTS5 -- core differentiator |
-| `context.ts` | 269 | Scored context injection -- makes PAI personal |
+| `context.ts` | 269 | Scored context injection -- makes DAI personal |
 | `synthesis.ts` | 402 | Importance-triggered synthesis, wrapup generation |
 | `config.ts` | 484 | Feature flags, Zod validation (adapt for new arch) |
 | `schemas.ts` | 349 | Zod schemas for cross-agent boundaries |
@@ -127,7 +127,7 @@ Before evaluating options, strip away all implementation details. What does PAI 
 
 **Description:** Build a custom MCP Channel server that bridges Telegram to Claude Code sessions. The MCP server runs alongside Claude Code on VPS, handles Telegram polling, pushes messages into the session via Channel notifications, and exposes a reply tool for Claude to send messages back. Memory and context injection happen via additional MCP tools.
 
-This is architecturally identical to the official Telegram Channel plugin, but extended with PAI's memory/context/pipeline capabilities as additional MCP tools.
+This is architecturally identical to the official Telegram Channel plugin, but extended with DAI's memory/context/pipeline capabilities as additional MCP tools.
 
 **Max/Pro Compatible:** Yes -- Channels require claude.ai login, not API key.
 **Headless on VPS:** Yes -- `claude --channels server:pai-telegram` in a systemd-managed tmux or via Remote Control server mode.
@@ -144,7 +144,7 @@ This is architecturally identical to the official Telegram Channel plugin, but e
 
 **Description:** Two complementary access paths to the SAME Claude Code session:
 
-1. **Remote Control** (primary): `claude remote-control --name "PAI Cloud"` runs on VPS. User connects via Claude mobile app or claude.ai/code for full interactive experience. Terminal-like, supports all tools, permission prompts via native UI.
+1. **Remote Control** (primary): `claude remote-control --name "DAI Cloud"` runs on VPS. User connects via Claude mobile app or claude.ai/code for full interactive experience. Terminal-like, supports all tools, permission prompts via native UI.
 
 2. **Telegram Channel** (secondary): Official or custom Channel plugin for push notifications, quick questions, and async interaction when not actively at a session. Claude can proactively notify via Telegram when tasks complete or attention is needed.
 
@@ -163,7 +163,7 @@ Both connect to the same long-running Claude Code process on VPS. Memory and con
 
 **Cross-Agent Pipeline:** Pipeline becomes MCP tools that Claude can call. Or use Agent SDK to spawn sub-agents for pipeline tasks. Orchestrator logic moves into agent definitions.
 
-**Verdict:** This is the clear winner. It leverages everything Anthropic has built, adds PAI's unique value (memory, context), and provides the best mobile experience possible.
+**Verdict:** This is the clear winner. It leverages everything Anthropic has built, adds DAI's unique value (memory, context), and provides the best mobile experience possible.
 
 ### Option F: Agent SDK Daemon with Custom Transport Layer
 
@@ -178,9 +178,9 @@ Both connect to the same long-running Claude Code process on VPS. Memory and con
 
 **Verdict:** Most flexible but most effort. Why build what Anthropic already built? Only justified if Remote Control or Channels have fundamental limitations that prevent the use case.
 
-### Option F2 (Novel): "PAI as MCP Server Ecosystem"
+### Option F2 (Novel): "DAI as MCP Server Ecosystem"
 
-**Description:** Instead of a monolithic bridge, decompose PAI into a set of MCP servers that Claude Code loads natively:
+**Description:** Instead of a monolithic bridge, decompose DAI into a set of MCP servers that Claude Code loads natively:
 
 1. **pai-memory** MCP server: Exposes `memory_store`, `memory_recall`, `memory_search`, `whiteboard_read`, `whiteboard_write` tools. Backed by SQLite.
 2. **pai-context** MCP server: Hooks into session start to inject relevant context. Exposes `context_suggest` tool.
@@ -237,13 +237,13 @@ Claude Code loads these via `.mcp.json`. No bridge at all. Claude Code IS the ru
 | Auto-wrapup | None (gap!) | Context pressure detection |
 | Formatting | Basic text | compactFormat + statusline |
 
-**Key insight:** The official plugin handles the transport perfectly but has ZERO application-layer intelligence. PAI's value is entirely in the gaps. This means the right architecture adds PAI's intelligence ON TOP OF the official transport, not instead of it.
+**Key insight:** The official plugin handles the transport perfectly but has ZERO application-layer intelligence. DAI's value is entirely in the gaps. This means the right architecture adds DAI's intelligence ON TOP OF the official transport, not instead of it.
 
 ---
 
 ## 6. Recommended Architecture: Option E + F2 Hybrid
 
-**"PAI as MCP Ecosystem with Hybrid Access"**
+**"DAI as MCP Ecosystem with Hybrid Access"**
 
 ### Architecture
 
@@ -251,7 +251,7 @@ Claude Code loads these via `.mcp.json`. No bridge at all. Claude Code IS the ru
                     ┌──────────────────────────────┐
                     │   Claude Code (VPS)           │
                     │   claude remote-control       │
-                    │   --name "PAI Cloud"          │
+                    │   --name "DAI Cloud"          │
                     │   --channels telegram         │
                     │                               │
                     │   Loaded MCP Servers:          │
@@ -285,8 +285,8 @@ Claude Code loads these via `.mcp.json`. No bridge at all. Claude Code IS the ru
 1. `pai-memory` MCP server -- wraps existing MemoryStore SQLite operations as MCP tools
 2. `pai-context` MCP server -- wraps ContextBuilder as MCP tool + system prompt injection via CLAUDE.md
 3. VPS setup: `claude remote-control` in systemd, with Telegram Channel plugin installed
-4. `.mcp.json` configuration loading all PAI MCP servers
-5. Basic CLAUDE.md with PAI identity, memory instructions, auto-wrapup guidance
+4. `.mcp.json` configuration loading all DAI MCP servers
+5. Basic CLAUDE.md with DAI identity, memory instructions, auto-wrapup guidance
 
 **Phase 2 (Full capability, 2-3 more weeks):**
 6. `pai-pipeline` MCP server -- cross-agent task delegation and result routing
@@ -302,7 +302,7 @@ Claude Code loads these via `.mcp.json`. No bridge at all. Claude Code IS the ru
 - **Native permission relay** -- approve tool use from your phone
 - **50-60% code reduction** -- from 13,000 lines to ~5,000 lines of focused MCP servers
 - **Zero custom transport code** -- Anthropic maintains Telegram/Discord/Remote Control
-- **Future features for free** -- as Claude Code adds capabilities, PAI gets them automatically
+- **Future features for free** -- as Claude Code adds capabilities, DAI gets them automatically
 - **Multi-device access** -- phone, tablet, laptop, all to same session
 - **Worktree isolation** for parallel agent work -- `--spawn worktree`
 - **Agent teams** for complex tasks -- native Claude Code feature
@@ -324,7 +324,7 @@ Claude Code loads these via `.mcp.json`. No bridge at all. Claude Code IS the ru
 # VPS systemd service: /etc/systemd/system/pai-cloud.service
 [Service]
 ExecStart=/home/isidore_cloud/.npm-global/bin/claude remote-control \
-  --name "PAI Cloud" \
+  --name "DAI Cloud" \
   --channels plugin:telegram@claude-plugins-official \
   --spawn same-dir \
   --capacity 4 \
@@ -369,7 +369,7 @@ Environment=HOME=/home/isidore_cloud
 
 **Failure 3: MCP server crashes**
 - Mitigation: Claude Code logs MCP errors. Memory MCP server is stateless (SQLite handles persistence). Restart of Claude Code session restarts all MCP servers.
-- Impact: Temporary loss of memory/context tools. Claude still functions, just without PAI intelligence.
+- Impact: Temporary loss of memory/context tools. Claude still functions, just without DAI intelligence.
 
 **Failure 4: Channels API breaks in preview**
 - Mitigation: Telegram Channel is an independent concern. Memory, context, and pipeline still work via MCP. Fall back to Remote Control only.
@@ -387,7 +387,7 @@ Environment=HOME=/home/isidore_cloud
 **Week 2: VPS Deployment**
 6. Install Telegram Channel plugin on VPS
 7. Set up `claude remote-control` with systemd
-8. Configure CLAUDE.md with PAI identity and memory instructions
+8. Configure CLAUDE.md with DAI identity and memory instructions
 9. Pair Telegram account
 10. Test: send message from phone via Telegram, approve permission from Claude app
 11. Test: connect via claude.ai/code and do interactive work
@@ -452,7 +452,7 @@ Environment=HOME=/home/isidore_cloud
 | Maintenance burden | High (parsing, error handling) | Medium (SDK updates) | **Low** (Anthropic maintains) |
 | Subscription compat | Yes | Yes | Yes |
 
-**Verdict:** Agent SDK is better than CLI spawning but worse than "just use Claude Code natively with MCP servers." The SDK exists for embedding Claude in other applications. PAI's use case is better served by running Claude Code itself and extending it via MCP.
+**Verdict:** Agent SDK is better than CLI spawning but worse than "just use Claude Code natively with MCP servers." The SDK exists for embedding Claude in other applications. DAI's use case is better served by running Claude Code itself and extending it via MCP.
 
 ---
 
@@ -499,9 +499,9 @@ Hooks are the secret weapon that makes this architecture work. Instead of wrappi
 
 **Notification Hook (Channel):** When a Telegram message arrives, it already has context from the `pai-context` MCP server in the system prompt.
 
-**CLAUDE.md:** The persistent system prompt. Contains PAI identity, memory instructions, project context, behavioral guidelines. This replaces context injection -- it's always there.
+**CLAUDE.md:** The persistent system prompt. Contains DAI identity, memory instructions, project context, behavioral guidelines. This replaces context injection -- it's always there.
 
-Hooks + CLAUDE.md + MCP servers = PAI's intelligence layer, running inside Claude Code instead of wrapping it.
+Hooks + CLAUDE.md + MCP servers = DAI's intelligence layer, running inside Claude Code instead of wrapping it.
 
 ---
 

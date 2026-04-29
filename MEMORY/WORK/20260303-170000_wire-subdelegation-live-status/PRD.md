@@ -11,7 +11,7 @@ updated: 2026-03-03T17:00:00+01:00
 
 ## Context
 
-PAI Cloud has 6+ execution paths that invoke Claude, but sub-delegation is dead code (zero callers) and there's no execution visibility — Marius waits in silence during Claude invocations. This wires sub-delegation into the orchestrator and adds live Telegram status for all operations.
+DAI Cloud has 6+ execution paths that invoke Claude, but sub-delegation is dead code (zero callers) and there's no execution visibility — Marius waits in silence during Claude invocations. This wires sub-delegation into the orchestrator and adds live Telegram status for all operations.
 
 ### Risks
 - Telegram rate limits on message edits (mitigated by 2.5s rate limiting)

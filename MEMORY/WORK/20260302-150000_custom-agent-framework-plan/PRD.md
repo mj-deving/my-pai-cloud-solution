@@ -11,19 +11,19 @@ updated: 2026-03-02T15:00:00+01:00
 
 ## Context
 
-Marius wants to plan the custom agent framework for PAI Cloud Solution. All research is done (10 frameworks, 16-section synthesis report, ~700K tokens synthesized). Now it's time to establish:
+Marius wants to plan the custom agent framework for DAI Cloud Solution. All research is done (10 frameworks, 16-section synthesis report, ~700K tokens synthesized). Now it's time to establish:
 
 1. **Vision of Goals** — what the framework is meant to achieve
 2. **Decision Graph** — well-reasoned map of paths for adopting different features from frameworks
 3. **Current State Assessment** — where we stand (31 src files, 6 phases built)
 4. **Phased Roadmap** — what to do, in what order, avoiding over-engineering
-5. **PAI Algorithm Integration** — how the Algorithm remains the core differentiator
+5. **DAI Algorithm Integration** — how the Algorithm remains the core differentiator
 
-The framework should be personal-first (Marius's solution), designed to evolve into battle-tested infrastructure. It extends local PAI into cloud with highest independent agency (L3→L4). It is NOT a rewrite — it builds on the existing 31-file cloud solution.
+The framework should be personal-first (Marius's solution), designed to evolve into battle-tested infrastructure. It extends local DAI into cloud with highest independent agency (L3→L4). It is NOT a rewrite — it builds on the existing 31-file cloud solution.
 
 Key constraints:
 - No over-engineering — evolve, don't big-bang
-- PAI Algorithm is the core differentiator (not just another ReAct loop)
+- DAI Algorithm is the core differentiator (not just another ReAct loop)
 - Leverage existing infrastructure (memory, context, handoff, pipeline, orchestrator)
 - Best-of-all synthesis from 10 researched frameworks
 - Demos ecosystem compatibility as future milestone (not immediate)
@@ -41,7 +41,7 @@ Key constraints:
 
 ### Vision & Goals (Foundation)
 - [ ] ISC-1: Framework vision statement defines target autonomy level (L3→L4)
-- [ ] ISC-2: Framework vision explicitly positions PAI Algorithm as core differentiator vs ReAct loops
+- [ ] ISC-2: Framework vision explicitly positions DAI Algorithm as core differentiator vs ReAct loops
 - [ ] ISC-3: Three distinct operating modes defined (workspace/project/autonomous)
 - [ ] ISC-4: Success metrics defined for each autonomy level transition
 - [ ] ISC-5: Non-goals explicitly listed (what the framework will NOT do)
@@ -77,8 +77,8 @@ Key constraints:
 - [ ] ISC-27: Continuous operation model chosen (daemon vs triggered vs hybrid)
 
 ### Decision Graph — Integration & Evolution
-- [ ] ISC-28: Local PAI ↔ Cloud PAI integration boundaries defined
-- [ ] ISC-29: PAI Algorithm hook points identified for agent framework
+- [ ] ISC-28: Local DAI ↔ Cloud DAI integration boundaries defined
+- [ ] ISC-29: DAI Algorithm hook points identified for agent framework
 - [ ] ISC-30: Demos ecosystem integration path documented (phased)
 - [ ] ISC-31: Skill system integration path documented
 - [ ] ISC-32: Hook system integration path documented
@@ -105,7 +105,7 @@ Key constraints:
 - [ ] ISC-45: Phase 4 scope defined with entry/exit criteria
 - [ ] ISC-46: Phase 4 self-initiation triggers specified
 - [ ] ISC-47: Phase 4 file-level implementation targets identified
-- [ ] ISC-48: Phase 4 maps to L4 autonomy from PAI-Demos-Analysis
+- [ ] ISC-48: Phase 4 maps to L4 autonomy from DAI-Demos-Analysis
 
 ### Anti-Criteria
 - [ ] ISC-A1: Plan does NOT propose rewriting existing working modules

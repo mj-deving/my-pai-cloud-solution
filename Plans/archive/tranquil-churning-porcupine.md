@@ -2,7 +2,7 @@
 
 ## Context
 
-PAI Cloud's Graduated Extraction strategy absorbs OpenClaw's best capabilities without the framework. **Phase 1** (Sonnet fast-path via direct API) is complete but not yet activated on VPS. This plan covers the next three steps plus test coverage for three untested modules.
+DAI Cloud's Graduated Extraction strategy absorbs OpenClaw's best capabilities without the framework. **Phase 1** (Sonnet fast-path via direct API) is complete but not yet activated on VPS. This plan covers the next three steps plus test coverage for three untested modules.
 
 **Why now:** The bridge is stable (147 tests, deployed, running). Before building more, we need: (1) test coverage on existing untested modules, (2) operational visibility (health/diagnostics), (3) programmatic access (gateway), and (4) cleaner internal structure (BridgeContext).
 

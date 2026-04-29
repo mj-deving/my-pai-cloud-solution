@@ -1,5 +1,5 @@
 ---
-task: Research bridge-to-native PAI migration patterns
+task: Research bridge-to-native DAI migration patterns
 slug: 20260418-104310_research-bridge-to-native-patterns
 effort: comprehensive
 phase: complete
@@ -13,7 +13,7 @@ updated: 2026-04-18T10:48:00+02:00
 
 User wants deep comprehensive research on existing implementations before retiring the Telegram bridge. Goal: build on proven patterns rather than reinvent. Scope spans 8 distinct research dimensions (A–H in original prompt).
 
-**End-state of the work we'd be informing:** Retire `src/bridge.ts` (Grammy bot) in favor of native Claude Code running in Channels mode + PAI hooks + MCP servers + skills. Standalone pipeline + dashboard already extracted.
+**End-state of the work we'd be informing:** Retire `src/bridge.ts` (Grammy bot) in favor of native Claude Code running in Channels mode + DAI hooks + MCP servers + skills. Standalone pipeline + dashboard already extracted.
 
 ### Risks
 - **URL hallucination by research agents** — mandatory verification before delivering
@@ -32,7 +32,7 @@ Launched 9 parallel research agents + 2 bird Twitter signals. Mapping to user's 
 | 4 | Gemini | C | Claude Channels plugin ecosystem |
 | 5 | Gemini | D | Telegram-bot migration case studies |
 | 6 | Gemini | F | Proactive notification patterns |
-| 7 | Grok | B | PAI-like systems critical review (contrarian) |
+| 7 | Grok | B | DAI-like systems critical review (contrarian) |
 | 8 | Grok | H | Mobile-first agent surfaces 2025-2026 |
 | 9 | Grok | overall | Case AGAINST retiring the bridge |
 
@@ -45,7 +45,7 @@ Launched 9 parallel research agents + 2 bird Twitter signals. Mapping to user's 
 
 **Coverage per user question**
 - [x] ISC-4: Q(A) migration patterns — agent 1 returned with Claude Agent SDK, Cline, Zed, Letta cited
-- [x] ISC-5: Q(B) OSS PAI-like systems — agent 7 returned contrarian: "bridge is the product"
+- [x] ISC-5: Q(B) OSS DAI-like systems — agent 7 returned contrarian: "bridge is the product"
 - [x] ISC-6: Q(C) Channels ecosystem — agent 4 returned with 5 open issues cited
 - [x] ISC-7: Q(D) Telegram-bot migrations — agent 5 returned with 8 reference repos
 - [x] ISC-8: Q(E) hook-based architectures — agent 2 returned with 5 turn-recording prior art repos

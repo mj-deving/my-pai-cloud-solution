@@ -27,7 +27,7 @@
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│                PAI Cloud (VPS)                        │
+│                DAI Cloud (VPS)                        │
 ├──────────────────────────────────────────────────────┤
 │  Access Surfaces (user-to-agent)                     │
 │  ├── Telegram Bridge (PRIMARY — Grammy bot)          │
@@ -39,8 +39,8 @@
 │  └── Dashboard (MONITORING — Bun.serve :3456)         │
 ├──────────────────────────────────────────────────────┤
 │  Shared Resources                                     │
-│  ├── memory.db (SQLite — all surfaces via PAI hooks)  │
-│  ├── PAI hooks (14 hooks, global in settings.json)    │
+│  ├── memory.db (SQLite — all surfaces via DAI hooks)  │
+│  ├── DAI hooks (14 hooks, global in settings.json)    │
 │  └── .claude/settings.json (shared config)            │
 └──────────────────────────────────────────────────────┘
 ```
@@ -50,8 +50,8 @@
 ### 1. Bridge vs Channels — Coexistence, Not Replacement
 
 **Decision:** Run both. Different Telegram bots, different use cases:
-- **Bridge bot** (existing): Full PAI experience — commands, memory, pipeline, orchestrator
-- **Channels bot** (new, separate bot token): Direct Claude access with permission relay — useful when you want raw Claude without PAI overhead
+- **Bridge bot** (existing): Full DAI experience — commands, memory, pipeline, orchestrator
+- **Channels bot** (new, separate bot token): Direct Claude access with permission relay — useful when you want raw Claude without DAI overhead
 
 **Why not replace?** The bridge does things Channels can't: custom commands, memory injection via ClaudeInvoker, pipeline dispatch, streaming status messages, auto-wrapup, importance scoring. Channels does things the bridge can't: permission relay (approve/deny tool use from Telegram), native Claude session management.
 
@@ -63,7 +63,7 @@
 
 ### 3. Shared Hooks — All Access Surfaces Benefit
 
-PAI hooks fire on ALL Claude sessions — they're in `~/.claude/settings.json` (global). Verified hooks include SecurityValidator, LoadContext, PRDSync, RatingCapture, SessionAutoName. Terminal-specific hooks (KittyEnvPersist, VoiceCompletion, ResponseTabReset) will silently no-op in non-terminal contexts — safe.
+DAI hooks fire on ALL Claude sessions — they're in `~/.claude/settings.json` (global). Verified hooks include SecurityValidator, LoadContext, PRDSync, RatingCapture, SessionAutoName. Terminal-specific hooks (KittyEnvPersist, VoiceCompletion, ResponseTabReset) will silently no-op in non-terminal contexts — safe.
 
 **Hook scoping note:** No bridge-specific env vars (TELEGRAM_USER_ID, etc.) leak into Channels/Remote sessions because those are set by the bridge process, not by settings.json. Channels and Remote Control sessions inherit only the systemd Environment= vars.
 
@@ -102,18 +102,18 @@ Upgraded to v2.1.84 on 2026-03-26. Bridge verified working after upgrade.
 # On VPS via SSH (in tmux for persistence)
 ssh isidore_cloud
 tmux new -s remote-test
-claude --remote-control "PAI Cloud Test"
+claude --remote-control "DAI Cloud Test"
 # Terminal shows session URL and QR code
 # Press spacebar to toggle QR display
 ```
-On phone: Open Claude app → session list → "PAI Cloud Test" (green dot) → connect → send test message.
+On phone: Open Claude app → session list → "DAI Cloud Test" (green dot) → connect → send test message.
 
 **Verify:** Response received on phone. Then exit the test session.
 
 ### Step 2: Server Mode with Worktree Spawning
 ```bash
 claude remote-control \
-  --name "PAI Cloud" \
+  --name "DAI Cloud" \
   --spawn worktree \
   --capacity 4
 ```
@@ -148,7 +148,7 @@ WorkingDirectory=/home/isidore_cloud/projects/my-pai-cloud-solution
 Environment=HOME=/home/isidore_cloud
 Environment=PAI_DIR=/home/isidore_cloud/.claude
 Environment=PATH=/home/isidore_cloud/.bun/bin:/home/isidore_cloud/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/home/isidore_cloud/.npm-global/bin/claude remote-control --name "PAI Cloud" --spawn worktree --capacity 4
+ExecStart=/home/isidore_cloud/.npm-global/bin/claude remote-control --name "DAI Cloud" --spawn worktree --capacity 4
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -191,7 +191,7 @@ ssh isidore_cloud '(crontab -l 2>/dev/null; echo "30 3 * * * cd ~/projects/my-pa
 
 ### Step 5: Verify
 1. Connect from mobile app → send message → get response
-2. PAI hooks fire (check `journalctl -u isidore-cloud-remote` for hook traces)
+2. DAI hooks fire (check `journalctl -u isidore-cloud-remote` for hook traces)
 3. Bridge unaffected (`sudo systemctl is-active isidore-cloud-bridge`)
 4. Multiple sessions work (phone + claude.ai/code)
 5. Service restart → sessions reconnectable
@@ -212,7 +212,7 @@ Channels is live on VPS as of 2026-03-26. Implementation details below reflect w
 - **Plugin:** `telegram@claude-plugins-official` v0.0.4 installed and enabled
 - **Access control:** `access.json` allowlist (not `/telegram:access` commands as originally planned)
 - **MCP servers:** Configured via `.mcp.json` — pai-memory-server and pai-context-server working
-- **Hooks:** All 14 PAI hooks fire correctly in Channels sessions (verified via journalctl)
+- **Hooks:** All 14 DAI hooks fire correctly in Channels sessions (verified via journalctl)
 - **Bot:** Separate Telegram bot token, coexists with bridge bot
 
 ### Prerequisites (all met)
@@ -331,7 +331,7 @@ echo "Verification complete."
 
 ### Step 7: Memory Sharing Verification (Fabric finding #3 — resolved)
 
-PAI hooks are global (`~/.claude/settings.json`). All sessions fire them. To confirm:
+DAI hooks are global (`~/.claude/settings.json`). All sessions fire them. To confirm:
 ```bash
 # After sending a message via Channels bot, check memory.db
 ssh isidore_cloud 'bun -e "

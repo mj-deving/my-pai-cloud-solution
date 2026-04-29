@@ -399,9 +399,9 @@ This gives the agent recent and semantically relevant memories first --- critica
 
 ---
 
-## Appendix: Implementation Patterns for PAI
+## Appendix: Implementation Patterns for DAI
 
-Based on this research, specific recommendations for the PAI cloud solution's context management:
+Based on this research, specific recommendations for the DAI cloud solution's context management:
 
 ### ContextBuilder (Phase 3 V2-B) Enhancements
 

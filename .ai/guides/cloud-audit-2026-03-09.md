@@ -7,7 +7,7 @@
 - **Symptom:** `[claude] Recoverable error (exit 1), retrying fresh:` with empty error detail
 - **Root cause:** CLI crashes before producing any output. Streaming mode (`--verbose`) routes all to stdout; stderr is empty; accumulatedText is empty because no stream events emitted before crash
 - **Code path:** `claude.ts:337-341` — fallback chain `authError → stderr → accumulatedText` all empty
-- **Likely trigger:** PAI hook crash on startup (16 hooks enabled) or transient CLI issue
+- **Likely trigger:** DAI hook crash on startup (16 hooks enabled) or transient CLI issue
 - **Retry behavior:** Single retry only (`!isRetry` guard). Fresh session. Usually succeeds.
 - **Fix:** Improve error logging to capture exit code context even when all outputs empty
 
@@ -41,7 +41,7 @@
 - `bun test` built-in, zero dependencies
 - Test files: `src/__tests__/*.test.ts`
 
-## PAI-Customization Repo Additions
+## DAI-Customization Repo Additions
 
 ### Recommended new workflows
 1. `Workflows/TestGeneration.md` — Codex-generated test files

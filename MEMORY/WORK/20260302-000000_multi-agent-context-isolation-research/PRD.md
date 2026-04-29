@@ -11,7 +11,7 @@ updated: 2026-03-02T00:01:00Z
 
 ## Context
 
-Marius needs a comprehensive technical report on how production multi-agent AI systems handle context isolation, shared state, and inter-agent communication without context leakage. This directly informs PAI's own multi-agent architecture (Isidore Cloud + Gregor pipeline + future agents). The research must cover 2025-2026 production implementations, not theoretical patterns.
+Marius needs a comprehensive technical report on how production multi-agent AI systems handle context isolation, shared state, and inter-agent communication without context leakage. This directly informs DAI's own multi-agent architecture (Isidore Cloud + Gregor pipeline + future agents). The research must cover 2025-2026 production implementations, not theoretical patterns.
 
 ### Risks
 - Framework documentation may lag actual production usage patterns
@@ -61,7 +61,7 @@ Marius needs a comprehensive technical report on how production multi-agent AI s
 - [x] ISC-38: Security boundaries between agents documented
 - [x] ISC-39: Observable patterns (logging, tracing across agent boundaries)
 - [x] ISC-40: Anti-patterns identified (what NOT to do) - at least 5
-- [x] ISC-41: Recommendations for PAI-scale systems (2-10 agents)
+- [x] ISC-41: Recommendations for DAI-scale systems (2-10 agents)
 - [x] ISC-42: Complete report delivered to research history directory
 
 ## Decisions
@@ -69,7 +69,7 @@ Marius needs a comprehensive technical report on how production multi-agent AI s
 - Used extensive research mode (18 web searches + 10 deep-dive fetches) rather than agent delegation, due to the need for tight synthesis across 9 research vectors
 - Built on prior day's research (2026-03-01) rather than starting from scratch
 - Focused on production patterns with concrete implementations rather than theoretical frameworks
-- Included PAI-specific recommendations throughout rather than as a separate section only
+- Included DAI-specific recommendations throughout rather than as a separate section only
 
 ## Verification
 
@@ -101,7 +101,7 @@ Marius needs a comprehensive technical report on how production multi-agent AI s
 - ISC-26: Section 13.1 ASCII architecture diagram for context isolation
 - ISC-27: Section 13.2 ASCII architecture diagram for shared state
 - ISC-28: Section 13.3 ASCII architecture diagram for inter-agent communication
-- ISC-29: Every section includes explicit trade-offs; Section 14.6 specifically addresses the isolation-sharing spectrum for PAI's scale
+- ISC-29: Every section includes explicit trade-offs; Section 14.6 specifically addresses the isolation-sharing spectrum for DAI's scale
 - ISC-30: Section 12.8 (context rot performance data), Section 5 (token economics), Section 11.5 (industry statistics)
 - ISC-31: Section 5.4 documents the production consensus token budget allocation
 - ISC-32: Section 5 + Section 13.4 document partitioning with concrete allocation percentages
@@ -113,5 +113,5 @@ Marius needs a comprehensive technical report on how production multi-agent AI s
 - ISC-38: Section 10.4 (state separation), Section 10.5 (communication security), Section 10.1 (blast radius)
 - ISC-39: Section 8.3 (append-only audit trail), Section 10.2 (process monitoring), covered in FINOS framework
 - ISC-40: Section 12 documents 10 anti-patterns (bag of agents, context pollution, monoculture, conformity bias, specification ambiguity, unstructured communication, missing verification, context rot, resource ownership violation, silent cascading failures)
-- ISC-41: Section 14 provides 10 PAI-specific recommendations
+- ISC-41: Section 14 provides 10 DAI-specific recommendations
 - ISC-42: Report at ~/.claude/History/research/2026-03/2026-03-02_multi-agent-context-isolation/report.md + summary at Plans/multi-agent-context-isolation-research.md

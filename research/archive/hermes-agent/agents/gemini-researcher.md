@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-Hermes Agent is the most ambitious open-source agent framework launched in 2026. Released February 26, 2026 by NousResearch, it positions itself as an always-on, self-improving AI agent that lives on your server, learns from interactions, auto-generates reusable skills, and reaches users across Telegram, Discord, Slack, WhatsApp, and CLI simultaneously. With 1,442 GitHub stars in less than a week, MIT licensing, 40+ built-in tools, five sandboxed terminal backends, and deep integration with the AgentSkills open standard, it occupies a unique niche: the **persistent personal agent** -- closer to PAI's own architecture than any other open-source framework on the market.
+Hermes Agent is the most ambitious open-source agent framework launched in 2026. Released February 26, 2026 by NousResearch, it positions itself as an always-on, self-improving AI agent that lives on your server, learns from interactions, auto-generates reusable skills, and reaches users across Telegram, Discord, Slack, WhatsApp, and CLI simultaneously. With 1,442 GitHub stars in less than a week, MIT licensing, 40+ built-in tools, five sandboxed terminal backends, and deep integration with the AgentSkills open standard, it occupies a unique niche: the **persistent personal agent** -- closer to DAI's own architecture than any other open-source framework on the market.
 
 From one perspective, this is a genuinely novel convergence of persistent memory, multi-platform messaging, skill authoring, and model-agnostic inference. From the alternative perspective, it is a week-old Python project with no formal releases, no production deployment evidence outside NousResearch itself, and a dependency on model quality that varies wildly across providers. Both perspectives hold simultaneously, and that tension defines its current status.
 
@@ -414,7 +414,7 @@ This is **not** for:
 
 1. **Maturity** -- 5 days old. No formal releases. API unstable. Expect breaking changes.
 
-2. **Python** -- While accessible, Python adds deployment complexity compared to Go (OpenCode) or TypeScript/Bun (PAI's own stack). No compiled binary distribution.
+2. **Python** -- While accessible, Python adds deployment complexity compared to Go (OpenCode) or TypeScript/Bun (DAI's own stack). No compiled binary distribution.
 
 3. **Memory quality at scale** -- The AwesomeAgents review flagged this: memory quality degradation over time and outdated skill handling are unaddressed concerns.
 
@@ -426,27 +426,27 @@ This is **not** for:
 
 7. **Community ecosystem** -- Skill sharing via agentskills.io is only valuable with critical mass. The community is just forming.
 
-### Relevance to PAI Infrastructure
+### Relevance to DAI Infrastructure
 
-This assessment deserves special attention given the PAI context.
+This assessment deserves special attention given the DAI context.
 
-**Striking similarities to PAI:**
-- Telegram bridge as primary mobile interface (PAI has this)
-- Persistent server-side daemon (PAI has this via systemd)
-- Session memory and cross-session continuity (PAI has this via MemoryStore + HandoffManager)
-- Skill/knowledge documents (PAI has CLAUDE.md, SKILL.md, knowledge repo)
-- Cron-like scheduling (PAI has pipeline watcher + orchestrator)
-- Multi-platform messaging concept (PAI has MessengerAdapter)
+**Striking similarities to DAI:**
+- Telegram bridge as primary mobile interface (DAI has this)
+- Persistent server-side daemon (DAI has this via systemd)
+- Session memory and cross-session continuity (DAI has this via MemoryStore + HandoffManager)
+- Skill/knowledge documents (DAI has CLAUDE.md, SKILL.md, knowledge repo)
+- Cron-like scheduling (DAI has pipeline watcher + orchestrator)
+- Multi-platform messaging concept (DAI has MessengerAdapter)
 
-**Where Hermes Agent goes beyond PAI:**
-- 5 sandboxed terminal backends (PAI uses local only)
-- 40+ built-in tools (PAI delegates to Claude's native tools)
-- Native multi-platform gateway (PAI currently Telegram-only)
+**Where Hermes Agent goes beyond DAI:**
+- 5 sandboxed terminal backends (DAI uses local only)
+- 40+ built-in tools (DAI delegates to Claude's native tools)
+- Native multi-platform gateway (DAI currently Telegram-only)
 - AgentSkills.io standard integration
 - Batch trajectory generation for model training
 - Voice transcription across platforms
 
-**Where PAI goes beyond Hermes Agent:**
+**Where DAI goes beyond Hermes Agent:**
 - Cross-user pipeline (Gregor collaboration) -- true multi-agent with different instances
 - DAG workflow orchestration with dependency resolution
 - Pipeline dashboard with real-time SSE
@@ -455,7 +455,7 @@ This assessment deserves special attention given the PAI context.
 - TypeScript/Bun runtime (preferred stack)
 - Deeper Claude integration (session management, resume, context injection)
 
-**Adoption consideration:** Hermes Agent is interesting as a *reference architecture* rather than a replacement for PAI. The multi-platform gateway pattern, the AgentSkills.io integration, and the sandbox backend approach are all patterns worth studying. However, PAI's TypeScript/Bun stack, deep Claude integration, and cross-user pipeline architecture serve different needs. The two systems are parallel evolution toward similar goals from different starting points.
+**Adoption consideration:** Hermes Agent is interesting as a *reference architecture* rather than a replacement for DAI. The multi-platform gateway pattern, the AgentSkills.io integration, and the sandbox backend approach are all patterns worth studying. However, DAI's TypeScript/Bun stack, deep Claude integration, and cross-user pipeline architecture serve different needs. The two systems are parallel evolution toward similar goals from different starting points.
 
 ### Overall Recommendation
 
@@ -481,7 +481,7 @@ These conclusions were tested against multiple opposing viewpoints:
 
 2. **"Can it really compete with Claude Agent SDK?"** -- On raw capability, no. Claude models + purpose-built harness will outperform. But on model freedom, multi-platform messaging, and open-source principles, Hermes Agent occupies territory the Claude Agent SDK cannot. These are different tools for different philosophies. Conclusion: Not a competitor -- a complement for different values.
 
-3. **"Is the Python choice a problem?"** -- For NousResearch's community (ML/AI researchers, HuggingFace ecosystem), Python is the correct choice. For PAI's TypeScript/Bun stack, it is a non-starter for direct integration. But the architecture patterns are language-agnostic learnings. Conclusion: Right choice for their audience, wrong for ours, patterns still valuable.
+3. **"Is the Python choice a problem?"** -- For NousResearch's community (ML/AI researchers, HuggingFace ecosystem), Python is the correct choice. For DAI's TypeScript/Bun stack, it is a non-starter for direct integration. But the architecture patterns are language-agnostic learnings. Conclusion: Right choice for their audience, wrong for ours, patterns still valuable.
 
 4. **"Will the model-agnostic approach actually work?"** -- Tool-calling reliability is the Achilles heel. Small open-source models will struggle with reliable function calling. The agent's value degrades significantly with unreliable tool use. But the architecture does not prevent using GPT-4 or Claude -- it just also supports local models. Conclusion: Model-agnostic is a feature for flexibility, but quality depends on model choice.
 

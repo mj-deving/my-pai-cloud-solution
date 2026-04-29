@@ -11,7 +11,7 @@ updated: 2026-03-25T13:50:00+01:00
 
 ## Context
 
-Session 2 of the PAI Cloud Evolution Master Plan (v4). Builds on Session 1 (DAG Memory, MCP, Loop Detection, Summarizer — all deployed).
+Session 2 of the DAI Cloud Evolution Master Plan (v4). Builds on Session 1 (DAG Memory, MCP, Loop Detection, Summarizer — all deployed).
 
 Scope: 8 phases covering hooks (A-C), turn recovery (D), A2A server (E), Channels evaluation (F), Remote Control evaluation (G), and bridge adaptation (H).
 
@@ -53,7 +53,7 @@ Phases F (Channels) and G (Remote Control) are VPS-side evaluation tasks — doc
 ### Phase C: SessionStart Hook
 - [x] ISC-10: src/hooks/session-start.ts file exists
 - [x] ISC-11: Hook exports sessionStart async function
-- [x] ISC-12: Hook loads PAI identity context on session start
+- [x] ISC-12: Hook loads DAI identity context on session start
 - [x] ISC-13: Hook loads project context from memory.db
 
 ### Phase D: Turn Recovery Policy

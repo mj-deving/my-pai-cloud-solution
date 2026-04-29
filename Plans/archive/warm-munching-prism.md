@@ -2,7 +2,7 @@
 
 ## Context
 
-The PAI Cloud Solution (Telegram bridge + cross-user pipeline) needs hardening before Phase 2 (dashboard) and Phase 3 (V2 features). Currently: all JSON parsing is unvalidated (`JSON.parse(x) as Type`), no structured decision logging, no duplicate-task prevention, no messenger abstraction, and state lives in flat JSON files. Phase 1 adds 6 components to fix this — all feature-flagged and backward-compatible.
+The DAI Cloud Solution (Telegram bridge + cross-user pipeline) needs hardening before Phase 2 (dashboard) and Phase 3 (V2 features). Currently: all JSON parsing is unvalidated (`JSON.parse(x) as Type`), no structured decision logging, no duplicate-task prevention, no messenger abstraction, and state lives in flat JSON files. Phase 1 adds 6 components to fix this — all feature-flagged and backward-compatible.
 
 **Prior decisions** (from V2-ARCHITECTURE.md, HZL research):
 - ADOPT: Zod validation, decision traces, idempotency keys, hook outbox pattern

@@ -1,4 +1,4 @@
-# Bridge-to-Native-PAI Migration: Research Synthesis
+# Bridge-to-Native-DAI Migration: Research Synthesis
 
 **Date:** 2026-04-18
 **Method:** 9 parallel research agents (3× Claude, 3× Gemini, 3× Grok) + 2 Twitter/bird queries
@@ -180,7 +180,7 @@ Source: [Effective harnesses for long-running agents](https://anthropic.com/engi
 
 ### Theme 8 — The Contrarian Case (Two Independent Agents Converged Here)
 
-Both Grok 7 (PAI-like systems) and Grok 9 (against retirement) independently converged:
+Both Grok 7 (DAI-like systems) and Grok 9 (against retirement) independently converged:
 
 > **"Your bridge is the product. Channels is a cheaper transport."**
 

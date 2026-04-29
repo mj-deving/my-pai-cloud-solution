@@ -13,14 +13,14 @@ Rewrite `README.md` as a compelling project showcase. Keep `ARCHITECTURE.md` as 
 ## Key Decision: Abstract Naming
 
 README uses generic terms for public audience:
-- "PAI Agent" or "cloud agent" — not "Isidore Cloud" (personal identity stays in ARCHITECTURE.md)
+- "DAI Agent" or "cloud agent" — not "Isidore Cloud" (personal identity stays in ARCHITECTURE.md)
 - "co-located agent frameworks" — not "Gregor/OpenClaw" (specific integrations stay in ARCHITECTURE.md)
 - The cross-agent pipeline is described generically as inter-agent task exchange
 
 ## Proposed README Structure
 
 ### 1. Title + Tagline
-- "PAI Cloud Solution" with a one-liner that captures the vision
+- "DAI Cloud Solution" with a one-liner that captures the vision
 - Something like: "Turn Claude Code into an always-on AI agent you can reach from anywhere"
 
 ### 2. The Problem (2-3 sentences)

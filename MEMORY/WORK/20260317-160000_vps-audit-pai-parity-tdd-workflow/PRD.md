@@ -1,5 +1,5 @@
 ---
-task: VPS audit, PAI parity, TDD/review workflow roadmap
+task: VPS audit, DAI parity, TDD/review workflow roadmap
 slug: 20260317-160000_vps-audit-pai-parity-tdd-workflow
 effort: advanced
 phase: complete
@@ -13,7 +13,7 @@ updated: 2026-03-17T16:02:00+01:00
 
 Marius wants four things in one session:
 1. **VPS 10-day error audit** — categorize all errors, crashes, retries from the last 10 days of bridge logs
-2. **PAI cloud parity** — make the cloud instance a full copy of local PAI (hooks active, settings synced, code deployed)
+2. **DAI cloud parity** — make the cloud instance a full copy of local DAI (hooks active, settings synced, code deployed)
 3. **TDD + review workflow roadmap** — design workflows that catch bugs early in the development cycle
 4. **Deploy latest** — push PRs #1 and #2 (bot.catch, safeReply, streaming errors, tests) to VPS
 
@@ -47,11 +47,11 @@ Marius wants four things in one session:
   - `telegram.ts`: `scoreUserMessage()` function — rule-based importance for user messages (ack=2, cmd=3, bug=7, long=6, default=5) + assistant fallback importance=3
 - **Decision: KEEP these changes — cherry-pick onto main before deploying**
 
-**PAI hooks parity:**
+**DAI hooks parity:**
 - VPS hooks directory: 30 hook files present in `~/.claude/hooks/`
 - VPS settings.json hooks: 14 hook entries across 6 events
 - Local settings.json hooks: 16 hook entries across 6 events (2 extra: gsd-context-monitor.js, gsd-check-update.js — GSD-specific, not needed on VPS)
-- VPS has `~/.claude/PAI/` directory with full PAI system (Algorithm, Skills, Flows, etc.) — dated Mar 14
+- VPS has `~/.claude/PAI/` directory with full DAI system (Algorithm, Skills, Flows, etc.) — dated Mar 14
 - **Hook failure:** WorkCompletionLearning.hook.ts uses `${HOME}/.claud` which fails to expand in the bridge's shell context
 
 ### Risks
@@ -68,7 +68,7 @@ Marius wants four things in one session:
 - [x] ISC-3: Hook failures identified with specific env var expansion issue
 - [x] ISC-4: Audit findings written to PRD context section
 
-### Domain 2: PAI Cloud Parity
+### Domain 2: DAI Cloud Parity
 - [x] ISC-5: VPS dirty working tree changes assessed (keep or discard)
 - [x] ISC-6: VPS code synced to local main HEAD (e0edb56)
 - [x] ISC-7: bot.catch handler active on VPS after deploy

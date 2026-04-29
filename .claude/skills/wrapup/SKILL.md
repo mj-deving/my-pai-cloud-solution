@@ -1,13 +1,13 @@
 ---
 name: wrapup
-description: "Session persistence for PAI Cloud — bd sync + handoff + CLAUDE.md/MEMORY.md hygiene before /clear. USE WHEN user says /wrapup, save session, handoff, persist memory, end session, before clear."
+description: "Session persistence for DAI Cloud — bd sync + handoff + CLAUDE.md/MEMORY.md hygiene before /clear. USE WHEN user says /wrapup, save session, handoff, persist memory, end session, before clear."
 user_invocable: true
 trigger: /wrapup
 ---
 
-# /wrapup — PAI Cloud Session Persistence
+# /wrapup — DAI Cloud Session Persistence
 
-Project-local wrapper around the global `Wrapup` skill. Adds PAI Cloud specifics: two-file system (CLAUDE.md + MEMORY.md), beads state sync, handoff doc for next session.
+Project-local wrapper around the global `Wrapup` skill. Adds DAI Cloud specifics: two-file system (CLAUDE.md + MEMORY.md), beads state sync, handoff doc for next session.
 
 ## Preconditions
 
@@ -47,7 +47,7 @@ That skill handles:
 - Writes `handoff_active.md` with decisions + gotchas from the current session
 - Updates global `MEMORY.md` index (lightweight reference table)
 
-### 2. Add PAI Cloud addenda
+### 2. Add DAI Cloud addenda
 
 After the global wrapup runs, do the project-specific parts:
 

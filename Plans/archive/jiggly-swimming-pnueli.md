@@ -16,9 +16,9 @@ parent: null
 children: []
 ---
 
-# PAI Cloud Isidore Cloud — VPS Deployment Masterplan
+# DAI Cloud Isidore Cloud — VPS Deployment Masterplan
 
-> Deploy Isidore Cloud (PAI assistant) on the existing VPS alongside Gregor, with mobile-accessible communication channels (Telegram, email, SSH), using Max 5x subscription OAuth flatrate billing, running as a persistent conversational session. VPS Linux user: `isidore_cloud`, home: `/home/isidore_cloud/`.
+> Deploy Isidore Cloud (DAI assistant) on the existing VPS alongside Gregor, with mobile-accessible communication channels (Telegram, email, SSH), using Max 5x subscription OAuth flatrate billing, running as a persistent conversational session. VPS Linux user: `isidore_cloud`, home: `/home/isidore_cloud/`.
 
 ## STATUS
 
@@ -117,7 +117,7 @@ claude /login
 # Browser opens locally, OAuth completes, token stored on VPS
 ```
 
-**Step 1.4 — Deploy PAI installation:**
+**Step 1.4 — Deploy DAI installation:**
 ```bash
 rsync -avz --exclude='debug/' --exclude='cache/' --exclude='projects/' \
   ~/.claude/ isidore_cloud:~/.claude/
@@ -224,7 +224,7 @@ WantedBy=multi-user.target
 
 ### Foundation
 - [x] ISC-C1: Claude Code CLI installed and authenticated on VPS via OAuth | Verify: CLI: `claude -p "test"` returns valid response
-- [x] ISC-C2: PAI skill tree and CLAUDE.md deployed on VPS | Verify: CLI: `ls ~/.claude/skills/PAI/SKILL.md`
+- [x] ISC-C2: DAI skill tree and CLAUDE.md deployed on VPS | Verify: CLI: `ls ~/.claude/skills/PAI/SKILL.md`
 - [x] ISC-C3: Gregor and Isidore Cloud coexist without port or resource conflicts | Verify: CLI: both services running simultaneously
 - [x] ISC-C4: Isidore Cloud has root access and SSH capability on VPS | Verify: CLI: `sudo whoami` = root
 
@@ -237,7 +237,7 @@ WantedBy=multi-user.target
 - [x] ISC-C8: OAuth token refresh mechanism prevents authentication expiration silently | Verify: CLI: cron job exists, token valid
 - [x] ISC-C9: All communication channels authenticate only Marius as authorized user | Verify: Custom: unauthorized attempt rejected
 - [x] ISC-C10: Cron and automation framework available for scheduled Isidore Cloud tasks | Verify: CLI: crontab shows entries
-- [x] ISC-C11: PAI memory system persists across all channel invocations on VPS | Verify: Grep: MEMORY writes from multiple channels
+- [x] ISC-C11: DAI memory system persists across all channel invocations on VPS | Verify: Grep: MEMORY writes from multiple channels
 
 ### Anti-Criteria
 - [x] ISC-A1: No API billing charges incurred from VPS Isidore Cloud usage | Verify: CLI: no ANTHROPIC_API_KEY in env
@@ -263,7 +263,7 @@ WantedBy=multi-user.target
 ## FEASIBILITY ASSESSMENT
 
 ### Straightforward (90%+ confidence):
-- VPS user creation, Claude Code install, PAI deployment (rsync)
+- VPS user creation, Claude Code install, DAI deployment (rsync)
 - tmux persistent session, SSH mobile access
 - Telegram bot long polling, sender validation
 - Cron automation, root access
@@ -283,7 +283,7 @@ All components are proven tech. The `claude --resume` discovery eliminates the t
 
 ## IMPLEMENTATION ORDER
 
-1. **Phase 1** (Foundation) — ~1 hour. User creation, Claude install, PAI deploy, auth.
+1. **Phase 1** (Foundation) — ~1 hour. User creation, Claude install, DAI deploy, auth.
 2. **Phase 2** (Session + SSH) — ~30 min. tmux, session helper, SSH aliases.
 3. **Phase 3** (Telegram) — ~2-3 hours. Bot creation, bridge service, testing.
 4. **Phase 4** (Email) — ~2 hours. IMAP polling, response formatting.
@@ -320,7 +320,7 @@ End-to-end test sequence:
   - Created `isidore` user on VPS with sudo NOPASSWD
   - Generated dedicated SSH key pair (`id_ed25519_isidore`), added to AllowUsers in sshd_config
   - Installed Bun 1.3.9 and Claude Code CLI 2.1.56 on VPS
-  - Deployed PAI skills and config via rsync
+  - Deployed DAI skills and config via rsync
   - Built complete bridge service: Telegram bot (Grammy), Claude CLI wrapper, session manager, mobile formatter
   - Installed systemd services (tmux persistent session, bridge service)
   - Set up auth health check cron (every 4h)

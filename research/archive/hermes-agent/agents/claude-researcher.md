@@ -18,7 +18,7 @@
 7. [Configuration & Extensibility](#7-configuration--extensibility)
 8. [Novel/Unique Patterns](#8-novelunique-patterns)
 9. [Strengths & Weaknesses](#9-strengths--weaknesses)
-10. [Adoption Opportunities for PAI](#10-adoption-opportunities-for-pai)
+10. [Adoption Opportunities for DAI](#10-adoption-opportunities-for-pai)
 
 ---
 
@@ -588,7 +588,7 @@ Content with invisible Unicode characters or threat patterns is blocked and repl
 
 **Why it matters:** In most agent frameworks, memory updates mid-session modify the system prompt, which invalidates the prompt cache and increases costs. Hermes's approach is to load memory at session start, freeze that snapshot in the system prompt, and let mid-session memory writes update only the on-disk files. The agent sees live state through tool responses. This preserves the prefix cache for the entire session -- a ~75% input token cost reduction for Claude models.
 
-**PAI comparison:** PAI's `MemoryStore` writes SQLite records and `ContextBuilder` queries them before each invocation. Each prompt includes freshly-queried context, which means no cache stability. Hermes's frozen snapshot is architecturally simpler and cheaper.
+**DAI comparison:** DAI's `MemoryStore` writes SQLite records and `ContextBuilder` queries them before each invocation. Each prompt includes freshly-queried context, which means no cache stability. Hermes's frozen snapshot is architecturally simpler and cheaper.
 
 ### 8.2 Bounded Character-Limited Memory (Not Token-Limited)
 
@@ -598,7 +598,7 @@ Memory stores use character limits (2,200 for memory, 1,375 for user profile) ra
 
 Each tool file is completely self-contained: schema definition, handler implementation, availability check, and registry call all in one file. Adding a new tool requires editing only 2 files (the tool file + toolsets.py). No central switch statement, no parallel data structures to maintain.
 
-**PAI comparison:** PAI uses a more centralized approach where `model_tools.py` (equivalent) would need editing. Hermes's pattern is cleaner for a growing tool set.
+**DAI comparison:** DAI uses a more centralized approach where `model_tools.py` (equivalent) would need editing. Hermes's pattern is cleaner for a growing tool set.
 
 ### 8.4 Toolset Distributions for RL Training
 
@@ -678,15 +678,15 @@ Phase 1 uses standard OpenAI-compatible servers (VLLM, SGLang, OpenRouter) with 
 
 ---
 
-## 10. Adoption Opportunities for PAI
+## 10. Adoption Opportunities for DAI
 
-Given PAI's architecture (TypeScript/Bun, SQLite memory with FTS5, structured PRDs, pipeline/orchestrator with DAG workflows), here are the patterns from Hermes Agent most worth adopting:
+Given DAI's architecture (TypeScript/Bun, SQLite memory with FTS5, structured PRDs, pipeline/orchestrator with DAG workflows), here are the patterns from Hermes Agent most worth adopting:
 
 ### 10.1 Frozen Snapshot Memory Injection (HIGH PRIORITY)
 
 **What Hermes does:** Load memory at session start, freeze it, inject as static system prompt prefix. Mid-session writes update disk only.
 
-**Why PAI should adopt:** PAI's `ContextBuilder` currently queries `MemoryStore` before each Claude invocation and prepends fresh context. This means every turn has a slightly different system prompt prefix, which invalidates Claude's prompt cache. With the frozen snapshot pattern:
+**Why DAI should adopt:** DAI's `ContextBuilder` currently queries `MemoryStore` before each Claude invocation and prepends fresh context. This means every turn has a slightly different system prompt prefix, which invalidates Claude's prompt cache. With the frozen snapshot pattern:
 - Context prefix becomes stable across all turns in a session
 - Claude's prompt caching reduces input costs ~75%
 - Simpler implementation (no per-turn query)
@@ -697,15 +697,15 @@ Given PAI's architecture (TypeScript/Bun, SQLite memory with FTS5, structured PR
 
 **What Hermes does:** Hard character limits force the agent to actively curate its memory, replacing and consolidating entries instead of appending indefinitely.
 
-**Why PAI should consider:** PAI's `MemoryStore` stores episodes without explicit size bounds. Over time, this leads to context rot (the OpenClaw problem -- 45K tokens after 1 month, 40% perf decrease). Character bounds with proactive curation could prevent this.
+**Why DAI should consider:** DAI's `MemoryStore` stores episodes without explicit size bounds. Over time, this leads to context rot (the OpenClaw problem -- 45K tokens after 1 month, 40% perf decrease). Character bounds with proactive curation could prevent this.
 
-**Caveat:** Hermes's 2,200-char limit is too restrictive. For PAI, a 5,000-8,000 char budget with tiered priority (pinned vs. purgeable) would be more appropriate.
+**Caveat:** Hermes's 2,200-char limit is too restrictive. For DAI, a 5,000-8,000 char budget with tiered priority (pinned vs. purgeable) would be more appropriate.
 
 ### 10.3 Self-Registration Tool Pattern (MEDIUM PRIORITY)
 
 **What Hermes does:** Each tool file co-locates its schema, handler, and registry call. The registry is a simple singleton that collects everything at import time.
 
-**How PAI could adapt:** Currently, PAI's tool definitions are likely scattered or centralized in one file. A TypeScript equivalent:
+**How DAI could adapt:** Currently, DAI's tool definitions are likely scattered or centralized in one file. A TypeScript equivalent:
 
 ```typescript
 // tools/web-search.ts
@@ -723,42 +723,42 @@ This becomes increasingly valuable as tool count grows.
 
 **What Hermes does:** Scans `AGENTS.md`, `.cursorrules`, `SOUL.md` for prompt injection patterns before injecting into the system prompt.
 
-**Why PAI should consider:** PAI's pipeline accepts tasks from Gregor (cross-user). If task prompts or attached context contain injection attempts, they'd be injected directly into Claude's context. A lightweight regex scan (invisible Unicode + threat patterns) would add defense-in-depth.
+**Why DAI should consider:** DAI's pipeline accepts tasks from Gregor (cross-user). If task prompts or attached context contain injection attempts, they'd be injected directly into Claude's context. A lightweight regex scan (invisible Unicode + threat patterns) would add defense-in-depth.
 
 ### 10.5 Progressive Disclosure Skills (LOW-MEDIUM PRIORITY)
 
 **What Hermes does:** 3-tier progressive disclosure -- categories (~50 tokens), list (~3k tokens), full content. The model only loads what it needs.
 
-**Why PAI could benefit:** PAI has skills in `~/.claude/skills/`. If the skill library grows, injecting all skill content into every prompt becomes wasteful. A progressive disclosure pattern would keep token budgets lean.
+**Why DAI could benefit:** DAI has skills in `~/.claude/skills/`. If the skill library grows, injecting all skill content into every prompt becomes wasteful. A progressive disclosure pattern would keep token budgets lean.
 
 ### 10.6 Toolset Distributions for Pipeline Tasks (LOW PRIORITY)
 
 **What Hermes does:** Probabilistic toolset sampling for RL training diversity.
 
-**Why PAI might use this:** For overnight PRD queue processing, varying available toolsets per task could improve robustness. Most PAI tasks need full toolsets, but for training/testing scenarios, controlled variation could be useful.
+**Why DAI might use this:** For overnight PRD queue processing, varying available toolsets per task could improve robustness. Most DAI tasks need full toolsets, but for training/testing scenarios, controlled variation could be useful.
 
 ### 10.7 Patterns NOT Worth Adopting
 
-- **OpenAI SDK as sole interface**: PAI talks directly to Claude CLI, which is more capable. The OpenAI compatibility layer would be a downgrade.
-- **File-backed memory (MEMORY.md)**: PAI's SQLite + FTS5 is already more capable. File-backed stores don't support queries or structured search.
-- **Python architecture**: PAI is TypeScript/Bun. No benefit from porting Python patterns that TypeScript handles natively (async, type safety, fast startup).
-- **Cron scheduler**: PAI has the pipeline watcher + orchestrator which is more flexible for cross-agent task scheduling.
-- **DM pairing**: PAI's Telegram bridge already has allowlist-based auth.
+- **OpenAI SDK as sole interface**: DAI talks directly to Claude CLI, which is more capable. The OpenAI compatibility layer would be a downgrade.
+- **File-backed memory (MEMORY.md)**: DAI's SQLite + FTS5 is already more capable. File-backed stores don't support queries or structured search.
+- **Python architecture**: DAI is TypeScript/Bun. No benefit from porting Python patterns that TypeScript handles natively (async, type safety, fast startup).
+- **Cron scheduler**: DAI has the pipeline watcher + orchestrator which is more flexible for cross-agent task scheduling.
+- **DM pairing**: DAI's Telegram bridge already has allowlist-based auth.
 
 ---
 
 ## Summary Comparison Matrix
 
-| Capability | Hermes Agent | PAI Cloud | Notes |
+| Capability | Hermes Agent | DAI Cloud | Notes |
 |-----------|-------------|-----------|-------|
-| Language/Runtime | Python 3 | TypeScript/Bun | PAI is faster, better typed |
+| Language/Runtime | Python 3 | TypeScript/Bun | DAI is faster, better typed |
 | LLM Interface | OpenAI SDK (any compat endpoint) | Claude CLI (direct) | Different tradeoffs |
-| Memory (within-session) | Message list + context compression | Session-based via Claude CLI | PAI delegates to Claude's own context |
+| Memory (within-session) | Message list + context compression | Session-based via Claude CLI | DAI delegates to Claude's own context |
 | Memory (cross-session) | MEMORY.md/USER.md (char-bounded) + SQLite FTS5 | SQLite MemoryStore + FTS5 + optional sqlite-vec | Similar capability, different persistence model |
 | Memory injection | Frozen snapshot (stable prefix) | Per-turn query (fresh context) | Hermes approach is cheaper with prompt caching |
 | Tool system | Self-registration singleton registry | Central dispatch in model_tools | Hermes is cleaner for scaling |
-| Multi-agent | delegate_task (spawn children) | Pipeline + Orchestrator (DAG workflows) | PAI is more structured |
-| Workflow engine | None (model plans implicitly) | TaskOrchestrator (DAG, crash recovery) | PAI significantly ahead |
+| Multi-agent | delegate_task (spawn children) | Pipeline + Orchestrator (DAG workflows) | DAI is more structured |
+| Workflow engine | None (model plans implicitly) | TaskOrchestrator (DAG, crash recovery) | DAI significantly ahead |
 | Skills | Progressive disclosure + self-creation | Skills in ~/.claude/skills/ | Hermes has richer skill lifecycle |
 | Platform support | Telegram, Discord, WhatsApp, Slack | Telegram (via Grammy) | Hermes has broader reach |
 | RL training | Full Atropos integration | None | Unique to Hermes |
@@ -777,4 +777,4 @@ This becomes increasingly valuable as tool count grows.
 
 4. **The RL training integration is strategically significant.** Nous Research uses the same agent codebase for both production and training. This means improvements to the agent directly improve training data quality, creating a flywheel.
 
-5. **For PAI specifically:** The highest-value adoptions are (a) frozen snapshot memory injection for cost reduction, (b) character-bounded curated memory for context rot prevention, and (c) injection scanning for pipeline security. The multi-agent and workflow capabilities are areas where PAI is already ahead.
+5. **For DAI specifically:** The highest-value adoptions are (a) frozen snapshot memory injection for cost reduction, (b) character-bounded curated memory for context rot prevention, and (c) injection scanning for pipeline security. The multi-agent and workflow capabilities are areas where DAI is already ahead.

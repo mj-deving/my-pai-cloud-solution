@@ -11,7 +11,7 @@ updated: 2026-03-17T20:15:00+01:00
 
 ## Context
 
-Graduated Extraction is PAI Cloud's strategy for absorbing OpenClaw's best capabilities without adopting the framework. Phase 1 (Sonnet fast-path via direct API) is complete and feature-flagged but **not yet activated on VPS**. This PRD plans Phases 2-3 and Tier 1 test coverage.
+Graduated Extraction is DAI Cloud's strategy for absorbing OpenClaw's best capabilities without adopting the framework. Phase 1 (Sonnet fast-path via direct API) is complete and feature-flagged but **not yet activated on VPS**. This PRD plans Phases 2-3 and Tier 1 test coverage.
 
 **Execution order (revised after Red Team):**
 1. **Tier 1 Tests FIRST** — foundation before new code (TDD)

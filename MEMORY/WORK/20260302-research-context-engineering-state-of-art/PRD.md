@@ -11,7 +11,7 @@ updated: 2026-03-02T00:01:00Z
 
 ## Context
 
-Comprehensive technical research report on the state-of-the-art in context engineering for AI agents (2025-2026). Covers the discipline's emergence, production patterns, framework implementations, and trade-offs. Directly relevant to PAI's own context system (ContextBuilder, MemoryStore, handoff).
+Comprehensive technical research report on the state-of-the-art in context engineering for AI agents (2025-2026). Covers the discipline's emergence, production patterns, framework implementations, and trade-offs. Directly relevant to DAI's own context system (ContextBuilder, MemoryStore, handoff).
 
 ### Risks
 - Source recency: field moving fast, some 2025 sources may be outdated
@@ -64,12 +64,12 @@ Comprehensive technical research report on the state-of-the-art in context engin
 - [x] ISC-37: Few-shot variation pattern documented (anti-brittleness)
 - [x] ISC-38: Artifact tracking challenge acknowledged (all methods score poorly)
 - [x] ISC-39: Trade-offs section presents honest production difficulties
-- [x] ISC-40: Implications for PAI's own context system identified
+- [x] ISC-40: Implications for DAI's own context system identified
 
 ## Decisions
 
 - Organized by functional area (injection, budgeting, caching, compression, memory, routing) rather than by source
-- Included PAI implications section to make research immediately actionable
+- Included DAI implications section to make research immediately actionable
 - Prioritized production-validated patterns over theoretical frameworks
 - Included specific numbers (cost, compression ratios, benchmark scores) wherever available
 

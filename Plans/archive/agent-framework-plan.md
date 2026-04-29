@@ -1,4 +1,4 @@
-# PAI Cloud Agent Framework — Vision, Decision Graph & Phased Roadmap
+# DAI Cloud Agent Framework — Vision, Decision Graph & Phased Roadmap
 
 **Date:** 2026-03-02
 **Method:** FirstPrinciples decomposition + 4-perspective Council debate + full codebase inventory
@@ -8,9 +8,9 @@
 
 ## 1. Vision
 
-**PAI evolves from a Telegram bridge with pipeline support into a self-initiating personal agent system — through targeted extension of working code, NOT framework construction.**
+**DAI evolves from a Telegram bridge with pipeline support into a self-initiating personal agent system — through targeted extension of working code, NOT framework construction.**
 
-The research, first principles analysis, and council debate all converge on one finding: **PAI already IS an agent framework.** It has agent invocation (`ClaudeInvoker`), task decomposition (`TaskOrchestrator`), cross-agent communication (pipeline JSON), agent identity (`AgentRegistry`), memory (`MemoryStore`), session management, and state transfer (`HandoffManager`). Building an abstract framework on top would add ~2000-3000 lines of scaffolding that provides zero direct capability.
+The research, first principles analysis, and council debate all converge on one finding: **DAI already IS an agent framework.** It has agent invocation (`ClaudeInvoker`), task decomposition (`TaskOrchestrator`), cross-agent communication (pipeline JSON), agent identity (`AgentRegistry`), memory (`MemoryStore`), session management, and state transfer (`HandoffManager`). Building an abstract framework on top would add ~2000-3000 lines of scaffolding that provides zero direct capability.
 
 **What's actually needed:** 4 targeted additions (~840 new lines + ~140 modified) to close the 5 irreducible gaps for L3-4 autonomy.
 
@@ -27,11 +27,11 @@ The research, first principles analysis, and council debate all converge on one 
 - Replacing Claude CLI with raw API (Claude Code's agentic loop IS our loop)
 - Vector search infrastructure (FTS5 is sufficient per evidence)
 - Persistent specialist daemon agents (cron + pipeline is sufficient)
-- Python/Hermes clone (PAI's TS/Bun stack is already ahead)
+- Python/Hermes clone (DAI's TS/Bun stack is already ahead)
 - LLM summarization for context compression (observation masking is cheaper and better)
 - Demos ecosystem integration (future milestone, NOT part of this plan)
 
-### PAI Algorithm as Core Differentiator
+### DAI Algorithm as Core Differentiator
 
 The Algorithm stays human-interactive only. But its PRINCIPLES propagate to autonomous execution via a three-tier execution model:
 
@@ -75,7 +75,7 @@ The Algorithm stays human-interactive only. But its PRINCIPLES propagate to auto
 ### Fork 1: Framework vs. Extension
 **Decision: EXTEND with targeted features.**
 
-Evidence: PAI's 31 files already implement every framework pattern. Building a framework adds ~2000+ lines of scaffolding. The direct approach: 3 new files + modifications = ~840 lines. The contrarian analysis (Section 13 of research) found that simpler systems consistently outperform complex ones. 17x error amplification in over-architected multi-agent systems.
+Evidence: DAI's 31 files already implement every framework pattern. Building a framework adds ~2000+ lines of scaffolding. The direct approach: 3 new files + modifications = ~840 lines. The contrarian analysis (Section 13 of research) found that simpler systems consistently outperform complex ones. 17x error amplification in over-architected multi-agent systems.
 
 **Two strategic abstractions allowed:** Markdown agent definitions (future, Phase C) and capability-aware agent registry extension (Phase C). Everything else stays as-is.
 
@@ -120,7 +120,7 @@ Full Algorithm = human-only. Algorithm Lite (criteria→execute→verify, max 10
 | Workspace | Pipeline/agent-to-agent | Lean (~1,400-2,000 tokens) | No injection or workspace-only |
 | Project | Telegram/interactive | Full CLAUDE.md + session | Project-scoped, frozen snapshot |
 
-PAI pipeline already implements Mode A correctly. Mode B needs frozen snapshot + bounded budget + project filtering.
+DAI pipeline already implements Mode A correctly. Mode B needs frozen snapshot + bounded budget + project filtering.
 
 ---
 
@@ -188,7 +188,7 @@ PAI pipeline already implements Mode A correctly. Mode B needs frozen snapshot +
 ## 5. Summary
 
 ### What we're building
-4 targeted additions (scheduler, policy, synthesis, frozen snapshots) + 2 strategic abstractions (agent definitions, sub-delegation) to evolve PAI from L2 to L3-4 autonomy.
+4 targeted additions (scheduler, policy, synthesis, frozen snapshots) + 2 strategic abstractions (agent definitions, sub-delegation) to evolve DAI from L2 to L3-4 autonomy.
 
 ### What we're NOT building
 An abstract agent framework, persistent specialist daemons, custom event system, vector search, or anything that duplicates what the 31 existing files already do.
@@ -222,6 +222,6 @@ An abstract agent framework, persistent specialist daemons, custom event system,
 | Council debate (5 forks, 4 perspectives each) | `Plans/snug-cooking-goose-agent-a165b82ea5fe3720b.md` |
 | Research synthesis (10 frameworks, 16 sections) | `research/agent-context-memory-architecture/report.md` |
 | Hermes Agent analysis | `research/hermes-agent/report.md` |
-| PAI V4 architecture audit | `Pai-Exploration/src/pai-v4-architecture.md` |
-| PAI V4 synthesis | `Pai-Exploration/src/v4-exploration-synthesis.md` |
-| PAI-Demos analysis | `DEMOS-Work/PAI-Demos-Analysis.md` |
+| DAI V4 architecture audit | `Pai-Exploration/src/pai-v4-architecture.md` |
+| DAI V4 synthesis | `Pai-Exploration/src/v4-exploration-synthesis.md` |
+| DAI-Demos analysis | `DEMOS-Work/PAI-Demos-Analysis.md` |

@@ -13,7 +13,7 @@ updated: 2026-03-26T18:01:00+01:00
 
 Sessions 1-4 are built and reviewed locally but VPS is at `da8a203` (pre-Sessions). Need to: merge S4 to main, push to GitHub, deploy to VPS, enable all new flags, audit VPS health, run smoke+e2e tests, update documentation.
 
-VPS audit findings: Claude CLI 2.1.76 (local 2.1.81), bun 1.3.9, bridge active, 31 PAI hooks present, no Session 1-4 flags enabled yet.
+VPS audit findings: Claude CLI 2.1.76 (local 2.1.81), bun 1.3.9, bridge active, 31 DAI hooks present, no Session 1-4 flags enabled yet.
 
 ### Risks
 - Large delta deploying (Sessions 1-4 = ~6600 LOC new) — bridge restart may fail on config or import errors
@@ -41,7 +41,7 @@ VPS audit findings: Claude CLI 2.1.76 (local 2.1.81), bun 1.3.9, bridge active, 
 - [x] ISC-10: VPS git hash matches local main HEAD
 - [x] ISC-11: VPS bun version verified adequate
 - [x] ISC-12: Claude CLI version checked on VPS
-- [x] ISC-13: PAI hooks verified firing via journalctl
+- [x] ISC-13: DAI hooks verified firing via journalctl
 - [x] ISC-14: Bridge.env has all required flags enabled
 - [x] ISC-15: Memory.db schema migrations applied cleanly
 

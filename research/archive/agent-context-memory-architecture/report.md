@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-01 (initial), 2026-03-02 (completed + extended)
 **Requested by:** Marius
-**Context:** Designing a custom agent framework that synthesizes the best of all existing frameworks, built on PAI infrastructure
+**Context:** Designing a custom agent framework that synthesizes the best of all existing frameworks, built on DAI infrastructure
 **Sources:** 17 research agents across 3 sessions, 100+ primary sources, 10 frameworks analyzed, 8+ academic papers, YouTube transcript, 3 open-source codebases
 
 ---
@@ -28,7 +28,7 @@
 14. [Hermes Agent — Persistent Personal Agent](#14-hermes-agent)
 
 **Part III — Synthesis**
-15. [PAI Framework Analysis (from Pai-Exploration)](#15-pai-framework-analysis)
+15. [DAI Framework Analysis (from Pai-Exploration)](#15-pai-framework-analysis)
 16. [Unified Synthesis & Recommendations](#16-synthesis)
 
 ---
@@ -288,7 +288,7 @@ Compaction as an API feature is the most elegant approach — it pushes summariz
 
 ### Scale & Stack
 
-114K+ GitHub stars, 700+ contributors, 2.5M+ monthly active developers. TypeScript + Bun + SQLite (same stack as PAI). Hono HTTP server, Vercel AI SDK, Drizzle ORM.
+114K+ GitHub stars, 700+ contributors, 2.5M+ monthly active developers. TypeScript + Bun + SQLite (same stack as DAI). Hono HTTP server, Vercel AI SDK, Drizzle ORM.
 
 ### Core Architecture: Client-Server Separation
 
@@ -333,7 +333,7 @@ Every HTTP request scoped to an "Instance" providing lazy-initialized, memoized 
 
 ### Key Insight
 
-Client-server separation is the winning pattern — multiple frontends become thin clients. Part-based message storage unlocks capabilities impossible with blob storage. Compaction with rule preservation creates "immune memory" that survives all compression. PAI's parallel DAG execution is architecturally ahead of OpenCode's sequential subtask model.
+Client-server separation is the winning pattern — multiple frontends become thin clients. Part-based message storage unlocks capabilities impossible with blob storage. Compaction with rule preservation creates "immune memory" that survives all compression. DAI's parallel DAG execution is architecturally ahead of OpenCode's sequential subtask model.
 
 ---
 
@@ -465,7 +465,7 @@ Last-writer-wins, event sourcing, CRDTs (CodeCRDT 2025), git-based merge (Letta)
 
 ### Key Insight
 
-Centralized orchestration suppresses error amplification. Result passing (PAI's current pipeline pattern) is correct for 2-3 agent systems. Three-level memory scoping (global/project/agent) is the production consensus. Provenance tracking on memory fragments prevents hallucination propagation.
+Centralized orchestration suppresses error amplification. Result passing (DAI's current pipeline pattern) is correct for 2-3 agent systems. Three-level memory scoping (global/project/agent) is the production consensus. Provenance tracking on memory fragments prevents hallucination propagation.
 
 ---
 
@@ -554,7 +554,7 @@ The optimal operating range for context is 60-80% utilization with compaction at
 ### Challenge 3: "Agents Need Long-Term Memory"
 
 **When stateless is better:**
-- Pipeline/batch tasks (PAI already does this right)
+- Pipeline/batch tasks (DAI already does this right)
 - One-shot queries where prior context is irrelevant
 - Tasks where stale memory causes more harm than starting fresh
 - Stateless agents scale linearly; stateful agents have coordination overhead
@@ -598,7 +598,7 @@ The optimal operating range for context is 60-80% utilization with compaction at
 
 ### Key Insight
 
-The evidence overwhelmingly supports conservative, disciplined memory architecture over sophisticated systems. PAI's existing decisions — FTS5 primary, vector optional, pipeline isolation, structured handoffs — are validated by the data. **Enable V2 features conservatively, measure before expanding, treat every context token as a finite resource.**
+The evidence overwhelmingly supports conservative, disciplined memory architecture over sophisticated systems. DAI's existing decisions — FTS5 primary, vector optional, pipeline isolation, structured handoffs — are validated by the data. **Enable V2 features conservatively, measure before expanding, treat every context token as a finite resource.**
 
 ---
 
@@ -611,7 +611,7 @@ The evidence overwhelmingly supports conservative, disciplined memory architectu
 
 NousResearch's complete agent product — not a framework, but a deployable persistent AI agent with CLI, multi-platform messaging gateway (Telegram, Discord, Slack, WhatsApp), memory, skills, cron scheduling, and RL training integration. Launched 2026-02-26. Alpha maturity. NousResearch is the most credible open-source model fine-tuning lab outside major corps ($50-65M Series A from Paradigm).
 
-**Architecturally the closest open-source sibling to PAI/Isidore Cloud:** persistent daemon, Telegram bridge, session memory, skills, cross-session continuity, scheduling. Parallel evolution toward the same goal from different starting points.
+**Architecturally the closest open-source sibling to DAI/Isidore Cloud:** persistent daemon, Telegram bridge, session memory, skills, cross-session continuity, scheduling. Parallel evolution toward the same goal from different starting points.
 
 ### Core Architecture
 
@@ -651,7 +651,7 @@ class MemoryStore:
         }
 ```
 
-**Why this matters for PAI:** PAI's `ContextBuilder` queries `MemoryStore` before each Claude invocation, creating a slightly different prompt prefix every turn. This invalidates Claude's prompt cache. Frozen snapshot preserves cache stability → ~75% input token cost reduction. With Claude Sonnet 4.5 showing 78.5% cost reduction from caching (DeepResearchBench), this is the single highest-ROI pattern in this entire report.
+**Why this matters for DAI:** DAI's `ContextBuilder` queries `MemoryStore` before each Claude invocation, creating a slightly different prompt prefix every turn. This invalidates Claude's prompt cache. Frozen snapshot preserves cache stability → ~75% input token cost reduction. With Claude Sonnet 4.5 showing 78.5% cost reduction from caching (DeepResearchBench), this is the single highest-ROI pattern in this entire report.
 
 ### 14.2 Character-Bounded Curated Memory
 
@@ -737,7 +737,7 @@ Content with invisible Unicode characters or threat patterns is blocked. Most fr
 - `MAX_DEPTH = 2` prevents recursive delegation
 - Only final summary enters parent context (intermediate tool calls excluded)
 
-**No workflow engine.** Unlike PAI's DAG orchestrator, Hermes has no dependency resolution, crash recovery, or workflow persistence. Complex tasks rely entirely on the model's implicit planning.
+**No workflow engine.** Unlike DAI's DAG orchestrator, Hermes has no dependency resolution, crash recovery, or workflow persistence. Complex tasks rely entirely on the model's implicit planning.
 
 ### 14.8 RL Training Integration (Unique)
 
@@ -755,17 +755,17 @@ The agent doubles as an RL training environment (Atropos integration):
 
 ### Key Insight
 
-Hermes Agent validates PAI's architectural direction and provides three immediately adoptable patterns: (1) frozen snapshot memory injection for prompt cache stability, (2) character-bounded curated memory to prevent context rot, (3) injection scanning for cross-user pipeline security. PAI is already ahead on structured workflows, cross-agent collaboration, and type safety.
+Hermes Agent validates DAI's architectural direction and provides three immediately adoptable patterns: (1) frozen snapshot memory injection for prompt cache stability, (2) character-bounded curated memory to prevent context rot, (3) injection scanning for cross-user pipeline security. DAI is already ahead on structured workflows, cross-agent collaboration, and type safety.
 
 ---
 
 # Part III — Synthesis
 
-## 15. PAI Framework Analysis
+## 15. DAI Framework Analysis
 
 **Source:** Comprehensive audit of `~/projects/Pai-Exploration/` (14 exploration docs, 756KB)
 
-### What PAI v4.0.1 Already Has
+### What DAI v4.0.1 Already Has
 
 | Component | Scale | Status |
 |-----------|-------|--------|
@@ -818,7 +818,7 @@ Every framework, every production system, every research paper validates this se
 - No memory injection (or workspace-only knowledge)
 - AG2-style context variables: structured task metadata invisible to LLM
 - Observation masking for tool outputs if context grows
-- This is how PAI pipeline tasks already work
+- This is how DAI pipeline tasks already work
 
 **Mode B: "Project" (Direct Telegram / Interactive)**
 - Full project context (CLAUDE.md, session, handoff state)
@@ -962,7 +962,7 @@ Injection Rules:
 13. Design markdown agent definition format (`.pai/agents/`)
 14. Implement progressive disclosure skill loading
 15. Explore client-server separation (Hono HTTP layer)
-16. Close PAI's synthesis loop (schedule LearningPatternSynthesis etc.)
+16. Close DAI's synthesis loop (schedule LearningPatternSynthesis etc.)
 
 **Phase 4: Advanced Patterns**
 17. Part-based message storage migration
@@ -998,7 +998,7 @@ Injection Rules:
 - **Total research agents:** 17 (13 returned successfully)
 - **Frameworks analyzed:** 10 (OpenClaw, MemGPT/Letta, LangGraph, CrewAI, AutoGen/AG2, Semantic Kernel, Claude Agent SDK, OpenCode, Google ADK, Hermes Agent)
 - **Academic papers cited:** 8+ (JetBrains NeurIPS, Lost in the Middle, ACON ICML, Intelligence Degradation, Context Rot, FadeMem, Codified Context, DMS)
-- **Production systems analyzed:** 5 (Manus, Factory.ai, Anthropic internal, OpenClaw, PAI)
+- **Production systems analyzed:** 5 (Manus, Factory.ai, Anthropic internal, OpenClaw, DAI)
 - **Primary sources:** 100+
 - **Total tokens synthesized from:** ~700K+ tokens of research
 

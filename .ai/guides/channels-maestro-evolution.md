@@ -1,11 +1,11 @@
-# Claude Channels + Maestro + PAI Cloud Evolution
+# Claude Channels + Maestro + DAI Cloud Evolution
 
 **Date:** 2026-03-24
 **Status:** Research complete, phased plan approved
 
 ## Summary
 
-Deep research into Claude Channels, Maestro (RunMaestro/Maestro), and architectural options for PAI Cloud evolution. Red Team stress-tested the "burn the bridge" recommendation and found it would lose 10+ critical features. Conclusion: evolutionary enhancement, not revolutionary replacement.
+Deep research into Claude Channels, Maestro (RunMaestro/Maestro), and architectural options for DAI Cloud evolution. Red Team stress-tested the "burn the bridge" recommendation and found it would lose 10+ critical features. Conclusion: evolutionary enhancement, not revolutionary replacement.
 
 ## Key Findings
 
@@ -56,7 +56,7 @@ Bridge is a 30-module platform (13K lines). Channels handles ~20% of what it doe
 4. **Maestro Features** (3-4 weeks) — playbooks, worktrees, QR, compression
 
 ## Core Insight
-PAI's value is the intelligence layer (memory, context, synthesis), not the transport layer. Extract intelligence into MCP servers = portable across bridge, native CLI, Remote Control.
+DAI's value is the intelligence layer (memory, context, synthesis), not the transport layer. Extract intelligence into MCP servers = portable across bridge, native CLI, Remote Control.
 
 ## References
 - Channels docs: code.claude.com/docs/en/channels-reference

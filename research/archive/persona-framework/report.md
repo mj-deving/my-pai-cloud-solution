@@ -74,7 +74,7 @@ Not part of SOUL.md. Configured separately in AGENTS.md/config layer. This is an
 - "Direct and opinionated" with specific behavioral examples
 - Pros: Expressive, nuanced, easy to author. Cons: Hard to compare, no programmatic access
 
-### PAI (Current): Quantitative (0-100 scale)
+### DAI (Current): Quantitative (0-100 scale)
 ```json
 "personality": {
   "enthusiasm": 75,
@@ -113,7 +113,7 @@ Pros: Machine-readable, comparable, tunable. Cons: Can feel reductive.
 - Prose-based: tone (formal/casual), verbosity (brief/detailed), humor level, technical depth, formatting preferences
 - No TTS integration in core -- community extensions handle voice
 
-### PAI (Current)
+### DAI (Current)
 - ElevenLabs voice integration with prosody settings per agent:
   ```yaml
   voice:
@@ -147,7 +147,7 @@ Pros: Machine-readable, comparable, tunable. Cons: Can feel reductive.
 - USER.md stores user context (preferences, expertise level, history)
 - Continuity section in SOUL.md defines persistence behavior
 
-### PAI (Current)
+### DAI (Current)
 - DAIDENTITY.md defines explicit relationship model:
   ```
   Relationship Model: Mentor / Guide
@@ -177,7 +177,7 @@ Pros: Machine-readable, comparable, tunable. Cons: Can feel reductive.
 - Per-agent tool restrictions and permissions
 - Workspace isolation per agent
 
-### PAI (Current)
+### DAI (Current)
 - Per-agent permissions in frontmatter:
   ```yaml
   permissions:
@@ -254,16 +254,16 @@ agent_name:
 
 ---
 
-## 7. Design Recommendations for PAI Persona Framework
+## 7. Design Recommendations for DAI Persona Framework
 
-### What PAI Already Does Well (Keep)
+### What DAI Already Does Well (Keep)
 
 1. **Quantitative personality traits (0-100)** -- unique among frameworks, enables programmatic tuning
 2. **Voice integration with prosody settings** -- far ahead of all competitors
 3. **Trait-to-voice mapping** -- sophisticated voice selection based on personality
 4. **ComposeAgent dynamic composition** -- most flexible agent creation system found
 5. **Per-agent permissions** -- clean capability separation
-6. **Explicit relationship model** -- only PAI and OpenClaw model this
+6. **Explicit relationship model** -- only DAI and OpenClaw model this
 
 ### What to Add (From OpenClaw and Others)
 
@@ -296,7 +296,7 @@ voice:
   use_speaker_boost: true
   volume: 0.85
 
-# === PERSONALITY (Quantitative Layer - PAI original) ===
+# === PERSONALITY (Quantitative Layer - DAI original) ===
 personality:
   # Core temperament (0-100 scales)
   enthusiasm: 75
@@ -408,7 +408,7 @@ traits: []                              # For ComposeAgent-composed agents
 
 ### Architecture: Three Files, Three Concerns
 
-Following OpenClaw's separation pattern but adapted for PAI:
+Following OpenClaw's separation pattern but adapted for DAI:
 
 | File | Scope | Owns | Editable By |
 |------|-------|------|-------------|
@@ -419,12 +419,12 @@ Following OpenClaw's separation pattern but adapted for PAI:
 ### Resolution Cascade (most specific wins)
 
 ```
-Agent frontmatter -> settings.json daidentity -> PAI defaults
+Agent frontmatter -> settings.json daidentity -> DAI defaults
 ```
 
 ### Key Design Principles
 
-1. **Quantitative + Qualitative**: Keep numeric personality scales (unique to PAI, programmable) AND add prose-based soul/values (from OpenClaw, more expressive)
+1. **Quantitative + Qualitative**: Keep numeric personality scales (unique to DAI, programmable) AND add prose-based soul/values (from OpenClaw, more expressive)
 2. **Separation of concerns**: Identity (what it looks like) vs. Soul (how it thinks) vs. Capabilities (what it can do)
 3. **Anti-patterns are first class**: Every persona should define what it will NOT do
 4. **Relationship is explicit**: Not just "assistant" -- the agent-user dynamic is a configurable dimension

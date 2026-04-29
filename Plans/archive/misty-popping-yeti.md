@@ -49,7 +49,7 @@ Session Start:
   "projects": [
     {
       "name": "my-pai-cloud-solution",
-      "displayName": "PAI Cloud Solution",
+      "displayName": "DAI Cloud Solution",
       "git": "git@github.com:mj-deving/my-pai-cloud-solution.git",
       "paths": {
         "local": "/home/mj/projects/my-pai-cloud-solution",

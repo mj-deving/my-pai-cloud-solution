@@ -11,7 +11,7 @@ updated: 2026-03-26T17:02:00+01:00
 
 ## Context
 
-Session 4 of the PAI Cloud Evolution Master Plan v4. Gates on Sessions 1-3 (all complete, 8 commits on main). Scope: Dashboard enhancements, Guardrails middleware, A2A Client, Retrieval Isolation, Group Chat, Integration Testing, Documentation.
+Session 4 of the DAI Cloud Evolution Master Plan v4. Gates on Sessions 1-3 (all complete, 8 commits on main). Scope: Dashboard enhancements, Guardrails middleware, A2A Client, Retrieval Isolation, Group Chat, Integration Testing, Documentation.
 
 User explicitly wants Fabric `create_git_diff_commit` for commit messages, Fabric `review_code` on commits, and Codex CLI delegation for review. VPS deployment deferred to separate step.
 

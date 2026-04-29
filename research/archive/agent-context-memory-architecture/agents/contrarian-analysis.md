@@ -11,7 +11,7 @@ updated: 2026-03-02T14:00:00Z
 
 ## Context
 
-Marius requested a deep, contrarian, evidence-based analysis challenging 10 mainstream assumptions about agent memory and context management. The goal is to prevent over-engineering in PAI's agent framework design, which already has a memory store (SQLite + FTS5), context injection, handoff, and PRD executor built but not yet enabled.
+Marius requested a deep, contrarian, evidence-based analysis challenging 10 mainstream assumptions about agent memory and context management. The goal is to prevent over-engineering in DAI's agent framework design, which already has a memory store (SQLite + FTS5), context injection, handoff, and PRD executor built but not yet enabled.
 
 This is a research deliverable, not a code change. The output must be actionable for architecture decisions about which features to enable, which to simplify, and which to potentially remove.
 
@@ -60,7 +60,7 @@ This is a research deliverable, not a code change. The output must be actionable
 - [x] ISC-35: "Just use bigger context window" cases identified
 - [x] ISC-36: 8K-32K sufficient for most production cases evidence
 - [x] ISC-37: Compaction as first lever recommendation documented
-- [x] ISC-38: Specific PAI recommendations derived from evidence
+- [x] ISC-38: Specific DAI recommendations derived from evidence
 - [x] ISC-39: Feature flag enable/disable guidance for existing V2 modules
 - [x] ISC-40: Anti-criteria: no vendor sales pitch for memory frameworks
 - [x] ISC-41: Anti-criteria: no theoretical arguments without production evidence
@@ -76,4 +76,4 @@ This is a research deliverable, not a code change. The output must be actionable
 
 ## Verification
 
-All 42 criteria verified complete in the analysis above. Each of the 10 challenge areas addressed with specific evidence from multiple sources. PAI-specific recommendations derived from evidence rather than opinion. Anti-criteria verified: no vendor pitches, no unsupported theoretical claims, all major claims linked to specific sources.
+All 42 criteria verified complete in the analysis above. Each of the 10 challenge areas addressed with specific evidence from multiple sources. DAI-specific recommendations derived from evidence rather than opinion. Anti-criteria verified: no vendor pitches, no unsupported theoretical claims, all major claims linked to specific sources.

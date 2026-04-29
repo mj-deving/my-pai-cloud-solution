@@ -1,4 +1,4 @@
-# PAI Cloud Solution — Architecture & Reference Guide
+# DAI Cloud Solution — Architecture & Reference Guide
 
 > **One identity, two runtimes.** Deploy your AI assistant to a VPS so it's always reachable — from your desk, your phone, or anywhere in the world.
 
@@ -49,7 +49,7 @@
 
 Claude Code is powerful but local — it lives in your terminal, on your machine. When you close the lid, it's gone. You can't message it from your phone on the train. You can't have it running a background task while you sleep.
 
-**PAI Cloud Solution solves this** by deploying a second instance of your AI assistant (same personality, same knowledge, same skills) to a VPS that runs 24/7. You talk to it over Telegram from your phone, or SSH in for deep work. The cloud instance has its own SQLite-backed memory, context injection, and autonomous capabilities.
+**DAI Cloud Solution solves this** by deploying a second instance of your AI assistant (same personality, same knowledge, same skills) to a VPS that runs 24/7. You talk to it over Telegram from your phone, or SSH in for deep work. The cloud instance has its own SQLite-backed memory, context injection, and autonomous capabilities.
 
 The result: **one assistant, always available, everywhere.**
 
@@ -83,7 +83,7 @@ You (Marius)
 ├── On your phone (Claude app)
 │   └── Claude app → Remote Control
 │       └── claude remote-control --spawn worktree  ← Direct CLI access
-│           └── PAI hooks fire on all sessions (same as local)
+│           └── DAI hooks fire on all sessions (same as local)
 │
 ├── Via Channels bot (Isidore Direct)
 │   └── Telegram → Claude Channels plugin
@@ -156,9 +156,9 @@ VPS: 213.199.32.18 (Ubuntu 24.04, Contabo)
 │   │   └── memory/                    # Daily memory files (YYYY-MM-DD.md)
 │   │
 │   ├── ~/.claude/                     # Claude Code configuration
-│   │   ├── settings.json              # PAI settings (Isidore Cloud identity)
-│   │   ├── skills/PAI/               # Full PAI skill set
-│   │   ├── hooks/                    # PAI hooks (non-interactive subset)
+│   │   ├── settings.json              # DAI settings (Isidore Cloud identity)
+│   │   ├── skills/PAI/               # Full DAI skill set
+│   │   ├── hooks/                    # DAI hooks (non-interactive subset)
 │   │   ├── active-session-id         # Current conversation session pointer
 │   │   └── memory.db                 # SQLite memory store (episodes, knowledge, state)
 │   │
@@ -199,7 +199,7 @@ Local: WSL2 (your machine)
 │   ├── id_ed25519_isidore_cloud      # SSH key for VPS access
 │   └── config                        # SSH alias: isidore_cloud → VPS
 └── ~/.claude/                         # Claude Code (local Isidore)
-    └── skills/PAI/                    # Full PAI skill set
+    └── skills/PAI/                    # Full DAI skill set
 ```
 
 ---
@@ -215,7 +215,7 @@ The Telegram bot (`@IsidoreCloudBot`) is the main way to talk to Isidore Cloud f
 2. Grammy bot receives it via long polling (no webhook needed)
 3. Middleware checks your Telegram user ID against the allow list
 4. Your message is forwarded to `claude --resume <session-id> -p "your message" --output-format json`
-5. Claude's response is parsed, run through the compact formatter (strips PAI Algorithm verbosity), chunked to fit Telegram's 4096-char limit, and sent back
+5. Claude's response is parsed, run through the compact formatter (strips DAI Algorithm verbosity), chunked to fit Telegram's 4096-char limit, and sent back
 
 **Bot commands:**
 
@@ -270,7 +270,7 @@ Claude Channels Telegram plugin provides native interactive sessions without the
 3. Claude runs an interactive session in tmux (`claude --channels plugin:telegram@claude-plugins-official`)
 4. `access.json` pre-configured with allowlist — only authorized users can interact
 5. MCP servers (`pai-memory-server`, `pai-context-server`) auto-load via `.mcp.json`
-6. PAI hooks fire on session start and tool use
+6. DAI hooks fire on session start and tool use
 7. Responses sent directly — no bridge formatting, no compact stripping
 
 **Advantages over bridge:** Native Claude session (not one-shot CLI), permission relay, efficient hook invocation (SessionStart once, not per-message), no stream-json parsing overhead, MCP tools available natively.
@@ -283,7 +283,7 @@ Claude Remote Control enables direct CLI access from the Claude mobile app.
 1. You open the Claude app on your phone
 2. Remote Control connects to `claude remote-control --spawn worktree` on VPS
 3. Full interactive session with worktree isolation
-4. PAI hooks fire on all sessions (same as local)
+4. DAI hooks fire on all sessions (same as local)
 
 **Status:** Service file created (`isidore-cloud-remote.service`). Blocked on trust establishment. See `Plans/phase-fg-channels-remote-control.md`.
 
@@ -339,7 +339,7 @@ bridge.ts (entry point)
 ├── AgentRegistry           → agent-registry.ts   — SQLite agent tracking + heartbeat
 ├── IdempotencyStore        → idempotency.ts      — duplicate task detection
 ├── formatStatusline()      → statusline.ts       — two-line status block for Telegram
-├── compactFormat()         → format.ts           — strips PAI Algorithm formatting for mobile
+├── compactFormat()         → format.ts           — strips DAI Algorithm formatting for mobile
 ├── chunkMessage()          → format.ts           — splits long responses for Telegram's 4096 limit
 └── escMd()                 → format.ts           — escapes Markdown in notifications
 ```
@@ -379,10 +379,10 @@ User message
 
 ### Compact Formatter
 
-Claude Code with PAI runs the full Algorithm for every response — phase headers, ISC criteria, capability audits, voice curls. On a phone screen, that's overwhelming. The formatter strips it down:
+Claude Code with DAI runs the full Algorithm for every response — phase headers, ISC criteria, capability audits, voice curls. On a phone screen, that's overwhelming. The formatter strips it down:
 
 **Removed:**
-- `♻︎ Entering the PAI ALGORITHM...` headers
+- `♻︎ Entering the DAI ALGORITHM...` headers
 - `━━━ PHASE ━━━ N/7` separators
 - Voice curl commands
 - ISC Quality Gate blocks
@@ -423,7 +423,7 @@ Focused work on a specific git-tracked repo. Invoked via `/project <name>`.
 Every Telegram reply ends with a statusline code block:
 
 ```
-══ PAI ══════════════════════════
+══ DAI ══════════════════════════
 🏠 workspace · 14:30
 msg 5/30 · ctx 42% · 21ep
 ```
@@ -614,7 +614,7 @@ A file-based task queue that lets Gregor (OpenClaw bot, running as the `openclaw
 
 ### The Problem
 
-Two AI assistants on the same VPS need to collaborate. Gregor handles Discord automation for OpenClaw. Sometimes Gregor encounters problems that need Isidore Cloud's capabilities (broader knowledge, PAI skills, different perspective). But they run as different Linux users with different Claude sessions.
+Two AI assistants on the same VPS need to collaborate. Gregor handles Discord automation for OpenClaw. Sometimes Gregor encounters problems that need Isidore Cloud's capabilities (broader knowledge, DAI skills, different perspective). But they run as different Linux users with different Claude sessions.
 
 ### The Solution: Three-Layer Architecture
 
@@ -1237,7 +1237,7 @@ ssh isidore_cloud 'gh auth status'
 | `rate-limiter.ts` | Sliding-window failure tracking with cooldown period. | `RateLimiter` |
 | `verifier.ts` | Result verification via separate Claude one-shot. Fail-open. | `Verifier` |
 | `github.ts` | GitHub PR operations via `gh` CLI: create/find PRs, upsert review comments, merge PRs. | `runGh()`, `findPR()`, `createOrReusePR()`, `upsertReviewComment()`, `mergePR()` |
-| `format.ts` | Strips PAI Algorithm verbosity, chunks for Telegram, escapes Markdown. | `compactFormat()`, `chunkMessage()`, `escMd()` |
+| `format.ts` | Strips DAI Algorithm verbosity, chunks for Telegram, escapes Markdown. | `compactFormat()`, `chunkMessage()`, `escMd()` |
 | `health-monitor.ts` | Periodic subsystem checks (memory, rateLimiter, resourceGuard), sliding-window Telegram delivery tracking, cached snapshots. | `HealthMonitor` |
 | `config.ts` | Zod-validated env vars with range checks, feature flags, WORKSPACE_* config. | `Config`, `loadConfig()` |
 | `types.ts` | `BridgeContext` interface (typed subsystem bag, replaces positional args) + `Plugin` interface (type-only, for future use). | `BridgeContext`, `Plugin` |
@@ -1281,7 +1281,7 @@ ssh isidore_cloud 'gh auth status'
 | File | Purpose |
 |------|---------|
 | `projects.json` | Project registry — all projects, paths, git URLs (bundled copy) |
-| `vps-settings.json` | Claude Code settings for VPS (identity, PAI config, hook subset) |
+| `vps-settings.json` | Claude Code settings for VPS (identity, DAI config, hook subset) |
 
 ---
 
@@ -1381,7 +1381,7 @@ ssh isidore_cloud 'crontab -l'
 
 ### Planned
 
-- **Phase 2: Bridge commands → PAI skills migration** — Convert Telegram commands to portable PAI skills usable across all access surfaces (Channels, Remote Control, SSH)
+- **Phase 2: Bridge commands → DAI skills migration** — Convert Telegram commands to portable DAI skills usable across all access surfaces (Channels, Remote Control, SSH)
 - **Phase 4: Dashboard extraction** — Extract dashboard as standalone HTTP service, independent of bridge
 - **Phase 5: Bridge retirement** — Once all functionality confirmed via Channels + standalone services
 - **Phase 6: Remote Control activation** — Requires interactive trust acceptance
@@ -1423,11 +1423,11 @@ Want to build this for your own AI assistant? Here's what you need:
 - The bridge architecture (Grammy bot → CLI wrapper → session management) works with any Claude Code setup
 - The memory system (SQLite + FTS5 + context injection) works for any long-running AI agent
 - The systemd service definitions work on any Linux server
-- The compact formatter is specific to PAI Algorithm output — replace with your own formatting needs
+- The compact formatter is specific to DAI Algorithm output — replace with your own formatting needs
 
 ### What's Specific to This Setup
 
-- PAI skills and hooks (the full Algorithm system)
+- DAI skills and hooks (the full Algorithm system)
 - The naming convention (Isidore / Isidore Cloud)
 - Coexistence with Gregor/OpenClaw on the same VPS
 - The specific Telegram user ID authentication
@@ -1435,4 +1435,4 @@ Want to build this for your own AI assistant? Here's what you need:
 ---
 
 *Last updated: 2026-04-02 (Channels live, standalone pipeline watcher, migration phases 1+3 complete, 384 tests across 30 files)*
-*Author: mj-deving + Isidore (PAI)*
+*Author: mj-deving + Isidore (DAI)*

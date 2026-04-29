@@ -466,9 +466,9 @@ The memory tool's injected prompt tells agents to "assume interruption" -- that 
 
 ---
 
-## 9. Comparison with PAI's Current Architecture
+## 9. Comparison with DAI's Current Architecture
 
-| Dimension | Claude Agent SDK | PAI (Current) |
+| Dimension | Claude Agent SDK | DAI (Current) |
 |-----------|-----------------|---------------|
 | Session persistence | Disk-based, resume by ID, fork sessions | File-based session ID, per-project sessions |
 | Context management | Server-side compaction (API-level) | Not yet implemented (Phase 3 planned) |
@@ -478,17 +478,17 @@ The memory tool's injected prompt tells agents to "assume interruption" -- that 
 | Cross-instance state | Session forking, checkpoint resumption | HandoffManager JSON files |
 | Long-term knowledge | Memory files + CLAUDE.md | FTS5 semantic search + episodic episodes |
 
-### 9.1 Strategic Implications for PAI
+### 9.1 Strategic Implications for DAI
 
-1. **Compaction integration:** PAI should integrate with the compaction API rather than building its own summarization. The `pause_after_compaction` pattern could preserve PAI's context injection prefix.
+1. **Compaction integration:** DAI should integrate with the compaction API rather than building its own summarization. The `pause_after_compaction` pattern could preserve DAI's context injection prefix.
 
-2. **Memory tool adoption:** Consider migrating MemoryStore's retrieval interface to the memory tool protocol. This would make PAI's memory accessible to the Agent SDK natively.
+2. **Memory tool adoption:** Consider migrating MemoryStore's retrieval interface to the memory tool protocol. This would make DAI's memory accessible to the Agent SDK natively.
 
-3. **Subagent context isolation:** PAI's pipeline already provides process-level isolation (separate `claude -p` invocations). The Agent SDK's subagent model is lighter-weight (same process, separate context windows).
+3. **Subagent context isolation:** DAI's pipeline already provides process-level isolation (separate `claude -p` invocations). The Agent SDK's subagent model is lighter-weight (same process, separate context windows).
 
 4. **Session forking for PRD execution:** The SDK's fork capability could enable PRD executors to explore multiple implementation approaches from the same starting point.
 
-5. **Context awareness exploitation:** If PAI uses the Agent SDK, models would self-regulate context usage -- potentially reducing the need for manual token budget enforcement.
+5. **Context awareness exploitation:** If DAI uses the Agent SDK, models would self-regulate context usage -- potentially reducing the need for manual token budget enforcement.
 
 ---
 

@@ -1,5 +1,5 @@
 ---
-task: Audit cloud retries, review testing pipeline, check PAI-customization
+task: Audit cloud retries, review testing pipeline, check DAI-customization
 slug: 20260309-142000_cloud-audit-testing-review
 effort: standard
 phase: complete
@@ -11,7 +11,7 @@ updated: 2026-03-09T14:20:00+01:00
 
 ## Context
 
-Marius wants a cloud bridge audit (retry errors), opinion on adding testing to the coding pipeline (TSS engineer perspective), and review of the PAI-customization repo that Codex wrote for Codex delegation patterns.
+Marius wants a cloud bridge audit (retry errors), opinion on adding testing to the coding pipeline (TSS engineer perspective), and review of the DAI-customization repo that Codex wrote for Codex delegation patterns.
 
 ## Criteria
 
@@ -21,7 +21,7 @@ Marius wants a cloud bridge audit (retry errors), opinion on adding testing to t
 - [x] ISC-4: Missing bot.catch handler flagged as critical gap
 - [x] ISC-5: Empty error detail in retry log explained
 - [x] ISC-6: Testing gap opinion delivered with specific recommendations
-- [x] ISC-7: PAI-customization repo reviewed (3 skills identified)
+- [x] ISC-7: DAI-customization repo reviewed (3 skills identified)
 - [x] ISC-8: Codex delegation additions recommended with specifics
 - [x] ISC-9: Actionable next steps provided for each finding
 - [x] ISC-10: Findings written to .ai/guides/ for future reference

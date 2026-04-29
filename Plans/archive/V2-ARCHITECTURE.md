@@ -1447,7 +1447,7 @@ src/
 
 ### Overview
 
-Each Isidore Cloud instance is one distinctive agent with a full identity stack. The persona framework defines WHO the agent is — not just configuration, but personality, values, voice, and relationship model. Inspired by OpenClaw's three-layer identity architecture, adapted for PAI's quantitative trait system.
+Each Isidore Cloud instance is one distinctive agent with a full identity stack. The persona framework defines WHO the agent is — not just configuration, but personality, values, voice, and relationship model. Inspired by OpenClaw's three-layer identity architecture, adapted for DAI's quantitative trait system.
 
 ### The Seven Identity Components
 
@@ -1593,7 +1593,7 @@ meta:
 When loading persona values, most-specific wins:
 
 ```
-Per-instance persona file → settings.json daidentity → PAI defaults
+Per-instance persona file → settings.json daidentity → DAI defaults
 ```
 
 ### Separation of Concerns

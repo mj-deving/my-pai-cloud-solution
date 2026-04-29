@@ -1,6 +1,6 @@
-# Council Debate: PAI Agent Framework Architecture
+# Council Debate: DAI Agent Framework Architecture
 
-**The Question:** "What is the right architecture for evolving PAI's cloud solution into a best-of-all-frameworks agent system with highest independent agency?"
+**The Question:** "What is the right architecture for evolving DAI's cloud solution into a best-of-all-frameworks agent system with highest independent agency?"
 
 **Grounded in:** 10 frameworks analyzed, 17 research agents, 100+ primary sources, 700K+ tokens synthesized, 31 existing source files in production.
 
@@ -16,7 +16,7 @@
 
 The codebase has 31 source files handling Telegram, pipeline, orchestration, memory, context, handoff, dashboards, and PRD execution. It works. The research report's own contrarian analysis (Section 13) warns that "8x less memory improved accuracy by 12 points" and that 17x error amplification comes from over-architected multi-agent systems. Every abstraction layer we add is a new failure surface that Marius has to debug at midnight when the VPS bridge goes down.
 
-The honest assessment: PAI's cloud solution already IS an agent framework -- it just doesn't call itself one. It has `MessengerAdapter` (platform abstraction), `TaskOrchestrator` (DAG workflows), `PipelineWatcher` (event-driven dispatch), `BranchManager` (execution isolation), `MemoryStore` (persistence), and `ContextBuilder` (context engineering). What it lacks is not framework architecture -- it lacks three specific features: frozen snapshot injection, project-scoped memory queries, and character-bounded context budgets. Those are each 50-150 lines of code in existing files.
+The honest assessment: DAI's cloud solution already IS an agent framework -- it just doesn't call itself one. It has `MessengerAdapter` (platform abstraction), `TaskOrchestrator` (DAG workflows), `PipelineWatcher` (event-driven dispatch), `BranchManager` (execution isolation), `MemoryStore` (persistence), and `ContextBuilder` (context engineering). What it lacks is not framework architecture -- it lacks three specific features: frozen snapshot injection, project-scoped memory queries, and character-bounded context budgets. Those are each 50-150 lines of code in existing files.
 
 Building "a framework" means rewriting what works to look prettier. Extending the existing system means shipping improvements this week.
 
@@ -33,7 +33,7 @@ Consider what happens when Marius wants to add a third agent -- say an email bri
 What's needed:
 1. **Markdown agent definitions** (`.pai/agents/agent-name.md`) -- declarative agent config that specifies identity, capabilities, memory scopes, tool access, and trigger conditions. OpenCode and Hermes both validate this pattern.
 2. **Agent registry v2** -- the current `AgentRegistry` tracks heartbeats. It needs to become a capability registry that maps agents to their skills and dispatch rules.
-3. **Progressive skill loading** -- PAI has 48 SKILL.md files. Injecting all of them burns tokens. Three-tier disclosure (categories -> list -> full content) is validated by Hermes.
+3. **Progressive skill loading** -- DAI has 48 SKILL.md files. Injecting all of them burns tokens. Three-tier disclosure (categories -> list -> full content) is validated by Hermes.
 4. **Self-editing memory** -- Letta's core insight: agents that can edit their own context are fundamentally more capable than agents with read-only memory.
 
 This isn't "rewriting what works." The existing code becomes the first implementation of a proper agent contract. `TelegramAdapter` becomes the reference `MessengerAdapter`. The current pipeline flow becomes one dispatch strategy among several.
@@ -44,14 +44,14 @@ This isn't "rewriting what works." The existing code becomes the first implement
 
 ### The Autonomy Maximalist
 
-Both previous perspectives miss the actual bottleneck. PAI today is a reactive system: Marius sends a Telegram message, Isidore responds. Gregor writes a task file, the pipeline picks it up. Everything starts with a human action or a cron-scheduled action.
+Both previous perspectives miss the actual bottleneck. DAI today is a reactive system: Marius sends a Telegram message, Isidore responds. Gregor writes a task file, the pipeline picks it up. Everything starts with a human action or a cron-scheduled action.
 
-"Highest independent agency" means the agent initiates its own work. It notices things. It acts on observations without being asked. The research report identifies this as the gap PAI must close -- and neither memory improvements nor agent definitions address it.
+"Highest independent agency" means the agent initiates its own work. It notices things. It acts on observations without being asked. The research report identifies this as the gap DAI must close -- and neither memory improvements nor agent definitions address it.
 
 What's actually needed for autonomy:
 1. **Event-driven triggers beyond polling** -- Watch file changes, git events, system metrics, incoming emails, calendar events. Not "poll every 5 seconds" but reactive event streams.
 2. **Session auto-resume** -- The agent should be able to start a new conversation with itself when it observes something worth acting on. Not wait for someone to `/start` it.
-3. **Continuous operation loop** -- A ReAct-style loop that checks for events, decides whether to act, acts, observes results, and loops. The Hermes Agent has a 60-iteration ReAct loop. PAI has zero -- it's strictly request-response.
+3. **Continuous operation loop** -- A ReAct-style loop that checks for events, decides whether to act, acts, observes results, and loops. The Hermes Agent has a 60-iteration ReAct loop. DAI has zero -- it's strictly request-response.
 4. **Goal persistence** -- When the agent decides to pursue a multi-step goal, it needs to persist that goal across sessions and resume it on restart. `HandoffManager` is close but designed for cross-instance transfer, not self-initiated goal tracking.
 
 Memory is polish. Agent definitions are architecture for its own sake. The LOOP is what separates a tool from an agent. Without a continuous operation loop, you can have the best context engineering in the world and you still have a chatbot, not an agent.
@@ -68,13 +68,13 @@ All three perspectives contain partial truths, but they're arguing past the evid
 
 2. **Character-bounded memory forces the agent to curate, which IS self-editing.** The Framework Architect wants a Letta-style memory editor. Hermes achieves the same effect more simply: give the agent a 5K char budget and tools to read/write it. The agent curates because it must. No complex CRUD API needed.
 
-3. **Progressive disclosure is proven at scale.** Hermes loads skill categories (~50 tokens), then skill lists (~3K tokens), then full skills. PAI has 48 skills and growing. This is not optional past ~30 skills.
+3. **Progressive disclosure is proven at scale.** Hermes loads skill categories (~50 tokens), then skill lists (~3K tokens), then full skills. DAI has 48 skills and growing. This is not optional past ~30 skills.
 
-4. **Injection scanning is the security pattern the Pragmatist ignores.** PAI accepts tasks from Gregor across a shared filesystem. That's a trust boundary. Hermes's regex scanner for invisible Unicode and injection patterns is 100 lines and prevents a class of attacks.
+4. **Injection scanning is the security pattern the Pragmatist ignores.** DAI accepts tasks from Gregor across a shared filesystem. That's a trust boundary. Hermes's regex scanner for invisible Unicode and injection patterns is 100 lines and prevents a class of attacks.
 
-Now, where Hermes falls short and PAI shouldn't follow: no structured workflow engine (PAI's DAG orchestrator is better), no cross-agent collaboration (PAI's pipeline is better), Python (slower than Bun), and no branch isolation. PAI is already ahead on all of these.
+Now, where Hermes falls short and DAI shouldn't follow: no structured workflow engine (DAI's DAG orchestrator is better), no cross-agent collaboration (DAI's pipeline is better), Python (slower than Bun), and no branch isolation. DAI is already ahead on all of these.
 
-The Autonomy Maximalist makes a compelling case for the loop, but Hermes shows that a persistent daemon with cron triggers and reactive processing achieves 80% of that value without building a custom event system. PAI already has `PipelineWatcher` polling every 5 seconds -- extend it, don't replace it.
+The Autonomy Maximalist makes a compelling case for the loop, but Hermes shows that a persistent daemon with cron triggers and reactive processing achieves 80% of that value without building a custom event system. DAI already has `PipelineWatcher` polling every 5 seconds -- extend it, don't replace it.
 
 **Recommendation:** Adopt Hermes's three core patterns (frozen snapshot, bounded memory, injection scanning) immediately. Add progressive skill loading in the next phase. Skip the framework rewrite. Build autonomy features on top of the improved context foundation.
 
@@ -149,7 +149,7 @@ I'll concede the cost argument: if the system costs 4x more per invocation, runn
 
 The Autonomy Maximalist makes a smart tactical concession. Hermes Agent's architecture validates exactly this ordering: memory injection patterns are foundational (they affect every single invocation), so they go first. But Hermes also shows that "autonomy" doesn't require building a custom event system -- it already exists in simpler forms.
 
-Hermes has cron-based scheduling built in. PAI already has `PipelineWatcher` polling every 5 seconds. The gap between "polling for external tasks" and "polling for self-generated goals" is tiny. You don't need an event system. You need a `goals` table in SQLite and a check in the poll loop: "any goals I should work on?"
+Hermes has cron-based scheduling built in. DAI already has `PipelineWatcher` polling every 5 seconds. The gap between "polling for external tasks" and "polling for self-generated goals" is tiny. You don't need an event system. You need a `goals` table in SQLite and a check in the poll loop: "any goals I should work on?"
 
 Here's the actual ordering Hermes's architecture suggests:
 1. Frozen snapshot injection (cache stability for everything downstream)
@@ -217,7 +217,7 @@ Markdown agent definitions enable this naturally:
 ```markdown
 # research-agent.md
 ## Identity
-Research specialist for PAI projects
+Research specialist for DAI projects
 ## Memory Scope
 project/{active-project}/research
 ## Tools
@@ -260,11 +260,11 @@ Each type has different lifecycle, memory, and cost characteristics. The markdow
 
 Hermes Agent handles this question pragmatically: one primary agent that can delegate to sub-agents (depth-limited to 2). No persistent specialists, no daemon agents. The primary agent decides when to delegate and synthesizes results.
 
-The key insight from Hermes: **delegation is a tool, not an architecture.** The agent has a `delegate_task` tool that spawns a sub-agent with a specific prompt and context subset. The sub-agent runs, returns a result, terminates. This is remarkably similar to PAI's existing pipeline one-shot pattern.
+The key insight from Hermes: **delegation is a tool, not an architecture.** The agent has a `delegate_task` tool that spawns a sub-agent with a specific prompt and context subset. The sub-agent runs, returns a result, terminates. This is remarkably similar to DAI's existing pipeline one-shot pattern.
 
 The Autonomy Maximalist's "watcher" and "maintenance" agents are over-engineered. A cron job that checks conditions and writes a task file to the pipeline achieves the same thing as a persistent watcher daemon, with 1/10th the complexity and zero risk of agent identity confusion.
 
-The only part of the Autonomy Maximalist's taxonomy that adds real value is the distinction between synchronous specialists (wait for result) and asynchronous specialists (dispatch and continue). PAI's pipeline is async by nature. The missing pattern is synchronous: "spawn a research sub-agent, wait for the result, incorporate it into my current response." That's closer to Hermes's `delegate_task` than to a new agent type.
+The only part of the Autonomy Maximalist's taxonomy that adds real value is the distinction between synchronous specialists (wait for result) and asynchronous specialists (dispatch and continue). DAI's pipeline is async by nature. The missing pattern is synchronous: "spawn a research sub-agent, wait for the result, incorporate it into my current response." That's closer to Hermes's `delegate_task` than to a new agent type.
 
 **Recommendation:** Delegation-as-a-tool. Primary agent (Isidore) + pipeline workers (existing) + synchronous sub-delegation (new, Hermes-inspired). Persistent daemon agents only if cron + pipeline proves insufficient after real-world testing.
 
@@ -280,7 +280,7 @@ The consensus is a three-tier model:
 
 2. **Async pipeline workers** -- the existing `PipelineWatcher` one-shot pattern. Stateless, isolated, task-specific. Used for Gregor collaboration, background tasks, and self-initiated goals.
 
-3. **Sync sub-delegation** -- NEW. Isidore spawns a focused sub-agent within its own turn, waits for the result, and incorporates it. Scoped context, scoped tools, scoped memory. This is Hermes's `delegate_task` adapted to PAI's architecture. Implementation: a `delegateTask()` function in `claude.ts` that runs a one-shot with specific context parameters.
+3. **Sync sub-delegation** -- NEW. Isidore spawns a focused sub-agent within its own turn, waits for the result, and incorporates it. Scoped context, scoped tools, scoped memory. This is Hermes's `delegate_task` adapted to DAI's architecture. Implementation: a `delegateTask()` function in `claude.ts` that runs a one-shot with specific context parameters.
 
 The Framework Architect's markdown agent definitions serve as templates for tiers 2 and 3 -- defining what context, tools, and memory scope each type of delegated task gets. This is the right level of abstraction: not a framework, but a configuration format.
 
@@ -304,9 +304,9 @@ Exactly three patterns, and nothing else:
 2. **Character-bounded memory** -- prevents context rot. 100 lines in `context.ts`.
 3. **Injection scanning** -- security for the pipeline trust boundary. 80 lines, new file or in `schemas.ts`.
 
-Total: ~230 lines. Everything else from Hermes is either (a) something PAI already does better (workflows, cross-agent, branch isolation, TypeScript), (b) not relevant to PAI's use case (RL training, multi-model synthesis), or (c) premature optimization (progressive skill loading -- PAI has 48 skills, not 500).
+Total: ~230 lines. Everything else from Hermes is either (a) something DAI already does better (workflows, cross-agent, branch isolation, TypeScript), (b) not relevant to DAI's use case (RL training, multi-model synthesis), or (c) premature optimization (progressive skill loading -- DAI has 48 skills, not 500).
 
-The temptation to "adopt an architecture" is dangerous. Hermes is Python, 5 days old, built for a different model ecosystem (OpenRouter + OpenAI SDK), and designed for a single-agent use case. PAI is TypeScript, 6+ months mature, built on Claude CLI, and designed for multi-agent collaboration. The patterns transfer. The architecture doesn't.
+The temptation to "adopt an architecture" is dangerous. Hermes is Python, 5 days old, built for a different model ecosystem (OpenRouter + OpenAI SDK), and designed for a single-agent use case. DAI is TypeScript, 6+ months mature, built on Claude CLI, and designed for multi-agent collaboration. The patterns transfer. The architecture doesn't.
 
 **Recommendation:** Three patterns, ~230 lines. Nothing architectural.
 
@@ -316,15 +316,15 @@ The temptation to "adopt an architecture" is dangerous. Hermes is Python, 5 days
 
 The Pragmatist's three patterns are necessary but insufficient. Hermes reveals two additional patterns that are architectural and worth adopting:
 
-4. **Self-registration tool pattern** -- each tool is self-contained with schema, handler, and registry call co-located. As PAI's tool ecosystem grows (it's already at 30+ utilities), a central switch statement becomes unmaintainable. This is a codebase health investment, not a framework indulgence.
+4. **Self-registration tool pattern** -- each tool is self-contained with schema, handler, and registry call co-located. As DAI's tool ecosystem grows (it's already at 30+ utilities), a central switch statement becomes unmaintainable. This is a codebase health investment, not a framework indulgence.
 
-5. **Progressive skill disclosure** -- PAI has 48 skills today and they're growing. The three-tier pattern (categories ~50 tokens -> list ~3K tokens -> full content) prevents the token budget from being consumed by skill definitions that aren't relevant to the current task. This becomes critical at ~60-80 skills.
+5. **Progressive skill disclosure** -- DAI has 48 skills today and they're growing. The three-tier pattern (categories ~50 tokens -> list ~3K tokens -> full content) prevents the token budget from being consumed by skill definitions that aren't relevant to the current task. This becomes critical at ~60-80 skills.
 
 Both of these are patterns that apply regardless of whether you adopt Hermes's overall architecture. They're techniques for managing growing complexity in any agent system.
 
-What I explicitly agree NOT to adopt: Hermes's monolithic `run_agent.py` (1,800 lines in one file), its Python stack, its OpenRouter abstraction, its basic context compression (PAI should do better), and its lack of structured workflows.
+What I explicitly agree NOT to adopt: Hermes's monolithic `run_agent.py` (1,800 lines in one file), its Python stack, its OpenRouter abstraction, its basic context compression (DAI should do better), and its lack of structured workflows.
 
-**Recommendation:** Five patterns total. The Pragmatist's three plus self-registration and progressive disclosure. The architecture stays PAI's own.
+**Recommendation:** Five patterns total. The Pragmatist's three plus self-registration and progressive disclosure. The architecture stays DAI's own.
 
 ---
 
@@ -332,7 +332,7 @@ What I explicitly agree NOT to adopt: Hermes's monolithic `run_agent.py` (1,800 
 
 I want to adopt one more thing the others are ignoring: **Hermes's ReAct loop structure.**
 
-Hermes has a 60-iteration execution loop: think -> act -> observe -> think -> act -> observe. This is the continuous operation loop I argued for in Fork 2. PAI currently has zero loop structure -- it's purely request-response.
+Hermes has a 60-iteration execution loop: think -> act -> observe -> think -> act -> observe. This is the continuous operation loop I argued for in Fork 2. DAI currently has zero loop structure -- it's purely request-response.
 
 You don't need to copy Hermes's implementation. But the CONCEPT of a bounded iteration loop that can make multiple decisions before returning to the user is essential for autonomy. When Isidore is working on a multi-step goal, it shouldn't need a new Telegram message between each step. It should loop: assess progress, decide next action, execute, observe result, repeat.
 
@@ -352,24 +352,24 @@ I'll be honest about what to adopt and what to skip, because the point isn't to 
 1. Frozen snapshot injection -- the single highest-impact pattern
 2. Character-bounded curated memory -- forces the quality behavior
 3. Injection scanning -- security for cross-user boundaries
-4. Progressive skill disclosure -- necessary at PAI's current scale
+4. Progressive skill disclosure -- necessary at DAI's current scale
 5. Self-registration tool pattern -- codebase health for growing tooling
 
-**Adopt the concept, build PAI's own implementation:**
-6. Bounded iteration loop -- the ReAct concept, not the code. PAI should implement this differently because Claude CLI already provides multi-turn via `--resume`.
-7. Skill self-authoring -- the IDEA that agents can create new skills from successful patterns. PAI's Algorithm PRD system could evolve to extract reusable patterns.
+**Adopt the concept, build DAI's own implementation:**
+6. Bounded iteration loop -- the ReAct concept, not the code. DAI should implement this differently because Claude CLI already provides multi-turn via `--resume`.
+7. Skill self-authoring -- the IDEA that agents can create new skills from successful patterns. DAI's Algorithm PRD system could evolve to extract reusable patterns.
 
 **Study but defer:**
-8. Mixture-of-Agents query (interesting but PAI's research skill already does ad-hoc multi-model)
+8. Mixture-of-Agents query (interesting but DAI's research skill already does ad-hoc multi-model)
 9. Sandbox terminal backends (valuable when running untrusted code, not urgent)
 10. ACK detection (useful but low priority -- Claude Code handles this internally)
 
 **Skip entirely:**
-- Python architecture (PAI is TS/Bun, faster, better typed)
-- OpenAI SDK abstraction (PAI talks to Claude CLI)
+- Python architecture (DAI is TS/Bun, faster, better typed)
+- OpenAI SDK abstraction (DAI talks to Claude CLI)
 - RL training pipeline (different use case)
 - File-backed memory (SQLite + FTS5 already better)
-- Monolithic gateway (PAI's MessengerAdapter is cleaner)
+- Monolithic gateway (DAI's MessengerAdapter is cleaner)
 
 **Recommendation:** 5 direct adoptions, 2 concept adoptions, 3 deferred, 5 skipped. That's roughly 30% of Hermes's surface area, focused on the patterns that are language-agnostic and architecture-agnostic.
 
@@ -381,24 +381,24 @@ I'll be honest about what to adopt and what to skip, because the point isn't to 
 
 The council converges on a clear adoption boundary:
 
-**Direct adoptions (implement in PAI's TypeScript):**
+**Direct adoptions (implement in DAI's TypeScript):**
 1. Frozen snapshot injection -- `context.ts` modification, ~50 lines
 2. Character-bounded curated memory -- `context.ts` modification, ~100 lines
 3. Injection scanning -- new utility or addition to `schemas.ts`, ~80 lines
 4. Progressive skill disclosure -- new skill loader utility, ~200 lines
 5. Self-registration tool pattern -- refactor pattern for growing tools, ~150 lines
 
-**Concept adoptions (PAI's own design, inspired by Hermes):**
+**Concept adoptions (DAI's own design, inspired by Hermes):**
 6. Bounded iteration loop -- adapt for Claude CLI `--resume` + `--max-turns`
 7. Skill self-authoring seed -- extract reusable patterns from successful Algorithm PRD runs
 
-**Explicitly not adopted:** Python stack, OpenRouter abstraction, monolithic gateway, file-backed memory, RL training, basic context compression (PAI should do better with observation masking).
+**Explicitly not adopted:** Python stack, OpenRouter abstraction, monolithic gateway, file-backed memory, RL training, basic context compression (DAI should do better with observation masking).
 
-**Verdict: Selective adoption of validated patterns, not architectural copying. PAI keeps its TypeScript/Bun foundation, Claude CLI integration, and multi-agent pipeline architecture -- all areas where it's already ahead of Hermes. It borrows Hermes's memory discipline and extensibility patterns where Hermes is ahead.**
+**Verdict: Selective adoption of validated patterns, not architectural copying. DAI keeps its TypeScript/Bun foundation, Claude CLI integration, and multi-agent pipeline architecture -- all areas where it's already ahead of Hermes. It borrows Hermes's memory discipline and extensibility patterns where Hermes is ahead.**
 
 ---
 
-## DECISION FORK 5: The PAI Algorithm's Role in Autonomous Agents
+## DECISION FORK 5: The DAI Algorithm's Role in Autonomous Agents
 
 *Should autonomous agents use the Algorithm, or is it human-mode only?*
 
@@ -476,7 +476,7 @@ Hermes Agent's approach is relevant here. Hermes has no formal execution protoco
 
 This reveals the real risk of autonomous execution: not "the agent doesn't plan enough" but "the agent plans endlessly without acting." The Autonomy Maximalist's lightweight reasoning protocol is good, but it needs a complementary mechanism: action forcing.
 
-Hermes's answer is simple: if the model says "I'll look into that" instead of calling a tool, force another iteration. The equivalent for PAI: if an autonomous agent spends more than 2 turns reasoning without executing a tool call, force an action or abort.
+Hermes's answer is simple: if the model says "I'll look into that" instead of calling a tool, force another iteration. The equivalent for DAI: if an autonomous agent spends more than 2 turns reasoning without executing a tool call, force an action or abort.
 
 The three-tier model is correct. I'd add one constraint:
 
@@ -527,13 +527,13 @@ The goal persistence system from Fork 2 includes a `complexity` field (`simple |
 
 ## The Overall Vision
 
-PAI evolves from a Telegram bridge with pipeline support into a **self-initiating personal agent system** -- but through EXTENSION of working code, not through framework construction. The research synthesis, grounded in 10 frameworks and 100+ sources, points to an architecture that is deceptively simple because it builds on what already exists.
+DAI evolves from a Telegram bridge with pipeline support into a **self-initiating personal agent system** -- but through EXTENSION of working code, not through framework construction. The research synthesis, grounded in 10 frameworks and 100+ sources, points to an architecture that is deceptively simple because it builds on what already exists.
 
 ## The Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    PAI Agent System v5                               │
+│                    DAI Agent System v5                               │
 │                                                                     │
 │  ┌────────────────────────────────────────────────────────────────┐ │
 │  │              ISIDORE (Primary Orchestrator)                    │ │
@@ -639,7 +639,7 @@ PAI evolves from a Telegram bridge with pipeline support into a **self-initiatin
 6. **Security at trust boundaries.** Injection scanning where external data enters the system.
 7. **Cost-conscious agency.** Frozen snapshots make autonomous loops economically viable.
 
-## What This System Can Do That Current PAI Cannot
+## What This System Can Do That Current DAI Cannot
 
 - Wake up and work on goals without human initiation
 - Spawn focused sub-agents with scoped context for complex subtasks
@@ -655,7 +655,7 @@ PAI evolves from a Telegram bridge with pipeline support into a **self-initiatin
 - Persistent specialist daemon agents (too complex, insufficient ROI)
 - A framework for other people to build agents (this is a personal system)
 - Vector search infrastructure (FTS5 is sufficient per evidence)
-- A Python-based Hermes Agent clone (PAI's TS/Bun stack is better for this use case)
+- A Python-based Hermes Agent clone (DAI's TS/Bun stack is better for this use case)
 - LLM-based summarization for context compression (observation masking is cheaper and better)
 
 ---

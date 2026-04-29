@@ -6,7 +6,7 @@ Two problems intertwined:
 
 1. **Naming confusion:** Both local (WSL2) and VPS instances are called "Isidore." When Marius talks to either, or when we discuss deployments, it's unclear which is which. The Telegram bot already shows as "isidore_cloud" but the Linux user, SSH alias, systemd services, and all project code still say "isidore."
 
-2. **Knowledge sync:** Isidore Cloud is currently a "clean slate fresh installation" — it has PAI skills and hooks but no accumulated relationship knowledge, Telos data, or learnings from local Isidore. Marius wants them to effectively be the same person with shared knowledge, able to work on the same repos with minimal context drift.
+2. **Knowledge sync:** Isidore Cloud is currently a "clean slate fresh installation" — it has DAI skills and hooks but no accumulated relationship knowledge, Telos data, or learnings from local Isidore. Marius wants them to effectively be the same person with shared knowledge, able to work on the same repos with minimal context drift.
 
 ### Design Principle
 
@@ -141,7 +141,7 @@ ssh isidore_cloud 'sudo cp ~/projects/my-pai-cloud-solution/systemd/isidore-clou
 # Update crontab paths
 ssh isidore_cloud '(crontab -l 2>/dev/null | sed "s|/home/isidore/|/home/isidore_cloud/|g") | crontab -'
 
-# Deploy PAI settings
+# Deploy DAI settings
 rsync -avz -e "ssh -i ~/.ssh/id_ed25519_isidore_cloud" \
   /home/mj/projects/my-pai-cloud-solution/config/vps-settings.json \
   isidore_cloud:~/.claude/settings.json
@@ -198,7 +198,7 @@ Claude Code is stateless — every session starts fresh, loading context from fi
 └── projects/                 LOCAL ONLY ──── Different project bindings
 ```
 
-### Sync Mechanism: Private GitHub Repo + PAI Hooks
+### Sync Mechanism: Private GitHub Repo + DAI Hooks
 
 **Architecture:**
 

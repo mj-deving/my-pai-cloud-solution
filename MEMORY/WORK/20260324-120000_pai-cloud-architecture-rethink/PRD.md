@@ -1,5 +1,5 @@
 ---
-task: Rethink PAI Cloud architecture for mobile-first access
+task: Rethink DAI Cloud architecture for mobile-first access
 slug: 20260324-120000_pai-cloud-architecture-rethink
 effort: deep
 phase: complete
@@ -11,7 +11,7 @@ updated: 2026-03-24T12:01:00+01:00
 
 ## Context
 
-Marius runs PAI Cloud as a Telegram bot bridge on a VPS, spawning Claude Code CLI processes. The system has grown to 30+ modules (~5000 lines) handling memory, context injection, session management, cross-agent pipelines, health monitoring, and more. He wants to evaluate whether this architecture is still the right approach given Claude Code's new features (Channels, Remote Control, Agent SDK) or whether a fundamental rethink would reduce complexity while improving capability.
+Marius runs DAI Cloud as a Telegram bot bridge on a VPS, spawning Claude Code CLI processes. The system has grown to 30+ modules (~5000 lines) handling memory, context injection, session management, cross-agent pipelines, health monitoring, and more. He wants to evaluate whether this architecture is still the right approach given Claude Code's new features (Channels, Remote Control, Agent SDK) or whether a fundamental rethink would reduce complexity while improving capability.
 
 Key constraints: Must work with Claude Max/Pro subscription (no API key). Must be accessible from mobile. Should provide terminal-like interactive experience, not just chat.
 
@@ -29,7 +29,7 @@ Key constraints: Must work with Claude Max/Pro subscription (no API key). Must b
 
 - Channels are in research preview -- API may change
 - Remote Control requires terminal to stay open
-- Official Telegram plugin may not support PAI's memory/context injection
+- Official Telegram plugin may not support DAI's memory/context injection
 - Migration path from current system needs to preserve memory.db data
 - VPS network stability affects Remote Control (10-min timeout on outage)
 
@@ -80,9 +80,9 @@ Key constraints: Must work with Claude Max/Pro subscription (no API key). Must b
 
 ## Decisions
 
-- **Winner: Option E+F2 Hybrid** -- "PAI as MCP Ecosystem with Hybrid Access." Remote Control for interactive, Telegram Channel for notifications, PAI intelligence delivered as MCP servers.
+- **Winner: Option E+F2 Hybrid** -- "DAI as MCP Ecosystem with Hybrid Access." Remote Control for interactive, Telegram Channel for notifications, DAI intelligence delivered as MCP servers.
 - **Option C (Headless Electron/Maestro) discarded** -- "Maestro" is Netflix's orchestrator, not Anthropic's. No Electron app to run headlessly.
 - **Agent SDK (Option F) rejected** -- adds a Python layer for no benefit. Claude Code itself is the better runtime.
-- **Key architectural insight:** PAI's value is memory + context + pipeline. Transport and session management should be delegated to Claude Code native features.
+- **Key architectural insight:** DAI's value is memory + context + pipeline. Transport and session management should be delegated to Claude Code native features.
 
 ## Verification

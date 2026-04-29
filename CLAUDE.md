@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-PAI cloud assistant ("Isidore Cloud") on a VPS for 24/7 mobile access. Dual access: custom Telegram bridge + Claude Channels (@isidore_channel_bot, live). Channels is the target primary surface; bridge is active but pipeline offloaded to standalone daemon. See `Plans/phase-fg-channels-remote-control.md`. Runs alongside Gregor/OpenClaw on the same server.
+DAI cloud assistant ("Isidore Cloud") on a VPS for 24/7 mobile access. Dual access: custom Telegram bridge + Claude Channels (@isidore_channel_bot, live). Channels is the target primary surface; bridge is active but pipeline offloaded to standalone daemon. See `Plans/phase-fg-channels-remote-control.md`. Runs alongside Gregor/OpenClaw on the same server.
 
 **Owner:** Marius
 **GitHub:** [mj-deving/my-pai-cloud-solution](https://github.com/mj-deving/my-pai-cloud-solution)
@@ -100,7 +100,7 @@ Telegram message → Grammy bot (telegram.ts)
   → ClaudeInvoker.send() (claude.ts)
     → Bun.spawn: claude [--resume <session-id>] -p "message" --output-format stream-json
     → Parse JSON, save session ID for next message
-  → compactFormat() (format.ts) — strips PAI Algorithm verbosity
+  → compactFormat() (format.ts) — strips DAI Algorithm verbosity
   → chunkMessage() — splits at 4000 chars for Telegram API
   → Append statusline (mode/time/msg count/context%)
   → safeReply() — Markdown with parse-error-only fallback to plain text
@@ -128,7 +128,7 @@ See `.ai/guides/design-decisions.md` for full phase-by-phase details. Core decis
 - **Auto-wrapup:** ModeManager tracks real context fill via CLI usage data. Suggests wrapup at 70% (both modes), never force-rotates. `/keep` dismisses suggestion.
 - **One-shot pipeline:** Pipeline tasks from Gregor do NOT share Marius's session. Each gets a fresh Claude context. Now handled by standalone daemon, not bridge.
 - **Channels live:** @isidore_channel_bot via `claude --channels plugin:telegram@claude-plugins-official` (flag hidden from `--help`). Runs as tmux-based systemd service. MCP tools auto-loaded from `.mcp.json` (pai-memory 8 tools, pai-context 2 tools).
-- **PAI hooks:** 16 hooks enabled on VPS (security, context loading, ratings, PRD sync, learnings). 7 disabled (Kitty terminal, voice). See `.ai/guides/bridge-mechanics.md`.
+- **DAI hooks:** 16 hooks enabled on VPS (security, context loading, ratings, PRD sync, learnings). 7 disabled (Kitty terminal, voice). See `.ai/guides/bridge-mechanics.md`.
 - **Atomic writes:** Pipeline results use write-to-tmp + rename to prevent reading partial files.
 - **Zod validation:** All cross-agent JSON boundaries validated via Zod schemas. Config env vars validated with range checks.
 - **Mandatory dashboard auth:** `DASHBOARD_TOKEN` is required when `DASHBOARD_ENABLED=1`. Bridge refuses to start without it. Gateway routes (`/api/send`) run injection scan and block high-risk prompts with 403. Concurrency capped at 2 simultaneous sends.

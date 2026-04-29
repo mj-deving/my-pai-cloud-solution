@@ -19,7 +19,7 @@ All 5 VPS services are live. Phases 1–4 and 6 from the original channels-migra
 | 3 | `isidore-cloud-pipeline` — standalone pipeline watcher | ACTIVE |
 | 4 | `isidore-cloud-dashboard` — extracted dashboard | ACTIVE |
 | 5 | `isidore-cloud-remote` — Claude Remote Control server mode | ACTIVE |
-| 6 | PAI hooks (`user-prompt-submit`, `post-tool-use`, `session-start`, `stop` NEW) | 3 deployed, Stop hook ready to register |
+| 6 | DAI hooks (`user-prompt-submit`, `post-tool-use`, `session-start`, `stop` NEW) | 3 deployed, Stop hook ready to register |
 | 7 | MCP servers (`pai-memory`, `pai-context`) | ACTIVE |
 | 8 | Project skills (`/sync`, `/wrapup`, `/deploy`, `/review`, `/newproject`, `/group_chat`) | SHIPPED (Phase 2) |
 

@@ -1,6 +1,6 @@
 # AGENTS.md — Workflow Contract
 
-Repo: `my-pai-cloud-solution` (Isidore Cloud — PAI cloud assistant on VPS).
+Repo: `my-pai-cloud-solution` (Isidore Cloud — DAI cloud assistant on VPS).
 
 This file is the **workflow authority**. Architecture and config live in `CLAUDE.md`.
 

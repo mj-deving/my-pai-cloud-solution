@@ -11,7 +11,7 @@ updated: 2026-03-03T16:00:00+01:00
 
 ## Context
 
-Phase D of the PAI Cloud agent framework roadmap. Two features:
+Phase D of the DAI Cloud agent framework roadmap. Two features:
 
 **D1 — Observation Masking:** Per JetBrains NeurIPS 2025 research, masking environment outputs from older turns (keeping summary/metadata) achieves 52% cost reduction with 2.6% solve rate improvement vs unmanaged baselines. Cheaper and simpler than LLM summarization. Implementation: ContextBuilder masks episode content beyond a configurable window, showing only summaries for older episodes.
 

@@ -11,7 +11,7 @@ updated: 2026-04-18T10:38:00+02:00
 
 ## Context
 
-User asked to retire the Telegram bridge, but first wants a freshness check against the current PAI state since PAI has evolved since the plan was drafted. Plan source: beads `my-pai-cloud-solution-bng` (created 2026-04-17) + `Plans/phase-fg-channels-remote-control.md` + visual plan `~/.claude/diagrams/channels-migration-plan.html`.
+User asked to retire the Telegram bridge, but first wants a freshness check against the current DAI state since DAI has evolved since the plan was drafted. Plan source: beads `my-pai-cloud-solution-bng` (created 2026-04-17) + `Plans/phase-fg-channels-remote-control.md` + visual plan `~/.claude/diagrams/channels-migration-plan.html`.
 
 **Original Phase 5 prerequisites (from beads ticket):**
 (a) turn recording hook, (b) importance scoring hook (Haiku), (c) proactive notifications via Channels, (d) scheduler → cron migration. Blocked on Phase 2.

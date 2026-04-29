@@ -1,4 +1,4 @@
-# Memory Architecture Comparison — PAI Cloud vs Gregor (OpenClaw + PARA)
+# Memory Architecture Comparison — DAI Cloud vs Gregor (OpenClaw + PARA)
 
 > Reference doc comparing the two memory systems running on the same VPS.
 > Written 2026-03-07. Updated to reflect Gregor's PARA deployment (GUIDE.md Phase 10.7).
@@ -7,7 +7,7 @@
 
 ## Philosophy
 
-**PAI Cloud (Isidore)** treats memory as a **curated knowledge base** — importance matters, synthesis is explicit, projects are isolated. Episodic memory is primary; knowledge is derivative. SQL-first.
+**DAI Cloud (Isidore)** treats memory as a **curated knowledge base** — importance matters, synthesis is explicit, projects are isolated. Episodic memory is primary; knowledge is derivative. SQL-first.
 
 **Gregor (OpenClaw + PARA)** treats memory as a **structured file system** — PARA categories organize by actionability, three cron tiers consolidate over time, and the FadeMem pattern lets unimportant facts decay naturally through file aging. Markdown-first.
 
@@ -15,7 +15,7 @@
 
 ## Schema
 
-### PAI Cloud (Normalized SQL)
+### DAI Cloud (Normalized SQL)
 
 ```sql
 -- Episodic memory (raw conversations)
@@ -85,7 +85,7 @@ No episode/knowledge split at the DB level — PARA categories provide the seman
 
 ## Write Path
 
-### PAI Cloud: Explicit `memory.record()`
+### DAI Cloud: Explicit `memory.record()`
 
 ```
 Message arrives → ClaudeInvoker processes → ModeManager logs
@@ -121,7 +121,7 @@ Two-stage write: immediate capture to daily files, then nightly cron routes to s
 
 ## Read Path & Scoring
 
-### PAI Cloud: Composite Scored Query
+### DAI Cloud: Composite Scored Query
 
 Three-way blend:
 ```
@@ -158,7 +158,7 @@ PARA files searched identically — the recursive glob `memory/**/*.md` covers a
 
 ## Context Injection
 
-### PAI Cloud: Budget-Allocated, Topic-Aware
+### DAI Cloud: Budget-Allocated, Topic-Aware
 
 ```
 Total budget split across 4 components:
@@ -195,7 +195,7 @@ Memory retrieval:
 
 ## Knowledge Distillation
 
-### PAI Cloud: Active SynthesisLoop
+### DAI Cloud: Active SynthesisLoop
 
 ```
 Periodic scheduled run (policy-gated):
@@ -236,7 +236,7 @@ Knowledge has **lineage** (source_episode_ids) and **confidence** scores. Single
 
 ## Pruning & Retention
 
-### PAI Cloud: Importance-Based
+### DAI Cloud: Importance-Based
 
 ```
 IF episode_count > maxEpisodes:
@@ -296,7 +296,7 @@ Scores tracked in `meta/importance-scores.json`:
 
 ## Embeddings
 
-| Aspect | PAI Cloud | Gregor |
+| Aspect | DAI Cloud | Gregor |
 |--------|-----------|--------|
 | Model | Pluggable (EmbeddingProvider interface) | embeddinggemma-300m (local) |
 | Dimensions | 768 | 384 |
@@ -310,7 +310,7 @@ Scores tracked in `meta/importance-scores.json`:
 
 ## Unique Features
 
-### PAI Cloud Has, Gregor Doesn't
+### DAI Cloud Has, Gregor Doesn't
 
 | Feature | Why it matters |
 |---------|---------------|
@@ -323,7 +323,7 @@ Scores tracked in `meta/importance-scores.json`:
 | Knowledge table with confidence + lineage | Structured derivative knowledge with source tracking |
 | Session summary episodes | Explicit wrapup context as first-class data |
 
-### Gregor Has, PAI Cloud Doesn't
+### Gregor Has, DAI Cloud Doesn't
 
 | Feature | Why it matters |
 |---------|---------------|
@@ -345,7 +345,7 @@ Scores tracked in `meta/importance-scores.json`:
 
 ## Operational Comparison
 
-| Dimension | PAI Cloud | Gregor |
+| Dimension | DAI Cloud | Gregor |
 |-----------|-----------|--------|
 | **Schema** | Normalized SQL (episodes + knowledge) | Flat chunks + PARA directory overlay |
 | **Organization** | By source domain (in SQL) | By actionability (PARA categories) |
@@ -367,7 +367,7 @@ Scores tracked in `meta/importance-scores.json`:
 
 ## Key Gotchas
 
-**PAI Cloud:**
+**DAI Cloud:**
 - FTS5 uses OR semantics — partial matches recovered
 - Recency decay is per-hour (0.995^hours), not per-day
 - Access count tracked but not yet used in pruning/scoring

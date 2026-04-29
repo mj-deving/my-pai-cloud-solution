@@ -11,7 +11,7 @@ updated: 2026-03-02T00:00:00Z
 
 ## Context
 
-Research request for a comprehensive technical report on context window optimization techniques for AI agents (2025-2026). The user needs specific numbers, benchmarks, and implementation patterns across 10 sub-topics. This directly informs the PAI cloud solution's memory and context injection systems (Phase 3 V2-B ContextBuilder).
+Research request for a comprehensive technical report on context window optimization techniques for AI agents (2025-2026). The user needs specific numbers, benchmarks, and implementation patterns across 10 sub-topics. This directly informs the DAI cloud solution's memory and context injection systems (Phase 3 V2-B ContextBuilder).
 
 ## Criteria
 

@@ -1,4 +1,4 @@
-# PAI Cloud Evolution — Master Adoption Plan v4
+# DAI Cloud Evolution — Master Adoption Plan v4
 
 **Date:** 2026-03-25 (v4: Anthropic harness design insights applied)
 **Scope:** Lossless-Claw DAG Memory + Claude Channels + Maestro Features + A2A Protocol + Safety Patterns
@@ -48,7 +48,7 @@ S1 (DAG Memory + MCP + Safety)
 
 ```
 ┌──────────────────────────────────────────┐
-│           PAI Cloud (Isidore)            │
+│           DAI Cloud (Isidore)            │
 ├──────────────────────────────────────────┤
 │  MCP Servers (agent-to-tools)            │
 │  ├── pai-memory (memory.db access)       │
@@ -150,7 +150,7 @@ S1 (DAG Memory + MCP + Safety)
 
 ### Phase C: SessionStart Hook
 - **Implement:** `src/hooks/session-start.ts`
-  - Loads PAI identity, project context, baseline memory on session start
+  - Loads DAI identity, project context, baseline memory on session start
 
 ### Phase D: Turn Recovery Policy (from Letta Code) — expanded per Codex P2-3
 - **Tests first:** `src/__tests__/turn-recovery.test.ts` (10 tests — covers send, sendStreaming, oneShot, hook-failure)
@@ -179,11 +179,11 @@ S1 (DAG Memory + MCP + Safety)
 - [x] Deployed as tmux-based systemd service (`isidore-cloud-channels`) with `--channels` flag
 - [x] Separate Telegram bot, coexists with bridge
 - [x] MCP tools (pai-memory, pai-context) working via `.mcp.json`
-- [x] All 14 PAI hooks verified firing
+- [x] All 14 DAI hooks verified firing
 - [x] Access control via `access.json` allowlist
 
 ### Phase G: Remote Control Setup — PENDING
-- `claude remote-control --name "PAI Cloud"` as systemd service
+- `claude remote-control --name "DAI Cloud"` as systemd service
 - Systemd service file created (`isidore-cloud-remote`), disabled
 - **Blocker:** Requires interactive acceptance of workspace trust prompt (cannot be automated)
 - Coexists with bridge (separate service)
